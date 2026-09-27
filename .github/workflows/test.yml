@@ -1,0 +1,59 @@
+name: test
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # lgx, Go and Node at the versions in .mise.toml.
+      - uses: jdx/mise-action@v3
+
+      # The app runs on a custom lg that lgx builds with the Go toolchain
+      # (:lg-runtime :built). The build is keyed on lgx.edn, so a run that
+      # does not change the Go coord set reuses the cached runtime.
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+            ~/.lgx/runtimes
+          key: runtimes-${{ runner.os }}-${{ hashFiles('lgx.edn') }}
+          restore-keys: runtimes-${{ runner.os }}-
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('e2e/package-lock.json') }}
+
+      - name: Unit tests
+        run: lgx test
+
+      - name: Install the browser tests
+        working-directory: e2e
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium-headless-shell
+
+      # Builds bin/quickmeet, then Playwright starts it on test ports and
+      # drives two headless Chromiums through a real call. The SFU's UDP
+      # range is local to the runner; nothing to open.
+      - name: Browser tests
+        run: lgx e2e
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: |
+            e2e/playwright-report
+            e2e/test-results
+          retention-days: 7
