@@ -44,7 +44,29 @@
     const showError = e => { $('error').textContent = String(e.message || e); $('error').hidden = false; };
 
     // The whole call state, exposed for tests and for poking at from devtools.
-    window.call = { room: null, remote: null };
+    // `joined` flips once the local tracks are published; `remote` is the
+    // other participant's identity; `tracks` holds the subscribed remote
+    // tracks so `stats()` can read their inbound RTP counters.
+    window.call = { room: null, remote: null, joined: false, tracks: { video: null, audio: null } };
+
+    // Inbound RTP stats for the remote video and audio: null for a kind that
+    // is not subscribed. Video: framesDecoded, packetsReceived, packetsLost;
+    // audio: packetsReceived, packetsLost. The e2e suite reads this shape.
+    window.call.stats = async () => {
+      const inbound = async (track, withFrames) => {
+        if (!track) return null;
+        const report = await track.getRTCStatsReport();
+        if (!report) return null;
+        for (const s of report.values()) {
+          if (s.type !== 'inbound-rtp') continue;
+          const out = { packetsReceived: s.packetsReceived, packetsLost: s.packetsLost };
+          if (withFrames) out.framesDecoded = s.framesDecoded;
+          return out;
+        }
+        return null;
+      };
+      return { video: await inbound(call.tracks.video, true), audio: await inbound(call.tracks.audio, false) };
+    };
 
     async function join() {
       const { Room, RoomEvent, Track, createLocalTracks } = LivekitClient;
@@ -61,16 +83,21 @@
         const room = new Room({ adaptiveStream: true, dynacast: true });
         window.call.room = room;
         room.on(RoomEvent.TrackSubscribed, (track, pub, participant) => {
-          if (track.kind === Track.Kind.Video) track.attach($('remote'));
-          if (track.kind === Track.Kind.Audio) track.attach();
+          if (track.kind === Track.Kind.Video) { track.attach($('remote')); window.call.tracks.video = track; }
+          if (track.kind === Track.Kind.Audio) { track.attach(); window.call.tracks.audio = track; }
           $('remote-name').textContent = participant.identity;
           window.call.remote = participant.identity;
         });
         room.on(RoomEvent.ParticipantDisconnected, () => {
           $('remote-name').textContent = 'the other side left';
           window.call.remote = null;
+          window.call.tracks = { video: null, audio: null };
         });
-        room.on(RoomEvent.Disconnected, () => { $('call').hidden = true; $('lobby').hidden = false; $('join').disabled = false; });
+        room.on(RoomEvent.Disconnected, () => {
+          window.call.joined = false;
+          window.call.tracks = { video: null, audio: null };
+          $('call').hidden = true; $('lobby').hidden = false; $('join').disabled = false;
+        });
 
         await room.connect(url, token);
         const tracks = await createLocalTracks({ audio: true, video: true });
@@ -78,6 +105,7 @@
           await room.localParticipant.publishTrack(t);
           if (t.kind === Track.Kind.Video) t.attach($('local'));
         }
+        window.call.joined = true;
         $('local-name').textContent = identity;
         $('lobby').hidden = true;
         $('call').hidden = false;
