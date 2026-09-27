@@ -82,11 +82,17 @@
       (let [id (:id (:json (call handler :post "/api/rooms")))
             page (call handler :get (str "/room/" id))]
         (is (= 200 (:status page)))
-        (is (str/includes? (:body page) "livekit-client")))
+        ;; The client library is vendored and served from the binary.
+        (is (str/includes? (:body page) "/static/livekit-client.umd.min.js"))
+        (is (not (str/includes? (:body page) "jsdelivr"))))
       ;; A room page is served for any well-formed id: the token endpoint
       ;; is what checks the room exists.
       (is (= 200 (:status (call handler :get "/room/0123456789ab"))))
       (let [css (call handler :get "/static/app.css")]
         (is (= 200 (:status css)))
         (is (= "text/css; charset=utf-8" (get-in css [:headers "Content-Type"]))))
+      (let [js (call handler :get "/static/livekit-client.umd.min.js")]
+        (is (= 200 (:status js)))
+        (is (= "text/javascript; charset=utf-8" (get-in js [:headers "Content-Type"])))
+        (is (str/includes? (:body js) "livekit-client@2.22.3")))
       (is (= 404 (:status (call handler :get "/static/nope.js")))))))
