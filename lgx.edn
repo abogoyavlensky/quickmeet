@@ -53,7 +53,19 @@
          :git/tag "v2.1.1"}}
 
  :tasks
- {;; The browser side of LiveKit, served from the binary rather than a CDN.
+ {;; Browser tests: build the binary that ships, then let Playwright start it
+  ;; on test ports and drive two headless Chromiums through a real call.
+  ;; See e2e/playwright.config.js and "Browser tests" in the README.
+  e2e
+  {:doc "Build the binary and run the browser tests against it"
+   :do [{:task lgx:build}
+        {:sh "cd e2e && npx playwright test"}]}
+
+  e2e-setup
+  {:doc "Install the e2e dependencies and the headless browser"
+   :do {:sh "cd e2e && npm ci && npx playwright install chromium-headless-shell"}}
+
+  ;; The browser side of LiveKit, served from the binary rather than a CDN.
   ;; The version is pinned here and in docs/KNOWLEDGE.md; bump both.
   vendor-livekit-client
   {:doc "Download the pinned livekit-client UMD build into resources/public"

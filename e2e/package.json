@@ -1,0 +1,13 @@
+{
+  "name": "quickmeet-e2e",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Browser tests for quickmeet: two headless Chromiums in a real call through the embedded SFU",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.56.0"
+  }
+}
