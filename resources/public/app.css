@@ -1,0 +1,37 @@
+:root {
+  --bg: #f4f4f2; --card: #ffffff; --fg: #1c1c1a; --muted: #8a8a85;
+  --line: #e6e6e2; --accent: #2f6df6; --danger: #d64545;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #121214; --card: #1c1c20; --fg: #ececec; --muted: #85858c;
+          --line: #2a2a30; --accent: #6b9bff; --danger: #ff6b6b; }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; min-height: 100vh; background: var(--bg); color: var(--fg);
+  font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, sans-serif;
+}
+main { max-width: 480px; margin: 18vh auto 0; padding: 0 16px; text-align: center; }
+h1 { font-size: 28px; margin: 0 0 8px; }
+.lead { color: var(--muted); margin: 0 0 24px; }
+button { font: inherit; border-radius: 10px; padding: 10px 18px; cursor: pointer; border: 1px solid var(--line); background: var(--card); color: var(--fg); }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.danger { background: var(--danger); border-color: var(--danger); color: #fff; }
+button.ghost { background: transparent; }
+button:disabled { opacity: .6; cursor: default; }
+.error { color: var(--danger); }
+.muted { color: var(--muted); }
+
+body.room { display: flex; flex-direction: column; height: 100vh; }
+header { display: flex; gap: 12px; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+.brand { font-weight: 600; }
+header .muted { flex: 1; font-family: ui-monospace, monospace; font-size: 14px; }
+.lobby { max-width: 420px; margin: 12vh auto 0; padding: 0 16px; display: grid; gap: 16px; }
+.lobby label { display: grid; gap: 6px; font-size: 14px; color: var(--muted); }
+.lobby input { font: inherit; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--fg); }
+.call { flex: 1; position: relative; display: grid; place-items: center; padding: 16px; }
+.tile { position: relative; width: 100%; max-width: 960px; aspect-ratio: 16 / 9; background: #000; border-radius: 14px; overflow: hidden; }
+.tile video { width: 100%; height: 100%; object-fit: cover; }
+.tile.self { position: absolute; right: 28px; bottom: 84px; width: 200px; max-width: 30vw; border: 2px solid var(--line); }
+.tag { position: absolute; left: 10px; bottom: 8px; padding: 2px 8px; border-radius: 8px; background: rgba(0,0,0,.55); color: #fff; font-size: 13px; }
+footer { position: absolute; bottom: 16px; left: 0; right: 0; display: flex; justify-content: center; gap: 12px; }

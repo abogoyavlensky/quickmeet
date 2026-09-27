@@ -1,0 +1,92 @@
+(ns quickmeet.routes-test
+  (:require [clojure.test :refer [deftest is]]
+            [integrant.core :as ig]
+            [json :as json]
+            [quickmeet.db]
+            [quickmeet.routes :as routes]
+            [string :as str]))
+
+;; The handler as a plain function over a throwaway sqlite file: integrant
+;; starts only the db component. No http server and no SFU: minting a token
+;; needs the key and secret only.
+
+(def ^:private livekit {:api-key "devkey"
+                        :api-secret "test-secret-test-secret-test-secret!!"
+                        :port 7880})
+
+(defn- with-handler [f]
+  (let [path (str "/tmp/quickmeet-routes-" (rand-int 100000000) ".db")
+        system (ig/init {:quickmeet.db/conn {:path path}})]
+    (try
+      (f (routes/handler (:quickmeet.db/conn system) livekit))
+      (finally
+        (ig/halt! system)
+        (os/sh "rm" "-f" path)))))
+
+(defn- call
+  ([handler method uri] (call handler method uri nil))
+  ([handler method uri body]
+   (let [res (handler {:request-method method
+                       :uri uri
+                       :headers {"host" "meet.example:8080"}
+                       :body body})]
+     (assoc res :json (when (and (seq (:body res))
+                                 (= "application/json"
+                                    (get-in res [:headers "Content-Type"])))
+                        (json/read-json (:body res) {:keywords? true}))))))
+
+(deftest room-ids-are-short-hex
+  (let [id (routes/new-room-id)]
+    (is (= 12 (count id)))
+    (is (re-find #"^[0-9a-f]{12}$" id))
+    (is (not= id (routes/new-room-id)))))
+
+(deftest create-room-then-join
+  (with-handler
+    (fn [handler]
+      (let [created (call handler :post "/api/rooms")
+            id (:id (:json created))]
+        (is (= 201 (:status created)))
+        (is (= 12 (count id)))
+        (is (= id (:id (:json (call handler :get (str "/api/rooms/" id))))))
+        (let [tok (call handler :post (str "/api/rooms/" id "/token")
+                        "{\"identity\":\"alice\"}")]
+          (is (= 200 (:status tok)))
+          (is (= "alice" (:identity (:json tok))))
+          ;; A JWT: three base64url segments, HS256 header.
+          (is (str/starts-with? (:token (:json tok)) "eyJ"))
+          (is (= 3 (count (str/split (:token (:json tok)) "."))))
+          ;; The signalling URL is the host the page was served from, at
+          ;; the SFU's port.
+          (is (= "ws://meet.example:7880" (:url (:json tok)))))
+        ;; No identity: a guest name is invented.
+        (let [tok (call handler :post (str "/api/rooms/" id "/token") "{}")]
+          (is (str/starts-with? (:identity (:json tok)) "guest-")))))))
+
+(deftest unknown-and-invalid-rooms
+  (with-handler
+    (fn [handler]
+      (is (= 404 (:status (call handler :get "/api/rooms/000000000000"))))
+      (is (= 404 (:status (call handler :post "/api/rooms/000000000000/token" "{}"))))
+      (is (= 404 (:status (call handler :post "/api/rooms/not-hex/token" "{}"))))
+      (is (= 404 (:status (call handler :get "/room/not-a-room"))))
+      (is (= 404 (:status (call handler :get "/nope")))))))
+
+(deftest pages-and-static
+  (with-handler
+    (fn [handler]
+      (let [index (call handler :get "/")]
+        (is (= 200 (:status index)))
+        (is (= "text/html; charset=utf-8" (get-in index [:headers "Content-Type"])))
+        (is (str/includes? (:body index) "New meeting")))
+      (let [id (:id (:json (call handler :post "/api/rooms")))
+            page (call handler :get (str "/room/" id))]
+        (is (= 200 (:status page)))
+        (is (str/includes? (:body page) "livekit-client")))
+      ;; A room page is served for any well-formed id: the token endpoint
+      ;; is what checks the room exists.
+      (is (= 200 (:status (call handler :get "/room/0123456789ab"))))
+      (let [css (call handler :get "/static/app.css")]
+        (is (= 200 (:status css)))
+        (is (= "text/css; charset=utf-8" (get-in css [:headers "Content-Type"]))))
+      (is (= 404 (:status (call handler :get "/static/nope.js")))))))

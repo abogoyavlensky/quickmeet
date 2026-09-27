@@ -1,0 +1,58 @@
+(ns quickmeet.system-test
+  (:require [clojure.test :refer [deftest is]]
+            [http :as http]
+            [json :as json]
+            [livekit.core :as lk]
+            [quickmeet.system :as system]
+            [string :as str]))
+
+;; The whole system: a throwaway database, the http server on a free port,
+;; and the SFU on its own test ports. Requests go through the real server,
+;; the token is checked against the real SFU's room API, and halting the
+;; system stops both servers.
+
+(def ^:private lk-port 7890)
+
+(defn- with-system [f]
+  (let [path (str "/tmp/quickmeet-system-" (rand-int 100000000) ".db")
+        system (system/start! (-> (system/config)
+                                  (assoc-in [:quickmeet.db/conn :path] path)
+                                  (assoc-in [:quickmeet.server/http :addr] "127.0.0.1:0")
+                                  (assoc-in [:livekit/server :config :port] lk-port)
+                                  (assoc-in [:livekit/server :config :rtc :tcp_port] 7891)
+                                  (assoc-in [:quickmeet.routes/handler :livekit :port] lk-port)))]
+    (try
+      (f system (str "http://" (:addr (:quickmeet.server/http system))))
+      (finally
+        (system/stop! system)
+        (os/sh "rm" "-f" path)))))
+
+(defn- json-body [res]
+  (json/read-json (:body res) {:keywords? true}))
+
+(deftest pages-rooms-and-tokens-over-http
+  (with-system
+    (fn [system base]
+      (is (lk/running? (:livekit/server system)))
+      (is (= 200 (:status (http/get (str base "/")))))
+      (let [id (:id (json-body (http/post (str base "/api/rooms") "" {})))
+            tok (json-body (http/post (str base "/api/rooms/" id "/token")
+                                      "{\"identity\":\"alice\"}"
+                                      {:content-type "application/json"}))]
+        (is (= 12 (count id)))
+        (is (str/starts-with? (:token tok) "eyJ"))
+        (is (= (str "ws://127.0.0.1:" lk-port) (:url tok)))
+        ;; The SFU accepts the token this app minted: /rtc/validate is the
+        ;; check livekit-client itself uses to diagnose a join, and answers
+        ;; 200 "success" only for a token this SFU will let into the room.
+        (let [res (http/get (str "http://127.0.0.1:" lk-port
+                                 "/rtc/validate?access_token=" (:token tok)))]
+          (is (= 200 (:status res)) (str "SFU rejected the token: " (:body res)))
+          (is (= "success" (:body res))))))))
+
+(deftest halt-releases-the-ports
+  (let [base (with-system (fn [system base]
+                            (is (pos? (:port (:quickmeet.server/http system))))
+                            base))]
+    (is (thrown? Exception (http/get (str base "/"))))
+    (is (thrown? Exception (http/get (str "http://127.0.0.1:" lk-port "/"))))))

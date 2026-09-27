@@ -1,0 +1,128 @@
+# quickmeet v1 roadmap
+
+## What v1 is
+
+A web app for 1-to-1 video and audio calls. One person clicks "New
+meeting", shares the link, the other opens it, both talk. Signed-in users
+additionally keep a list of contacts and a history of their calls.
+
+Three properties define it and settle most design questions:
+
+1. **One binary.** The LiveKit SFU runs inside the app process. Installing
+   quickmeet is copying a file and running it; the only other thing on the
+   box is TLS termination.
+2. **Minimal installation.** No Redis, no Postgres, no message bus, no
+   container required. State is a sqlite file next to the binary.
+3. **Minimal auth.** Guests need nothing. Accounts exist only to remember
+   contacts and history, and should take one step to create.
+
+Two people per room is a product decision for v1, not a technical limit:
+the SFU handles more, and the UI is what would need to change.
+
+## Non-goals for v1
+
+- Group calls, screen sharing, chat, recording, transcription.
+- Native or React Native apps. The backend is already an HTTP API plus a
+  LiveKit server, which is what LiveKit's mobile SDKs need; see
+  "After v1".
+- Federation, multi-node LiveKit, or any deployment larger than one box.
+- Push notifications and call ringing. Calls are joined from a link.
+
+## Milestones
+
+Each milestone ends with something a person can use. Order matters:
+every step assumes the previous one shipped.
+
+### M0: a call through the embedded SFU (done, 2026-09-27)
+
+A spike proved two browser participants exchanging live audio and video
+through the SFU running inside the let-go process, on stock
+`livekit-client`. Nothing LiveKit-specific was needed on the server beyond
+the livekit package. See `KNOWLEDGE.md` for the numbers.
+
+### M1: foundation (this repository's first commit)
+
+The app skeleton that every later milestone builds on: an integrant
+system with the database, the SFU, the handler and the http server; a
+landing page that creates a room; a room page that joins with camera and
+microphone; a JSON API for rooms and join tokens; sqlite with migrations;
+tests over the handler, the migrations and the whole system.
+
+Exit: `lgx run`, open two browser windows on the same room link, see and
+hear each other.
+
+### M2: a call people can rely on
+
+The room page as a product rather than a demo.
+
+- A lobby with camera and microphone preview and device selection.
+- Mute, stop video, leave; a clear state when the other side leaves or the
+  connection drops; reconnection handled by `livekit-client`.
+- A visible "waiting for the other person" state and a copyable link.
+- Two-person rule enforced: a third join is refused with a message.
+- Room lifetime: rooms expire after inactivity; the SFU's empty timeout and
+  the `rooms` table agree.
+- Serve `livekit-client` from the binary instead of a CDN.
+- A browser test with headless Chromium and fake media, run from `lgx test`
+  through a task, so the call path stays covered.
+
+### M3: accounts
+
+The smallest auth that supports contacts and history.
+
+- Email plus password. Sessions are opaque random ids stored in sqlite and
+  sent as a cookie; nothing needs signing. Password hashing through a Go
+  package (`golang.org/x/crypto/bcrypt` as a `:go/interop` coord is the
+  first thing to try).
+- Sign up, sign in, sign out, and a settings page with the display name.
+- A guest stays a guest: joining a link never requires an account.
+- Decision to make before starting: magic-link email instead of
+  passwords would remove hashing entirely at the cost of an SMTP
+  dependency.
+
+### M4: contacts and history
+
+- Contacts: add by email, remove, list. A contact's page has a "call"
+  button that creates a room and shows the link to share (no ringing).
+- History: LiveKit's webhooks (`participant_joined`, `participant_left`,
+  `room_finished`) recorded through `verify-webhook` into a `calls` table
+  keyed by room id. Signed-in users see their calls with who, when and how
+  long; guests see nothing.
+- Join tokens for signed-in users carry their account identity, so history
+  attributes calls correctly.
+
+### M5: deployment
+
+- A documented single-box install: the binary, a systemd unit, Caddy for
+  TLS and for exposing the signalling WebSocket as `wss://`, the UDP range
+  or the built-in TURN, and the environment variables.
+- Production defaults: bind to all interfaces, `use_external_ip true`,
+  a generated API secret, a real log level.
+- Release builds via `lgx build`; linux/amd64 first, native macOS second.
+- A smoke check after deploy: two devices on different networks in a call.
+
+### M6: hardening
+
+- Rate limits on room and account creation.
+- Room ids that are not enumerable and a check that a room link cannot be
+  guessed from another.
+- Graceful shutdown: SIGTERM stops the http server, waits for the SFU to
+  drain participants, then exits.
+- Backups: the sqlite file, documented.
+
+## After v1
+
+- Mobile: LiveKit's Swift, Kotlin and React Native SDKs talk to the same
+  SFU and the same token endpoint. What mobile adds on the server is push
+  notifications for ringing, which need APNs and FCM signing that let-go
+  does not have; a small Go shim or a hosted push service.
+- More than two people, screen sharing, chat over LiveKit data channels.
+
+## Open questions
+
+- Passwords or magic links for M3.
+- Whether room pages should work without JavaScript beyond
+  `livekit-client` (currently plain DOM code, no framework).
+- Whether the signalling WebSocket should be proxied through the app's
+  own port so a deployment exposes one HTTPS port plus UDP, or stay on
+  LiveKit's port behind Caddy.

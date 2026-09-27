@@ -1,0 +1,19 @@
+(ns quickmeet.server
+  (:require [http :as http]
+            [integrant.core :as ig]))
+
+;; The http server component. http/start binds the address, serves in the
+;; background and returns a record with the resolved :addr and :port (so
+;; ":0" picks a free port) and the handle http/stop takes. A bind error
+;; throws here, so a taken port fails ig/init instead of a goroutine.
+;;
+;; :livekit is only a dependency edge: integrant starts the SFU before the
+;; server and halts it after, so no page is served while the SFU is down.
+
+(defmethod ig/init-key ::http [_ {:keys [addr handler]}]
+  (let [srv (http/start handler addr)]
+    (println (str "quickmeet on http://localhost:" (:port srv)))
+    srv))
+
+(defmethod ig/halt-key! ::http [_ srv]
+  (http/stop srv))

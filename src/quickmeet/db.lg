@@ -1,0 +1,29 @@
+(ns quickmeet.db
+  (:require [honey.sql :as sql]
+            [integrant.core :as ig]
+            [quickmeet.migrations :as migrations]
+            [sqlite.core :as sqlite]))
+
+;; The database component: a sqlite connection with the schema migrated up
+;; to date. Every query is HoneySQL data formatted into the [sql & params]
+;; vector sqlite.core runs directly.
+
+(defmethod ig/init-key ::conn [_ {:keys [path]}]
+  (let [conn (sqlite/open path)]
+    (migrations/migrate! conn)
+    conn))
+
+(defmethod ig/halt-key! ::conn [_ conn]
+  (sqlite/close! conn))
+
+(def ^:private room-columns [:id :created_at])
+
+(defn create-room! [conn id]
+  (sqlite/execute-one! conn (sql/format {:insert-into :rooms
+                                         :values [{:id id}]
+                                         :returning room-columns})))
+
+(defn get-room [conn id]
+  (sqlite/execute-one! conn (sql/format {:select room-columns
+                                         :from [:rooms]
+                                         :where [:= :id id]})))

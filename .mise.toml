@@ -1,0 +1,6 @@
+[tools]
+lgx = "0.4.2"
+go = "1.27"
+
+[tool_alias]
+lgx = "github:abogoyavlensky/lgx"

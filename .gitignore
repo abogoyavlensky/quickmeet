@@ -1,0 +1,10 @@
+bin/
+*.db
+*.db-journal
+*.lgb
+lgx-bundle
+.tmp/
+.nrepl-port
+.DS_Store
+.idea/
+.claude/

@@ -1,0 +1,129 @@
+(ns quickmeet.routes
+  (:require [integrant.core :as ig]
+            [json :as json]
+            [livekit.core :as lk]
+            [quickmeet.db :as db]
+            [ruuter.core :as r]
+            [string :as str]))
+
+;; The HTTP handler: a Ring-style function over the db connection and the
+;; LiveKit credentials, and the integrant component between them and the
+;; server. Tests call `handler` directly over a throwaway database; token
+;; minting needs only the key and secret, not a running SFU.
+
+(defn- json-response [status data]
+  {:status status
+   :headers {"Content-Type" "application/json"}
+   :body (json/write-json data)})
+
+(def ^:private content-types
+  {"html" "text/html; charset=utf-8"
+   "js"   "text/javascript; charset=utf-8"
+   "css"  "text/css; charset=utf-8"
+   "svg"  "image/svg+xml"})
+
+(defn- static-response
+  "Serve `name` from resources/public. Only the text types above are served:
+   io/slurp reads a string, so binaries would not survive. io/resource
+   returns nil for a missing name and for one that escapes the resource
+   root, so `..` cannot reach outside it."
+  [name]
+  (let [ct (content-types (last (str/split (str name) #"\.")))
+        res (when ct (io/resource (str "public/" name)))]
+    (if res
+      {:status 200
+       :headers {"Content-Type" ct}
+       :body (io/slurp res)}
+      (json-response 404 {:error "not found"}))))
+
+;; Room ids are short, URL-safe and unguessable enough for a link that is
+;; shared on purpose: 12 hex chars of a random UUID.
+;; (str uuid) renders as #uuid "..." in let-go, so keep only the hex.
+(defn new-room-id []
+  (subs (str/replace (str (random-uuid)) #"[^0-9a-f]" "") 0 12))
+
+(defn- valid-room-id? [id]
+  (some? (re-find #"^[0-9a-f]{12}$" (str id))))
+
+(defn- read-json-body [req]
+  (let [body (:body req)]
+    (when-not (str/blank? (str body))
+      (json/read-json body {:keywords? true}))))
+
+(defn- signalling-url
+  "Where the browser connects for signalling: the host it reached this app
+   on, at the SFU's port. Behind TLS the scheme becomes wss and the port is
+   whatever the proxy exposes; that is a deployment concern for later."
+  [req lk-port]
+  (let [host (or (some-> (get-in req [:headers "host"]) (str/split ":") first)
+                 "127.0.0.1")]
+    (str "ws://" host ":" lk-port)))
+
+(defn- clean-identity [s]
+  (let [s (str/trim (str s))]
+    (cond
+      (str/blank? s) (str "guest-" (subs (new-room-id) 0 4))
+      (> (count s) 64) (subs s 0 64)
+      :else s)))
+
+(defn- routes [conn {:keys [api-key api-secret port]}]
+  [{:path "/"
+    :method :get
+    :response (fn [_] (static-response "index.html"))}
+
+   {:path "/room/:id"
+    :method :get
+    :response (fn [req]
+                (if (valid-room-id? (-> req :params :id))
+                  (static-response "room.html")
+                  (json-response 404 {:error "not found"})))}
+
+   {:path "/static/:file"
+    :method :get
+    :response (fn [req] (static-response (-> req :params :file)))}
+
+   ;; Create a room and hand back its id; the page turns it into a link.
+   {:path "/api/rooms"
+    :method :post
+    :response (fn [_]
+                (let [room (db/create-room! conn (new-room-id))]
+                  (json-response 201 {:id (:id room)})))}
+
+   {:path "/api/rooms/:id"
+    :method :get
+    :response (fn [req]
+                (let [id (-> req :params :id)]
+                  (if-let [room (and (valid-room-id? id) (db/get-room conn id))]
+                    (json-response 200 room)
+                    (json-response 404 {:error "not found"}))))}
+
+   ;; A join token for a known room. Body: {"identity": "..."} (optional).
+   {:path "/api/rooms/:id/token"
+    :method :post
+    :response (fn [req]
+                (let [id (-> req :params :id)]
+                  (if (and (valid-room-id? id) (db/get-room conn id))
+                    (let [identity (clean-identity (:identity (read-json-body req)))]
+                      (json-response 200
+                                     {:token (lk/token api-key api-secret
+                                                       {:identity identity
+                                                        :room id
+                                                        :room-join true
+                                                        :ttl-seconds 3600})
+                                      :identity identity
+                                      :url (signalling-url req port)}))
+                    (json-response 404 {:error "not found"}))))}
+
+   {:path :not-found
+    :response (fn [_] (json-response 404 {:error "not found"}))}])
+
+(defn handler
+  "A Ring-style handler: request map in, response map out. `livekit` is
+   {:api-key :api-secret :port}."
+  [conn livekit]
+  (let [table (routes conn livekit)]
+    (fn [req]
+      (r/route table req))))
+
+(defmethod ig/init-key ::handler [_ {:keys [db livekit]}]
+  (handler db livekit))

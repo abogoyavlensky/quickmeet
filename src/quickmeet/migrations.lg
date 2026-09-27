@@ -1,0 +1,41 @@
+(ns quickmeet.migrations
+  (:require [honey.sql :as sql]
+            [ragtime.letgo :as rt]))
+
+;; Schema history as ragtime migrations whose up and down steps are HoneySQL
+;; DDL maps. The letgo-packages ragtime package supplies the DataStore (a
+;; ragtime_migrations table) and the Migration record; this namespace holds
+;; only the app's own history. Append, never edit, once a migration shipped.
+
+(defn- migration [id up down]
+  (rt/sql-migration {:id id
+                     :up (mapv sql/format up)
+                     :down (mapv sql/format down)}))
+
+(def migrations
+  [(migration "001-create-rooms"
+              [{:create-table :rooms
+                :with-columns [[:id :text [:primary-key]]
+                               [:created_at :text [:not nil]
+                                [:default [:raw "CURRENT_TIMESTAMP"]]]]}]
+              [{:drop-table :rooms}])])
+
+(defn store
+  "The ragtime DataStore over `conn`."
+  [conn]
+  (rt/sql-database conn))
+
+(defn- config [conn]
+  {:datastore (store conn)
+   :migrations migrations})
+
+(defn migrate!
+  "Apply every migration not yet applied, in order."
+  [conn]
+  (rt/migrate (config conn)))
+
+(defn rollback!
+  "Roll back the last migration, or the last `n`."
+  ([conn] (rollback! conn 1))
+  ([conn n]
+   (rt/rollback (config conn) n)))

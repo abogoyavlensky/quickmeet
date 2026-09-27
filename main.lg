@@ -1,0 +1,18 @@
+(ns main
+  (:require [http :as http]
+            [quickmeet.system :as system]))
+
+;; quickmeet: 1-to-1 video calls from a single binary. The LiveKit SFU runs
+;; inside this process; the browser talks to it directly for media, and to
+;; this app for pages, rooms and join tokens. Run with `lgx run`, then open
+;; http://localhost:8080. See README.md for the environment variables.
+
+(defn -main []
+  (let [system (system/start!)]
+    ;; http/start serves in the background; wait blocks until the server
+    ;; stops, which keeps the process (and the SFU) up.
+    (http/wait (:quickmeet.server/http system))))
+
+;; lg -b runs top-level forms at compile time, so without this guard
+;; `lgx build` would start an SFU and open the database while bundling.
+(when-not *compiling-aot* (-main))

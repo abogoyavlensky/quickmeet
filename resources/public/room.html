@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>quickmeet</title>
+  <link rel="stylesheet" href="/static/app.css">
+  <script src="https://cdn.jsdelivr.net/npm/livekit-client@2/dist/livekit-client.umd.min.js"></script>
+</head>
+<body class="room">
+  <header>
+    <span class="brand">quickmeet</span>
+    <span id="room-id" class="muted"></span>
+    <button id="copy" class="ghost">Copy link</button>
+  </header>
+
+  <section id="lobby" class="lobby">
+    <label>Your name
+      <input id="identity" maxlength="64" placeholder="optional" autofocus>
+    </label>
+    <button id="join" class="primary">Join with camera and mic</button>
+    <p id="error" class="error" hidden></p>
+  </section>
+
+  <section id="call" class="call" hidden>
+    <div class="tile"><video id="remote" autoplay playsinline></video><span id="remote-name" class="tag">waiting for the other side…</span></div>
+    <div class="tile self"><video id="local" autoplay playsinline muted></video><span id="local-name" class="tag">you</span></div>
+    <footer>
+      <button id="mic" class="ghost">Mute</button>
+      <button id="cam" class="ghost">Stop video</button>
+      <button id="leave" class="danger">Leave</button>
+    </footer>
+  </section>
+
+  <script>
+    const roomId = location.pathname.split('/').pop();
+    document.getElementById('room-id').textContent = roomId;
+    document.getElementById('copy').addEventListener('click', async () => {
+      await navigator.clipboard.writeText(location.href);
+      document.getElementById('copy').textContent = 'Copied';
+    });
+
+    const $ = id => document.getElementById(id);
+    const showError = e => { $('error').textContent = String(e.message || e); $('error').hidden = false; };
+
+    // The whole call state, exposed for tests and for poking at from devtools.
+    window.call = { room: null, remote: null };
+
+    async function join() {
+      const { Room, RoomEvent, Track, createLocalTracks } = LivekitClient;
+      $('join').disabled = true;
+      try {
+        const res = await fetch(`/api/rooms/${roomId}/token`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ identity: $('identity').value }),
+        });
+        if (!res.ok) throw new Error('could not get a token (' + res.status + ')');
+        const { token, url, identity } = await res.json();
+
+        const room = new Room({ adaptiveStream: true, dynacast: true });
+        window.call.room = room;
+        room.on(RoomEvent.TrackSubscribed, (track, pub, participant) => {
+          if (track.kind === Track.Kind.Video) track.attach($('remote'));
+          if (track.kind === Track.Kind.Audio) track.attach();
+          $('remote-name').textContent = participant.identity;
+          window.call.remote = participant.identity;
+        });
+        room.on(RoomEvent.ParticipantDisconnected, () => {
+          $('remote-name').textContent = 'the other side left';
+          window.call.remote = null;
+        });
+        room.on(RoomEvent.Disconnected, () => { $('call').hidden = true; $('lobby').hidden = false; $('join').disabled = false; });
+
+        await room.connect(url, token);
+        const tracks = await createLocalTracks({ audio: true, video: true });
+        for (const t of tracks) {
+          await room.localParticipant.publishTrack(t);
+          if (t.kind === Track.Kind.Video) t.attach($('local'));
+        }
+        $('local-name').textContent = identity;
+        $('lobby').hidden = true;
+        $('call').hidden = false;
+
+        $('mic').onclick = async () => {
+          const on = !room.localParticipant.isMicrophoneEnabled;
+          await room.localParticipant.setMicrophoneEnabled(on);
+          $('mic').textContent = on ? 'Mute' : 'Unmute';
+        };
+        $('cam').onclick = async () => {
+          const on = !room.localParticipant.isCameraEnabled;
+          await room.localParticipant.setCameraEnabled(on);
+          $('cam').textContent = on ? 'Stop video' : 'Start video';
+        };
+        $('leave').onclick = () => room.disconnect();
+      } catch (e) {
+        showError(e);
+        $('join').disabled = false;
+      }
+    }
+    $('join').addEventListener('click', join);
+  </script>
+</body>
+</html>

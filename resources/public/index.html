@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>quickmeet</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <main>
+    <h1>quickmeet</h1>
+    <p class="lead">A video call in one click. Start a meeting, share the link, talk.</p>
+    <button id="new" class="primary">New meeting</button>
+    <p id="error" class="error" hidden></p>
+  </main>
+  <script>
+    document.getElementById('new').addEventListener('click', async () => {
+      const button = document.getElementById('new');
+      button.disabled = true;
+      try {
+        const res = await fetch('/api/rooms', { method: 'POST' });
+        if (!res.ok) throw new Error('could not create a room (' + res.status + ')');
+        const { id } = await res.json();
+        location.href = '/room/' + id;
+      } catch (e) {
+        const err = document.getElementById('error');
+        err.textContent = String(e.message || e);
+        err.hidden = false;
+        button.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

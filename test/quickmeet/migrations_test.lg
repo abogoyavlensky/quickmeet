@@ -1,0 +1,38 @@
+(ns quickmeet.migrations-test
+  (:require [clojure.test :refer [deftest is]]
+            [quickmeet.migrations :as migrations]
+            [ragtime.protocols :as p]
+            [sqlite.core :as sqlite]))
+
+;; The migration history against a throwaway sqlite file: up, up again (a
+;; no-op), then down, checking what sqlite itself reports.
+
+(defn- with-conn [f]
+  (let [path (str "/tmp/quickmeet-migrations-" (rand-int 100000000) ".db")
+        conn (sqlite/open path)]
+    (try
+      (f conn)
+      (finally
+        (sqlite/close! conn)
+        (os/sh "rm" "-f" path)))))
+
+(defn- tables [conn]
+  (mapv :name (sqlite/query conn ["select name from sqlite_master
+                                   where type = 'table' and name not like 'sqlite_%'
+                                   order by name"])))
+
+(defn- applied [conn]
+  (p/applied-migration-ids (migrations/store conn)))
+
+(deftest migrate-up-and-down
+  (with-conn
+    (fn [conn]
+      (is (= [] (applied conn)))
+      (migrations/migrate! conn)
+      (is (= ["001-create-rooms"] (applied conn)))
+      (is (= ["ragtime_migrations" "rooms"] (tables conn)))
+      (migrations/migrate! conn)
+      (is (= ["001-create-rooms"] (applied conn)))
+      (migrations/rollback! conn)
+      (is (= [] (applied conn)))
+      (is (= ["ragtime_migrations"] (tables conn))))))
