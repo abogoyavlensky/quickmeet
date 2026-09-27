@@ -25,7 +25,8 @@ not enough:
 | letgo-packages `livekit` | livekit-v0.1.1 | embedded SFU, join tokens, webhook verification, integrant component |
 | letgo-packages `sqlite`, `ragtime` | sqlite-v0.2.0, ragtime-v0.2.0 | storage and migrations |
 | livekit-server | v1.13.7 | the SFU, linked into the binary |
-| livekit-client (JS) | 2.x | the browser side, from a CDN for now |
+| livekit-client (JS) | 2.22.3 | the browser side, vendored into `resources/public/` (`lgx vendor-livekit-client`) |
+| @playwright/test | 1.56.0 | the browser tests in `e2e/`, on `chromium_headless_shell-1194` |
 
 ## How Go code gets into a let-go binary
 
@@ -104,9 +105,10 @@ growing. A Go client-SDK probe independently forwarded RTP through the
 same SFU. The browser side is stock `livekit-client` 2.22.3; nothing
 LiveKit-specific runs on the server beyond the package.
 
-The spike lives at `~/Projects/meet-spike` on the dev machine (not in this
-repo): `main.lg` (server plus token route), `index.html` (the two-participant
-page) and `probe/` (the Go probe). `/tmp/pw/run.mjs` drove it with Playwright.
+The spike lived at `~/Projects/meet-spike` on the dev machine (not in this
+repo). The e2e suite in `e2e/` supersedes it: the same technique, two
+browser contexts instead of one page, against the real room page and the
+built binary, run by `lgx e2e` (2026-09-27).
 
 ## Dev tooling gotchas
 
@@ -132,10 +134,20 @@ page) and `probe/` (the Go probe). `/tmp/pw/run.mjs` drove it with Playwright.
 - The T3 Code preview tab runs on another network and cannot reach this
   machine's ports, so browser tests use a local headless Chromium.
   Playwright refuses Ubuntu 26.04 by default;
-  `PLAYWRIGHT_HOST_PLATFORM_OVERRIDE=ubuntu24.04-x64 npx playwright install
-  chromium-headless-shell` installs one that works with no missing
-  libraries, and `--use-fake-device-for-media-stream` with
-  `--use-fake-ui-for-media-stream` gives it a camera and microphone.
+  `PLAYWRIGHT_HOST_PLATFORM_OVERRIDE=ubuntu24.04-x64 lgx e2e-setup`
+  installs one that works with no missing libraries. On a supported
+  distribution (CI's ubuntu-latest) the override must be left out.
+- Fake media devices work through the normal `getUserMedia` path in the
+  headless shell: `--use-fake-device-for-media-stream` and
+  `--use-fake-ui-for-media-stream` plus `grantPermissions(['camera',
+  'microphone'])` on the context, and the room page's `createLocalTracks`
+  gets a synthetic camera and microphone unchanged. Two browser contexts
+  are two independent participants; the SFU sees a real call.
+- Playwright's `webServer` kills the app's whole process group with
+  SIGKILL on teardown (`processLauncher.js`), so the open question of `lg`
+  ignoring SIGTERM does not affect the tests: no listener survives a run.
+- Pinned together: `@playwright/test` 1.56.0 and `chromium_headless_shell-1194`.
+  A Playwright bump changes the browser build, so `lgx e2e-setup` again.
 
 ## Deployment facts that shape v1
 

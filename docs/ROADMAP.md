@@ -59,12 +59,16 @@ The room page as a product rather than a demo.
 - Mute, stop video, leave; a clear state when the other side leaves or the
   connection drops; reconnection handled by `livekit-client`.
 - A visible "waiting for the other person" state and a copyable link.
-- Two-person rule enforced: a third join is refused with a message.
 - Room lifetime: rooms expire after inactivity; the SFU's empty timeout and
   the `rooms` table agree.
-- Serve `livekit-client` from the binary instead of a CDN.
-- A browser test with headless Chromium and fake media, run from `lgx test`
-  through a task, so the call path stays covered.
+- Two-person rule enforced: a third join is refused with a message. With
+  the browser suite in place, this starts with a third-join test in
+  `e2e/tests/call.spec.js`.
+- Done 2026-09-27: `livekit-client` served from the binary instead of a
+  CDN (`lgx vendor-livekit-client`).
+- Done 2026-09-27: a browser test with headless Chromium and fake media,
+  `lgx e2e`, run in CI on every push; two browsers in a real call,
+  media flowing both ways, leaving noticed.
 
 ### M3: accounts
 

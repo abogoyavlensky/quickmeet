@@ -22,11 +22,41 @@ in, which takes a minute; every run after that is a cache hit.
 ```
 lgx run                 # http://localhost:8080, quickmeet.db in the cwd
 lgx test                # handler, migrations and the whole system
+lgx e2e                 # two headless browsers in a real call (see below)
 lgx build && ./bin/quickmeet
 ```
 
 Open http://localhost:8080, click "New meeting", open the room link in a
 second window, join from both.
+
+## Browser tests
+
+The unit tests stop at the handler. The browser tests drive the whole
+thing: `lgx e2e` builds `bin/quickmeet`, starts it on test ports (app
+8099, SFU 7899, UDP 50200-50300, a throwaway database under `e2e/.tmp`),
+opens two headless Chromiums with fake cameras and microphones on the
+same room link, and checks that each side sees and hears the other:
+the remote video plays, decoded frames and audio packets keep growing,
+nothing is lost, and leaving is noticed. Playwright stops the app when
+the run ends, so it coexists with an `lgx run` on the default ports.
+
+```
+lgx e2e-setup           # once: npm ci and the headless Chromium
+lgx e2e                 # build, run the specs, stop the app
+```
+
+Needs Node 24 (`.mise.toml` pins it). The report lands in
+`e2e/playwright-report/index.html`; failed tests keep a trace under
+`e2e/test-results/`. Playwright only installs its browser on
+distributions it recognises; on Ubuntu 26.04 run the setup as
+`PLAYWRIGHT_HOST_PLATFORM_OVERRIDE=ubuntu24.04-x64 lgx e2e-setup`
+(the resulting browser runs with no missing libraries). CI runs both
+suites on every push (`.github/workflows/test.yml`).
+
+`livekit-client` is vendored into `resources/public/` and served from the
+binary, so a call page has no CDN dependency. To bump it, change the
+version in the `vendor-livekit-client` task in `lgx.edn` and run
+`lgx vendor-livekit-client`.
 
 ## Configuration
 
@@ -55,8 +85,9 @@ src/quickmeet/db.lg            ::conn (open + migrate), queries
 src/quickmeet/migrations.lg    the schema history (ragtime over sqlite)
 src/quickmeet/routes.lg        ::handler: pages, /api/rooms, join tokens
 src/quickmeet/server.lg        ::http: http/start on init, http/stop on halt
-resources/public/              index.html, room.html, app.css
+resources/public/              index.html, room.html, app.css, vendored livekit-client
 test/quickmeet/                routes over a temp db; migrations; the full system
+e2e/                           Playwright: two browsers in a call against bin/quickmeet
 docs/                          ROADMAP.md, KNOWLEDGE.md
 ```
 
