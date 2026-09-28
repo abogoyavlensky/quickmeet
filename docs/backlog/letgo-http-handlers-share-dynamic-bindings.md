@@ -1,6 +1,7 @@
 # Concurrent requests corrupt each other's HoneySQL statements
 
 **Status: open**
+App-level workaround landed in da0ea5c: `src/quickmeet/db.lg` renders its queries at load time. The let-go fix is still open; any new request-time `sql/format` or `binding` reopens the hole.
 
 ## Problem
 
