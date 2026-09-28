@@ -50,6 +50,29 @@
           (is (= 200 (:status res)) (str "SFU rejected the token: " (:body res)))
           (is (= "success" (:body res))))))))
 
+(defn- config-from [m]
+  (system/config (fn [name] (get m name))))
+
+(deftest config-from-the-environment
+  ;; Nothing set: the media port range, and the URL derived per request.
+  (let [c (config-from {})
+        rtc (get-in c [:livekit/server :config :rtc])]
+    (is (= 50000 (:port_range_start rtc)))
+    (is (= 50100 (:port_range_end rtc)))
+    (is (not (contains? rtc :udp_port)))
+    (is (nil? (get-in c [:quickmeet.routes/handler :livekit :public-url]))))
+  ;; A container: one multiplexed UDP port, reachable from the proxy.
+  (let [c (config-from {"LIVEKIT_UDP_PORT" "7882"
+                        "LIVEKIT_PUBLIC_URL" "wss://quickmeet.absky.dev"
+                        "LIVEKIT_BIND" "0.0.0.0"})
+        rtc (get-in c [:livekit/server :config :rtc])]
+    (is (= 7882 (:udp_port rtc)))
+    (is (not (contains? rtc :port_range_start)))
+    (is (not (contains? rtc :port_range_end)))
+    (is (= ["0.0.0.0"] (get-in c [:livekit/server :config :bind_addresses])))
+    (is (= "wss://quickmeet.absky.dev"
+           (get-in c [:quickmeet.routes/handler :livekit :public-url])))))
+
 (deftest halt-releases-the-ports
   (let [base (with-system (fn [system base]
                             (is (pos? (:port (:quickmeet.server/http system))))
