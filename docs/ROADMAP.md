@@ -55,6 +55,15 @@ hear each other.
 
 The room page as a product rather than a demo.
 
+After M1 the order changed: a reduced M5, staging, came before the rest
+of M2. Trying the build from a phone through ngrok showed that nothing
+about the product can be judged on a real device until it is deployed:
+the signalling URL was built for a laptop, media needs the SFU reachable
+over UDP, and camera access needs HTTPS. The open items below (lobby,
+device selection, reconnection states) are about behaviour on real
+devices, which headless Chromium with fake media cannot judge, so they
+follow with a real device to test them on.
+
 - A lobby with camera and microphone preview and device selection.
 - Mute, stop video, leave; a clear state when the other side leaves or the
   connection drops; reconnection handled by `livekit-client`.
@@ -97,6 +106,13 @@ The smallest auth that supports contacts and history.
 
 ### M5: deployment
 
+Staging, pending its first deploy (2026-09-28): every push to master
+tests, builds and deploys the app with uncloud to
+`https://quickmeet.absky.dev`, one hostname with Caddy routing `/rtc*` to
+the SFU, media on one UDP port and one TCP port in host mode. See
+"Deployment" in the README. What remains below: the install guide for
+other boxes, release builds and tagging, macOS.
+
 - A documented single-box install: the binary, a systemd unit, Caddy for
   TLS and for exposing the signalling WebSocket as `wss://`, the UDP range
   or the built-in TURN, and the environment variables.
@@ -112,7 +128,9 @@ The smallest auth that supports contacts and history.
   guessed from another.
 - Graceful shutdown: SIGTERM stops the http server, waits for the SFU to
   drain participants, then exits.
-- Backups: the sqlite file, documented.
+- Backups: the sqlite file, documented. linkboard's Litestream sidecar
+  plan applies unchanged: the database is a bind-mounted file on the
+  uncloud host.
 
 ## After v1
 
@@ -127,6 +145,7 @@ The smallest auth that supports contacts and history.
 - Passwords or magic links for M3.
 - Whether room pages should work without JavaScript beyond
   `livekit-client` (currently plain DOM code, no framework).
-- Whether the signalling WebSocket should be proxied through the app's
-  own port so a deployment exposes one HTTPS port plus UDP, or stay on
-  LiveKit's port behind Caddy.
+- Resolved 2026-09-28: the signalling WebSocket stays on LiveKit's port.
+  A deployment exposes one hostname and splits it by path at the reverse
+  proxy (`/rtc*` to the SFU, the rest to the app); nothing is proxied in
+  the app.

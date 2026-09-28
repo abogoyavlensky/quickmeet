@@ -27,6 +27,7 @@ not enough:
 | livekit-server | v1.13.7 | the SFU, linked into the binary |
 | livekit-client (JS) | 2.22.3 | the browser side, vendored into `resources/public/` (`lgx vendor-livekit-client`) |
 | @playwright/test | 1.56.0 | the browser tests in `e2e/`, on `chromium_headless_shell-1194` |
+| uc (uncloud) | 0.20.0 | deploys `compose.yaml` to the staging cluster; bundles Caddy |
 
 ## How Go code gets into a let-go binary
 
@@ -120,6 +121,12 @@ built binary, run by `lgx e2e` (2026-09-27).
 - `lgx build` runs top-level forms at compile time. Guard the entry point
   with `(when-not *compiling-aot* (-main))` and keep every side effect
   inside `-main`, or bundling starts an SFU.
+- let-go's http server lowercases request header names
+  (`pkg/rt/http.go:261`), and the Host header is not among them: Go's
+  server moves it to `request.Host`, which let-go passes as
+  `:server-addr` (port included). A handler reading `"host"` from
+  `:headers` always gets nil over real HTTP; unit tests that build the
+  request map by hand will not notice (2026-09-28).
 - let-go's `http/post` is `(http/post url body opts)` with `:headers` and
   `:content-type` in opts; the response map has `:status`, `:headers`,
   `:body`. `http/request` takes one map. `http/request` has no timeout.
@@ -159,9 +166,45 @@ built binary, run by `lgx e2e` (2026-09-27).
   SFU in every language; a proxy that only speaks HTTP cannot carry it.
 - Everything the app needs at run time is one binary plus a sqlite file.
 
+Learned while setting up staging on uncloud, 2026-09-28:
+
+- A native `lgx build` keeps Go's platform default and links against
+  glibc ("dynamically linked"), which does not start on Alpine.
+  `CGO_ENABLED=0` makes it static (about 90 MB with debug info). lgx keys
+  the runtime cache on that variable (`lgx/gobuild.lg:212`), so the first
+  static build rebuilds the runtime, and a CI cache key must change with
+  it: `actions/cache` never saves on an exact key hit.
+- `rtc.udp_port` multiplexes all WebRTC media on one UDP port; when it is
+  valid, livekit-server 1.13.7 ignores the port range
+  (`pkg/service/server.go:282`) and logs `rtc.portUDP {"Start":7882,"End":0}`.
+  The app switches to it when `LIVEKIT_UDP_PORT` is set
+  (`src/quickmeet/system.lg`). One port is all a container's host-mode
+  mapping needs.
+- `rtc.use_external_ip true` finds the public address over LiveKit's
+  default STUN servers (`mediatransportutil/pkg/rtcconfig/config.go:38`)
+  and advertises it in ICE candidates; run locally it logged
+  `found external IP via STUN`.
+- uncloud's `x-caddy` takes a Caddyfile block per service, rendered with
+  Go templates when containers start: `{{upstreams PORT}}` or
+  `{{upstreams "service" PORT}}` expands to the service's container
+  addresses. It cannot be combined with http/https `x-ports`, only with
+  host-mode ones (`PORT:PORT/udp@host`; `pkg/client/compose/service.go:421`).
+  Compose interpolates `${VAR}` inside the block first. `uc caddy config`
+  shows the rendered result.
+- uncloud creates a bind mount's host directory if it is missing
+  (`CreateHostPath: true`). `uc deploy` has no dry run; to check a
+  compose file offline, load it through uncloud's
+  `compose.LoadProject` and `ServiceSpecFromCompose` and call `Validate`.
+- The app's peak memory in a two-person call is about 120 MB (measured
+  during `lgx e2e`), so the container gets `mem_limit: 256m`.
+- `lg` ignores SIGTERM (see "Dev tooling gotchas"), so the service sets
+  `stop_grace_period: 2s`; waiting Docker's default 10 s buys nothing.
+
 ---
 
-> **Verify against:** `lgx.edn` in this repo; in lgx,
+> **Verify against:** `lgx.edn`, `compose.yaml` and
+> `.github/workflows/deploy.yml` in this repo; in uncloud v0.20.0,
+> `pkg/client/compose/` and `internal/machine/caddyconfig/template.go`; in lgx,
 > `lgx/gobuild.lg` (runtime build, `:go/replace`, the stamp) and
 > `docs/knowledge-base/lgx-go-runtimes.md`; in letgo-packages,
 > `livekit/shim/shim.go`, `livekit/src/livekit/core.lg`,
