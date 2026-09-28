@@ -2,6 +2,13 @@
 lgx = "0.4.2"
 go = "1.27"
 node = "24"
+uc = "0.20.0"
 
 [tool_alias]
 lgx = "github:abogoyavlensky/lgx"
+uc = "github:psviderski/uncloud"
+
+# The binary must be static to run in the Alpine image; a native build links
+# against glibc. lgx keys its runtime cache on this variable.
+[env]
+CGO_ENABLED = "0"

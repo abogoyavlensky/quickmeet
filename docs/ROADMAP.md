@@ -2,9 +2,9 @@
 
 ## What v1 is
 
-A web app for 1-to-1 video and audio calls. One person clicks "New
-meeting", shares the link, the other opens it, both talk. Signed-in users
-additionally keep a list of contacts and a history of their calls.
+A web app for 1-to-1 video and audio calls. A signed-in person clicks
+"New meeting", shares the link, the other opens it, both talk. Signed-in
+users also keep a list of contacts and a history of their calls.
 
 Three properties define it and settle most design questions:
 
@@ -13,8 +13,10 @@ Three properties define it and settle most design questions:
    box is TLS termination.
 2. **Minimal installation.** No Redis, no Postgres, no message bus, no
    container required. State is a sqlite file next to the binary.
-3. **Minimal auth.** Guests need nothing. Accounts exist only to remember
-   contacts and history, and should take one step to create.
+3. **Minimal auth.** Guests need nothing to join a call. Starting one
+   takes an account, so an instance's bandwidth serves the people it was
+   set up for; accounts also remember contacts and history, and should
+   take one step to create. The operator can limit who may have one.
 
 Two people per room is a product decision for v1, not a technical limit:
 the SFU handles more, and the UI is what would need to change.
@@ -55,6 +57,15 @@ hear each other.
 
 The room page as a product rather than a demo.
 
+After M1 the order changed: a reduced M5, staging, came before the rest
+of M2. Trying the build from a phone through ngrok showed that nothing
+about the product can be judged on a real device until it is deployed:
+the signalling URL was built for a laptop, media needs the SFU reachable
+over UDP, and camera access needs HTTPS. The open items below (lobby,
+device selection, reconnection states) are about behaviour on real
+devices, which headless Chromium with fake media cannot judge, so they
+follow with a real device to test them on.
+
 - A lobby with camera and microphone preview and device selection.
 - Mute, stop video, leave; a clear state when the other side leaves or the
   connection drops; reconnection handled by `livekit-client`.
@@ -72,7 +83,8 @@ The room page as a product rather than a demo.
 
 ### M3: accounts
 
-The smallest auth that supports contacts and history.
+The smallest auth that gates starting a call and supports contacts and
+history.
 
 - Email plus password. Sessions are opaque random ids stored in sqlite and
   sent as a cookie; nothing needs signing. Password hashing through a Go
@@ -80,9 +92,20 @@ The smallest auth that supports contacts and history.
   first thing to try).
 - Sign up, sign in, sign out, and a settings page with the display name.
 - A guest stays a guest: joining a link never requires an account.
+- Creating a room requires one. "New meeting" and `POST /api/rooms` are
+  for signed-in users; the token endpoint stays open to anyone holding a
+  room link. Until then, staging is open to anyone who finds it.
+- An email allowlist: an environment variable (`ALLOWED_EMAILS`,
+  comma-separated) that, when set, limits sign-up and sign-in to those
+  addresses; unset, sign-up is open. Removing an address ends that
+  account's access at its next request, not at its next sign-in.
 - Decision to make before starting: magic-link email instead of
   passwords would remove hashing entirely at the cost of an SMTP
-  dependency.
+  dependency. The allowlist weighs on it: with passwords and no email
+  verification, anyone who knows an allowed address can register it
+  before its owner does. A magic link proves the address; passwords
+  need a verification email (the same SMTP dependency) or accounts
+  created by the operator.
 
 ### M4: contacts and history
 
@@ -96,6 +119,13 @@ The smallest auth that supports contacts and history.
   attributes calls correctly.
 
 ### M5: deployment
+
+Staging, pending its first deploy (2026-09-28): every push to master
+tests, builds and deploys the app with uncloud to
+`https://quickmeet.absky.dev`, one hostname with Caddy routing `/rtc*` to
+the SFU, media on one UDP port and one TCP port in host mode. See
+"Deployment" in the README. What remains below: the install guide for
+other boxes, release builds and tagging, macOS.
 
 - A documented single-box install: the binary, a systemd unit, Caddy for
   TLS and for exposing the signalling WebSocket as `wss://`, the UDP range
@@ -112,7 +142,9 @@ The smallest auth that supports contacts and history.
   guessed from another.
 - Graceful shutdown: SIGTERM stops the http server, waits for the SFU to
   drain participants, then exits.
-- Backups: the sqlite file, documented.
+- Backups: the sqlite file, documented. linkboard's Litestream sidecar
+  plan applies unchanged: the database is a bind-mounted file on the
+  uncloud host.
 
 ## After v1
 
@@ -124,9 +156,15 @@ The smallest auth that supports contacts and history.
 
 ## Open questions
 
-- Passwords or magic links for M3.
+- Passwords or magic links for M3; the email allowlist needs proof of
+  address either way (see M3).
+- Resolved 2026-09-28: who may start a call. Signed-in users only;
+  anyone with a link may join. The M2 and M6 limits (two-person cap,
+  room expiry, rate limits) bound what one room or one client can cost,
+  but only accounts keep strangers from using an instance at all.
 - Whether room pages should work without JavaScript beyond
   `livekit-client` (currently plain DOM code, no framework).
-- Whether the signalling WebSocket should be proxied through the app's
-  own port so a deployment exposes one HTTPS port plus UDP, or stay on
-  LiveKit's port behind Caddy.
+- Resolved 2026-09-28: the signalling WebSocket stays on LiveKit's port.
+  A deployment exposes one hostname and splits it by path at the reverse
+  proxy (`/rtc*` to the SFU, the rest to the app); nothing is proxied in
+  the app.

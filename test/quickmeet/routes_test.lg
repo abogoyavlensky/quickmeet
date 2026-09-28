@@ -14,22 +14,26 @@
                         :api-secret "test-secret-test-secret-test-secret!!"
                         :port 7880})
 
-(defn- with-handler [f]
-  (let [path (str "/tmp/quickmeet-routes-" (rand-int 100000000) ".db")
-        system (ig/init {:quickmeet.db/conn {:path path}})]
-    (try
-      (f (routes/handler (:quickmeet.db/conn system) livekit))
-      (finally
-        (ig/halt! system)
-        (os/sh "rm" "-f" path)))))
+(defn- with-handler
+  ([f] (with-handler livekit f))
+  ([lk f]
+   (let [path (str "/tmp/quickmeet-routes-" (rand-int 100000000) ".db")
+         system (ig/init {:quickmeet.db/conn {:path path}})]
+     (try
+       (f (routes/handler (:quickmeet.db/conn system) lk))
+       (finally
+         (ig/halt! system)
+         (os/sh "rm" "-f" path (str path "-wal") (str path "-shm")))))))
 
 (defn- call
   ([handler method uri] (call handler method uri nil))
-  ([handler method uri body]
-   (let [res (handler {:request-method method
-                       :uri uri
-                       :headers {"host" "meet.example:8080"}
-                       :body body})]
+  ([handler method uri body] (call handler method uri body nil))
+  ([handler method uri body extra]
+   (let [res (handler (merge {:request-method method
+                              :uri uri
+                              :server-addr "meet.example:8080"
+                              :body body}
+                             extra))]
      (assoc res :json (when (and (seq (:body res))
                                  (= "application/json"
                                     (get-in res [:headers "Content-Type"])))
@@ -62,6 +66,33 @@
         ;; No identity: a guest name is invented.
         (let [tok (call handler :post (str "/api/rooms/" id "/token") "{}")]
           (is (str/starts-with? (:identity (:json tok)) "guest-")))))))
+
+(defn- signalling-url-for
+  "The :url a token response carries, for a handler over `lk` and a request
+   with `extra` keys (:server-addr, :headers)."
+  [lk extra]
+  (with-handler lk
+    (fn [handler]
+      (let [id (:id (:json (call handler :post "/api/rooms")))]
+        (:url (:json (call handler :post (str "/api/rooms/" id "/token")
+                           "{}" extra)))))))
+
+(deftest signalling-url-follows-the-request
+  ;; Behind TLS the proxy says https and the host it exposes carries /rtc.
+  (is (= "wss://quickmeet.absky.dev"
+         (signalling-url-for livekit {:server-addr "quickmeet.absky.dev"
+                                      :headers {"x-forwarded-proto" "https"}})))
+  ;; A plain-http proxy: ws, and the host kept as-is, port included.
+  (is (= "ws://meet.example:8080"
+         (signalling-url-for livekit {:headers {"x-forwarded-proto" "http"}})))
+  ;; An explicit public URL wins over whatever the request says.
+  (is (= "wss://sfu.example"
+         (signalling-url-for (assoc livekit :public-url "wss://sfu.example")
+                             {:headers {"x-forwarded-proto" "https"}})))
+  ;; Without :server-addr, the Host header is the fallback.
+  (is (= "ws://meet.example:7880"
+         (signalling-url-for livekit {:server-addr nil
+                                      :headers {"host" "meet.example:8080"}}))))
 
 (deftest unknown-and-invalid-rooms
   (with-handler

@@ -25,7 +25,7 @@
       (f system (str "http://" (:addr (:quickmeet.server/http system))))
       (finally
         (system/stop! system)
-        (os/sh "rm" "-f" path)))))
+        (os/sh "rm" "-f" path (str path "-wal") (str path "-shm"))))))
 
 (defn- json-body [res]
   (json/read-json (:body res) {:keywords? true}))
@@ -42,6 +42,13 @@
         (is (= 12 (count id)))
         (is (str/starts-with? (:token tok) "eyJ"))
         (is (= (str "ws://127.0.0.1:" lk-port) (:url tok)))
+        ;; Behind a TLS proxy the host the request came in on is kept
+        ;; whole: the proxy routes /rtc on it to the SFU.
+        (is (= (str "wss://" (subs base (count "http://")))
+               (:url (json-body (http/post (str base "/api/rooms/" id "/token")
+                                           "{}"
+                                           {:content-type "application/json"
+                                            :headers {"X-Forwarded-Proto" "https"}})))))
         ;; The SFU accepts the token this app minted: /rtc/validate is the
         ;; check livekit-client itself uses to diagnose a join, and answers
         ;; 200 "success" only for a token this SFU will let into the room.
@@ -49,6 +56,45 @@
                                  "/rtc/validate?access_token=" (:token tok)))]
           (is (= 200 (:status res)) (str "SFU rejected the token: " (:body res)))
           (is (= "success" (:body res))))))))
+
+(defn- config-from [m]
+  (system/config (fn [name] (get m name))))
+
+(deftest config-from-the-environment
+  ;; Nothing set: the media port range, and the URL derived per request.
+  (let [c (config-from {})
+        rtc (get-in c [:livekit/server :config :rtc])]
+    (is (= 50000 (:port_range_start rtc)))
+    (is (= 50100 (:port_range_end rtc)))
+    (is (not (contains? rtc :udp_port)))
+    (is (nil? (get-in c [:quickmeet.routes/handler :livekit :public-url]))))
+  ;; A container: one multiplexed UDP port, reachable from the proxy.
+  (let [c (config-from {"LIVEKIT_UDP_PORT" "7882"
+                        "LIVEKIT_PUBLIC_URL" "wss://quickmeet.absky.dev"
+                        "LIVEKIT_BIND" "0.0.0.0"})
+        rtc (get-in c [:livekit/server :config :rtc])]
+    (is (= 7882 (:udp_port rtc)))
+    (is (not (contains? rtc :port_range_start)))
+    (is (not (contains? rtc :port_range_end)))
+    (is (= ["0.0.0.0"] (get-in c [:livekit/server :config :bind_addresses])))
+    (is (= "wss://quickmeet.absky.dev"
+           (get-in c [:quickmeet.routes/handler :livekit :public-url])))))
+
+(deftest concurrent-room-creation
+  ;; Every request runs on its own goroutine and the pool hands each its own
+  ;; sqlite connection, so simultaneous creations race for the write lock.
+  ;; All of them must succeed, with distinct ids.
+  (with-system
+    (fn [_ base]
+      (let [results (->> (range 40)
+                         (mapv (fn [_] (future (http/post (str base "/api/rooms") "" {}))))
+                         (mapv deref))
+            statuses (frequencies (map :status results))]
+        (is (= {201 40} statuses)
+            (str "failures: " (->> results (remove #(= 201 (:status %)))
+                                   (map :body) distinct (take 3) vec)))
+        (is (= 40 (count (set (keep #(when (= 201 (:status %)) (:id (json-body %)))
+                                    results)))))))))
 
 (deftest halt-releases-the-ports
   (let [base (with-system (fn [system base]

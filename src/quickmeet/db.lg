@@ -5,25 +5,55 @@
             [sqlite.core :as sqlite]))
 
 ;; The database component: a sqlite connection with the schema migrated up
-;; to date. Every query is HoneySQL data formatted into the [sql & params]
+;; to date. Queries are HoneySQL data formatted into the [sql & params]
 ;; vector sqlite.core runs directly.
+;;
+;; Two things matter once requests arrive concurrently:
+;;
+;; - database/sql pools connections, and sqlite's default busy timeout is 0,
+;;   so a writer that meets another's lock fails at once with SQLITE_BUSY.
+;;   The DSN sets a busy timeout on every pooled connection, and WAL so
+;;   readers never wait for the writer.
+;; - let-go 1.13.0 runs every http handler on one shared dynamic-binding
+;;   stack, and HoneySQL's format binds dynamic vars while it renders, so
+;;   two requests formatting at once can corrupt each other's SQL. Queries
+;;   are therefore rendered once, at load time, and each call supplies only
+;;   the parameters. See docs/backlog/letgo-http-handlers-share-dynamic-bindings.md.
+
+;; No "file:" prefix: modernc.org/sqlite then splits the parameters off at
+;; the first ? and opens the rest as a literal path, where a file: URI would
+;; give # and % in DB_PATH their URI meanings.
+(defn- dsn [path]
+  (str path "?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)"))
 
 (defmethod ig/init-key ::conn [_ {:keys [path]}]
-  (let [conn (sqlite/open path)]
+  (let [conn (sqlite/open (dsn path))]
     (migrations/migrate! conn)
     conn))
 
 (defmethod ig/halt-key! ::conn [_ conn]
   (sqlite/close! conn))
 
+(defn- sql-of
+  "The SQL string of `query`, rendered once. Parameter values in `query` are
+   placeholders; callers pass the real ones in the same order."
+  [query]
+  (first (sql/format query)))
+
 (def ^:private room-columns [:id :created_at])
 
+(def ^:private create-room-sql
+  (sql-of {:insert-into :rooms
+           :values [{:id "id"}]
+           :returning room-columns}))
+
+(def ^:private get-room-sql
+  (sql-of {:select room-columns
+           :from [:rooms]
+           :where [:= :id "id"]}))
+
 (defn create-room! [conn id]
-  (sqlite/execute-one! conn (sql/format {:insert-into :rooms
-                                         :values [{:id id}]
-                                         :returning room-columns})))
+  (sqlite/execute-one! conn [create-room-sql id]))
 
 (defn get-room [conn id]
-  (sqlite/execute-one! conn (sql/format {:select room-columns
-                                         :from [:rooms]
-                                         :where [:= :id id]})))
+  (sqlite/execute-one! conn [get-room-sql id]))

@@ -14,46 +14,63 @@
 ;; Everything a deployment changes is an environment variable with a
 ;; development default. The defaults bind everything to loopback with a
 ;; well-known dev key, which is fine on a laptop and wrong on a server.
+;; `config` takes the lookup function so tests can pass a map instead of
+;; touching the process environment.
+;;
+;; Media goes over a UDP port range by default. LIVEKIT_UDP_PORT switches the
+;; SFU to one multiplexed UDP port instead, for containers: one published
+;; port is all a host-mode mapping needs.
 
-(defn- env [name default]
-  (let [v (os/getenv name)]
+(defn- env [lookup name default]
+  (let [v (lookup name)]
     (if (str/blank? v) default v)))
 
-(defn- env-int [name default]
-  (Integer/parseInt (env name (str default))))
+(defn- env-int [lookup name default]
+  (Integer/parseInt (env lookup name (str default))))
 
-(defn- env-bool [name default]
-  (= "true" (env name (str default))))
+(defn- env-bool [lookup name default]
+  (= "true" (env lookup name (str default))))
 
 (def dev-api-key "devkey")
 (def dev-api-secret "quickmeet-dev-secret-change-me-in-production!")
 
-(defn config []
-  (let [api-key (env "LIVEKIT_API_KEY" dev-api-key)
-        api-secret (env "LIVEKIT_API_SECRET" dev-api-secret)
-        lk-port (env-int "LIVEKIT_PORT" 7880)]
-    {:quickmeet.db/conn {:path (env "DB_PATH" "quickmeet.db")}
+(defn- rtc-config [lookup]
+  (let [udp-port (env lookup "LIVEKIT_UDP_PORT" nil)]
+    (merge {:tcp_port (env-int lookup "LIVEKIT_RTC_TCP_PORT" 7881)
+            :use_external_ip (env-bool lookup "LIVEKIT_USE_EXTERNAL_IP" false)}
+           ;; LiveKit ignores the range when udp_port is set; leaving it out
+           ;; makes the mode visible in the logged config.
+           (if udp-port
+             {:udp_port (Integer/parseInt udp-port)}
+             {:port_range_start (env-int lookup "LIVEKIT_UDP_START" 50000)
+              :port_range_end (env-int lookup "LIVEKIT_UDP_END" 50100)}))))
 
-     :livekit/server
-     {:config {:port lk-port
-               :bind_addresses [(env "LIVEKIT_BIND" "127.0.0.1")]
-               :rtc {:tcp_port (env-int "LIVEKIT_RTC_TCP_PORT" 7881)
-                     :port_range_start (env-int "LIVEKIT_UDP_START" 50000)
-                     :port_range_end (env-int "LIVEKIT_UDP_END" 50100)
-                     :use_external_ip (env-bool "LIVEKIT_USE_EXTERNAL_IP" false)}
-               :keys {api-key api-secret}
-               :logging {:level (env "LIVEKIT_LOG_LEVEL" "warn")}}}
+(defn config
+  ([] (config os/getenv))
+  ([lookup]
+   (let [api-key (env lookup "LIVEKIT_API_KEY" dev-api-key)
+         api-secret (env lookup "LIVEKIT_API_SECRET" dev-api-secret)
+         lk-port (env-int lookup "LIVEKIT_PORT" 7880)]
+     {:quickmeet.db/conn {:path (env lookup "DB_PATH" "quickmeet.db")}
 
-     :quickmeet.routes/handler {:db (ig/ref :quickmeet.db/conn)
-                                :livekit {:api-key api-key
-                                          :api-secret api-secret
-                                          :port lk-port}}
+      :livekit/server
+      {:config {:port lk-port
+                :bind_addresses [(env lookup "LIVEKIT_BIND" "127.0.0.1")]
+                :rtc (rtc-config lookup)
+                :keys {api-key api-secret}
+                :logging {:level (env lookup "LIVEKIT_LOG_LEVEL" "warn")}}}
 
-     ;; The server refs the SFU so it never accepts a join before the SFU
-     ;; can take the participant.
-     :quickmeet.server/http {:addr (str ":" (env "PORT" "8080"))
-                             :handler (ig/ref :quickmeet.routes/handler)
-                             :livekit (ig/ref :livekit/server)}}))
+      :quickmeet.routes/handler {:db (ig/ref :quickmeet.db/conn)
+                                 :livekit {:api-key api-key
+                                           :api-secret api-secret
+                                           :port lk-port
+                                           :public-url (env lookup "LIVEKIT_PUBLIC_URL" nil)}}
+
+      ;; The server refs the SFU so it never accepts a join before the SFU
+      ;; can take the participant.
+      :quickmeet.server/http {:addr (str ":" (env lookup "PORT" "8080"))
+                              :handler (ig/ref :quickmeet.routes/handler)
+                              :livekit (ig/ref :livekit/server)}})))
 
 (defn start!
   ([] (start! (config)))

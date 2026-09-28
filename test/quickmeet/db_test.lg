@@ -1,0 +1,23 @@
+(ns quickmeet.db-test
+  (:require [clojure.test :refer [deftest is]]
+            [integrant.core :as ig]
+            [quickmeet.db :as db]
+            [sqlite.core :as sqlite]))
+
+;; The connection component opens DB_PATH as a plain file path. Characters
+;; that mean something in a URI (# starts a fragment, % an escape) must not
+;; change which file that is.
+
+(deftest db-path-is-a-literal-file-path
+  (let [path (str "/tmp/quickmeet-db-#" (rand-int 100000000) "%41.db")
+        system (ig/init {:quickmeet.db/conn {:path path}})]
+    (try
+      (db/create-room! (:quickmeet.db/conn system) "0123456789ab")
+      (ig/halt! system)
+      (let [conn (sqlite/open path)]
+        (try
+          (is (= [{:id "0123456789ab"}]
+                 (sqlite/query conn ["select id from rooms"])))
+          (finally (sqlite/close! conn))))
+      (finally
+        (os/sh "rm" "-f" path (str path "-wal") (str path "-shm"))))))

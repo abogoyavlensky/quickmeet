@@ -28,7 +28,7 @@ export default defineConfig({
   },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
   webServer: {
-    command: 'rm -f .tmp/quickmeet.db && mkdir -p .tmp && ../bin/quickmeet',
+    command: 'rm -f .tmp/quickmeet.db .tmp/quickmeet.db-wal .tmp/quickmeet.db-shm && mkdir -p .tmp && ../bin/quickmeet',
     url: 'http://127.0.0.1:8099/',
     reuseExistingServer: false,
     timeout: 60_000,

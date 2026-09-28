@@ -1,8 +1,16 @@
 name: test
 
+# Master pushes run these tests through deploy.yml, which deploys after them.
 on:
   push:
+    branches-ignore: [master]
   pull_request:
+  workflow_call:
+
+# A static binary, so the one the tests run is the one the container image
+# ships; see .mise.toml.
+env:
+  CGO_ENABLED: "0"
 
 concurrency:
   group: test-${{ github.ref }}
@@ -19,15 +27,17 @@ jobs:
 
       # The app runs on a custom lg that lgx builds with the Go toolchain
       # (:lg-runtime :built). The build is keyed on lgx.edn, so a run that
-      # does not change the Go coord set reuses the cached runtime.
+      # does not change the Go coord set reuses the cached runtime. "static"
+      # in the key: lgx keys runtimes on CGO_ENABLED too, and an exact key hit
+      # never saves, so the old key would never cache the static runtime.
       - uses: actions/cache@v4
         with:
           path: |
             ~/.cache/go-build
             ~/go/pkg/mod
             ~/.lgx/runtimes
-          key: runtimes-${{ runner.os }}-${{ hashFiles('lgx.edn') }}
-          restore-keys: runtimes-${{ runner.os }}-
+          key: runtimes-static-${{ runner.os }}-${{ hashFiles('lgx.edn') }}
+          restore-keys: runtimes-static-${{ runner.os }}-
 
       - uses: actions/cache@v4
         with:
