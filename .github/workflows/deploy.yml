@@ -1,0 +1,84 @@
+name: deploy
+
+on:
+  push:
+    branches: [master]
+
+# Static binary for the Alpine image; see .mise.toml.
+env:
+  CGO_ENABLED: "0"
+
+# Two master pushes deploy one after the other, never at once.
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false
+
+jobs:
+  test:
+    uses: ./.github/workflows/test.yml
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: [test]
+    permissions:
+      contents: read
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: webfactory/ssh-agent@v0.10.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      # lgx, Go, Node and uc at the versions in .mise.toml.
+      - uses: jdx/mise-action@v3
+
+      # Same runtime cache as test.yml: the build below is a cache hit.
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+            ~/.lgx/runtimes
+          key: runtimes-static-${{ runner.os }}-${{ hashFiles('lgx.edn') }}
+          restore-keys: runtimes-static-${{ runner.os }}-
+
+      # The image is a copy of this binary. A dynamically linked one would
+      # not start on Alpine, so fail here rather than in the container.
+      - name: Build the binary
+        run: |
+          lgx build
+          file bin/quickmeet | grep -q 'statically linked'
+
+      # An image build alone cannot tell a binary that builds from one that
+      # starts on Alpine. Runs before buildx is set up so the default docker
+      # driver loads the image for `docker run`.
+      - name: Smoke-test the image
+        run: |
+          docker build -t quickmeet:ci .
+          docker run --rm -d --name qm -p 8080:8080 \
+            -e PORT=8080 -e LIVEKIT_BIND=0.0.0.0 -e LIVEKIT_UDP_PORT=7882 \
+            -e DB_PATH=/tmp/quickmeet.db quickmeet:ci
+          status=0
+          curl -fsS --retry 15 --retry-connrefused --retry-delay 1 \
+            localhost:8080/ > /dev/null || status=$?
+          docker logs qm
+          docker rm -f qm
+          exit $status
+
+      # The default docker driver can't export cache (type=gha); this sets up
+      # a docker-container builder that can.
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      # Exposes ACTIONS_RUNTIME_TOKEN/ACTIONS_CACHE_URL to the `uc` run step
+      # so the gha cache backend can authenticate.
+      - name: Expose GitHub Runtime for cache
+        uses: crazy-max/ghaction-github-runtime@v4
+
+      - name: Build and deploy
+        env:
+          APP_DOMAIN: ${{ vars.APP_DOMAIN }}
+          LIVEKIT_API_KEY: ${{ secrets.LIVEKIT_API_KEY }}
+          LIVEKIT_API_SECRET: ${{ secrets.LIVEKIT_API_SECRET }}
+        run: uc --context unison-staging --connect root@${{ vars.SERVER_IP }} deploy -f compose.yaml --yes quickmeet-app
