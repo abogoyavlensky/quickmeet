@@ -127,6 +127,18 @@ built binary, run by `lgx e2e` (2026-09-27).
   `:server-addr` (port included). A handler reading `"host"` from
   `:headers` always gets nil over real HTTP; unit tests that build the
   request map by hand will not notice (2026-09-28).
+- let-go 1.13.0 runs every http handler on the shared root
+  `ExecContext` (`Func.Invoke`, `pkg/vm/func.go:184`), so concurrent
+  requests share one dynamic-binding stack. Anything that binds dynamic
+  vars on the request path (HoneySQL's `format` does) can be corrupted
+  by a concurrent request. Goroutines let-go spawns itself get their own
+  context; Go's http goroutines do not. See
+  `docs/backlog/letgo-http-handlers-share-dynamic-bindings.md`.
+- `sqlite.core/open` passes the path to modernc.org/sqlite as the DSN, so
+  pooled connections have busy timeout 0: concurrent writers fail with
+  `SQLITE_BUSY` rather than wait. `_pragma=busy_timeout(...)` in a
+  `file:` DSN fixes it per connection. See
+  `docs/backlog/sqlite-busy-on-concurrent-writes.md`.
 - let-go's `http/post` is `(http/post url body opts)` with `:headers` and
   `:content-type` in opts; the response map has `:status`, `:headers`,
   `:body`. `http/request` takes one map. `http/request` has no timeout.
@@ -195,8 +207,13 @@ Learned while setting up staging on uncloud, 2026-09-28:
   (`CreateHostPath: true`). `uc deploy` has no dry run; to check a
   compose file offline, load it through uncloud's
   `compose.LoadProject` and `ServiceSpecFromCompose` and call `Validate`.
-- The app's peak memory in a two-person call is about 120 MB (measured
-  during `lgx e2e`), so the container gets `mem_limit: 256m`.
+- Capacity, measured 2026-09-28 with the e2e call spec run as 1, 2 and 4
+  parallel calls against one binary (headless Chromium, fake media):
+  peak RSS 122, 152 and 198 MB, so each call adds about 25 MB over a fixed
+  base of about 100 MB. Two calls used 11% of one core on average, 24% at
+  peak. The container's `mem_limit: 256m` fits about five or six calls.
+  Real cameras send more than Chrome's fake device; memory should hold
+  (it is mostly per-participant buffers), CPU scales with packet rate.
 - `lg` ignores SIGTERM (see "Dev tooling gotchas"), so the service sets
   `stop_grace_period: 2s`; waiting Docker's default 10 s buys nothing.
 
