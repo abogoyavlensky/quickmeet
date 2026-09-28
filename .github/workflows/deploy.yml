@@ -53,15 +53,20 @@ jobs:
       # An image build alone cannot tell a binary that builds from one that
       # starts on Alpine. Runs before buildx is set up so the default docker
       # driver loads the image for `docker run`.
+      # Docker's port proxy accepts the connection before the app listens and
+      # then resets it, which curl does not count as retryable, hence
+      # --retry-all-errors. No --rm, so a container that crashed still has
+      # its logs to print.
       - name: Smoke-test the image
         run: |
           docker build -t quickmeet:ci .
-          docker run --rm -d --name qm -p 8080:8080 \
+          docker run -d --name qm -p 8080:8080 \
             -e PORT=8080 -e LIVEKIT_BIND=0.0.0.0 -e LIVEKIT_UDP_PORT=7882 \
             -e DB_PATH=/tmp/quickmeet.db quickmeet:ci
           status=0
-          curl -fsS --retry 15 --retry-connrefused --retry-delay 1 \
+          curl -fsS --retry 15 --retry-all-errors --retry-delay 1 \
             localhost:8080/ > /dev/null || status=$?
+          docker ps -a --filter name=qm
           docker logs qm
           docker rm -f qm
           exit $status
