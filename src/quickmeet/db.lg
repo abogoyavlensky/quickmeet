@@ -20,8 +20,11 @@
 ;;   are therefore rendered once, at load time, and each call supplies only
 ;;   the parameters. See docs/backlog/letgo-http-handlers-share-dynamic-bindings.md.
 
+;; No "file:" prefix: modernc.org/sqlite then splits the parameters off at
+;; the first ? and opens the rest as a literal path, where a file: URI would
+;; give # and % in DB_PATH their URI meanings.
 (defn- dsn [path]
-  (str "file:" path "?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)"))
+  (str path "?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)"))
 
 (defmethod ig/init-key ::conn [_ {:keys [path]}]
   (let [conn (sqlite/open (dsn path))]
