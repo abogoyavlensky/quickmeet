@@ -14,21 +14,24 @@
                         :api-secret "test-secret-test-secret-test-secret!!"
                         :port 7880})
 
-(defn- with-handler [f]
-  (let [path (str "/tmp/quickmeet-routes-" (rand-int 100000000) ".db")
-        system (ig/init {:quickmeet.db/conn {:path path}})]
-    (try
-      (f (routes/handler (:quickmeet.db/conn system) livekit))
-      (finally
-        (ig/halt! system)
-        (os/sh "rm" "-f" path)))))
+(defn- with-handler
+  ([f] (with-handler livekit f))
+  ([lk f]
+   (let [path (str "/tmp/quickmeet-routes-" (rand-int 100000000) ".db")
+         system (ig/init {:quickmeet.db/conn {:path path}})]
+     (try
+       (f (routes/handler (:quickmeet.db/conn system) lk))
+       (finally
+         (ig/halt! system)
+         (os/sh "rm" "-f" path))))))
 
 (defn- call
   ([handler method uri] (call handler method uri nil))
-  ([handler method uri body]
+  ([handler method uri body] (call handler method uri body nil))
+  ([handler method uri body headers]
    (let [res (handler {:request-method method
                        :uri uri
-                       :headers {"host" "meet.example:8080"}
+                       :headers (merge {"host" "meet.example:8080"} headers)
                        :body body})]
      (assoc res :json (when (and (seq (:body res))
                                  (= "application/json"
@@ -62,6 +65,29 @@
         ;; No identity: a guest name is invented.
         (let [tok (call handler :post (str "/api/rooms/" id "/token") "{}")]
           (is (str/starts-with? (:identity (:json tok)) "guest-")))))))
+
+(defn- signalling-url-for
+  "The :url a token response carries, for a handler over `lk` and a request
+   with extra `headers`."
+  [lk headers]
+  (with-handler lk
+    (fn [handler]
+      (let [id (:id (:json (call handler :post "/api/rooms")))]
+        (:url (:json (call handler :post (str "/api/rooms/" id "/token")
+                           "{}" headers)))))))
+
+(deftest signalling-url-follows-the-request
+  ;; Behind TLS the proxy says https and the host it exposes carries /rtc.
+  (is (= "wss://quickmeet.absky.dev"
+         (signalling-url-for livekit {"host" "quickmeet.absky.dev"
+                                      "x-forwarded-proto" "https"})))
+  ;; A plain-http proxy: ws, and the host kept as-is, port included.
+  (is (= "ws://meet.example:8080"
+         (signalling-url-for livekit {"x-forwarded-proto" "http"})))
+  ;; An explicit public URL wins over whatever the request says.
+  (is (= "wss://sfu.example"
+         (signalling-url-for (assoc livekit :public-url "wss://sfu.example")
+                             {"x-forwarded-proto" "https"}))))
 
 (deftest unknown-and-invalid-rooms
   (with-handler

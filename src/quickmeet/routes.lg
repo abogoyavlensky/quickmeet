@@ -51,13 +51,23 @@
       (json/read-json body {:keywords? true}))))
 
 (defn- signalling-url
-  "Where the browser connects for signalling: the host it reached this app
-   on, at the SFU's port. Behind TLS the scheme becomes wss and the port is
-   whatever the proxy exposes; that is a deployment concern for later."
-  [req lk-port]
-  (let [host (or (some-> (get-in req [:headers "host"]) (str/split ":") first)
-                 "127.0.0.1")]
-    (str "ws://" host ":" lk-port)))
+  "Where the browser connects for signalling. An explicit :public-url wins.
+   Behind a proxy, x-forwarded-proto says whether the page came over TLS,
+   and the host the proxy exposes is where /rtc lives: the proxy routes it
+   to the SFU, so no port is added. With no proxy, the host the page was
+   served from, at the SFU's port."
+  [req {:keys [port public-url]}]
+  (let [headers (:headers req)
+        proto (get headers "x-forwarded-proto")]
+    (cond
+      (not (str/blank? public-url)) public-url
+
+      proto (str (if (= "https" proto) "wss" "ws") "://" (get headers "host"))
+
+      :else
+      (let [host (or (some-> (get headers "host") (str/split ":") first)
+                     "127.0.0.1")]
+        (str "ws://" host ":" port)))))
 
 (defn- clean-identity [s]
   (let [s (str/trim (str s))]
@@ -66,7 +76,7 @@
       (> (count s) 64) (subs s 0 64)
       :else s)))
 
-(defn- routes [conn {:keys [api-key api-secret port]}]
+(defn- routes [conn {:keys [api-key api-secret] :as livekit}]
   [{:path "/"
     :method :get
     :response (fn [_] (static-response "index.html"))}
@@ -111,7 +121,7 @@
                                                         :room-join true
                                                         :ttl-seconds 3600})
                                       :identity identity
-                                      :url (signalling-url req port)}))
+                                      :url (signalling-url req livekit)}))
                     (json-response 404 {:error "not found"}))))}
 
    {:path :not-found
@@ -119,7 +129,7 @@
 
 (defn handler
   "A Ring-style handler: request map in, response map out. `livekit` is
-   {:api-key :api-secret :port}."
+   {:api-key :api-secret :port :public-url}; :public-url is optional."
   [conn livekit]
   (let [table (routes conn livekit)]
     (fn [req]
