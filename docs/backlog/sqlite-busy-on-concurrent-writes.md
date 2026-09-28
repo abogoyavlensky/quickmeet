@@ -1,7 +1,7 @@
 # Concurrent room creation fails with 500 "database is locked"
 
 **Status: done**
-Landed in da0ea5c: the DSN sets `busy_timeout(5000)` and WAL; `system_test.lg` `concurrent-room-creation` covers it.
+Landed in da0ea5c: the DSN sets `busy_timeout(5000)` and WAL; `system_test.lg` `concurrent-room-creation` covers it. Follow-up 05c6595 dropped the `file:` prefix from the DSN below, so `#` or `%` in `DB_PATH` stay literal (`test/quickmeet/db_test.lg`).
 
 ## Problem
 
