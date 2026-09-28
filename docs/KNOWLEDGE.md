@@ -136,8 +136,9 @@ built binary, run by `lgx e2e` (2026-09-27).
   `docs/backlog/letgo-http-handlers-share-dynamic-bindings.md`.
 - `sqlite.core/open` passes the path to modernc.org/sqlite as the DSN, so
   pooled connections have busy timeout 0: concurrent writers fail with
-  `SQLITE_BUSY` rather than wait. `_pragma=busy_timeout(...)` in a
-  `file:` DSN fixes it per connection. See
+  `SQLITE_BUSY` rather than wait. `path?_pragma=busy_timeout(...)` fixes
+  it per connection. Leave off the `file:` prefix: with it SQLite reads
+  the path as a URI, and `#` or `%` in it open a different file. See
   `docs/backlog/sqlite-busy-on-concurrent-writes.md`.
 - let-go's `http/post` is `(http/post url body opts)` with `:headers` and
   `:content-type` in opts; the response map has `:status`, `:headers`,
