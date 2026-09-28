@@ -14,7 +14,7 @@
       (f conn)
       (finally
         (sqlite/close! conn)
-        (os/sh "rm" "-f" path)))))
+        (os/sh "rm" "-f" path (str path "-wal") (str path "-shm"))))))
 
 (defn- tables [conn]
   (mapv :name (sqlite/query conn ["select name from sqlite_master

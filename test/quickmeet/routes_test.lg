@@ -23,7 +23,7 @@
        (f (routes/handler (:quickmeet.db/conn system) lk))
        (finally
          (ig/halt! system)
-         (os/sh "rm" "-f" path))))))
+         (os/sh "rm" "-f" path (str path "-wal") (str path "-shm")))))))
 
 (defn- call
   ([handler method uri] (call handler method uri nil))

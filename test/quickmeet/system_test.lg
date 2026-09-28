@@ -25,7 +25,7 @@
       (f system (str "http://" (:addr (:quickmeet.server/http system))))
       (finally
         (system/stop! system)
-        (os/sh "rm" "-f" path)))))
+        (os/sh "rm" "-f" path (str path "-wal") (str path "-shm"))))))
 
 (defn- json-body [res]
   (json/read-json (:body res) {:keywords? true}))
@@ -79,6 +79,22 @@
     (is (= ["0.0.0.0"] (get-in c [:livekit/server :config :bind_addresses])))
     (is (= "wss://quickmeet.absky.dev"
            (get-in c [:quickmeet.routes/handler :livekit :public-url])))))
+
+(deftest concurrent-room-creation
+  ;; Every request runs on its own goroutine and the pool hands each its own
+  ;; sqlite connection, so simultaneous creations race for the write lock.
+  ;; All of them must succeed, with distinct ids.
+  (with-system
+    (fn [_ base]
+      (let [results (->> (range 40)
+                         (mapv (fn [_] (future (http/post (str base "/api/rooms") "" {}))))
+                         (mapv deref))
+            statuses (frequencies (map :status results))]
+        (is (= {201 40} statuses)
+            (str "failures: " (->> results (remove #(= 201 (:status %)))
+                                   (map :body) distinct (take 3) vec)))
+        (is (= 40 (count (set (keep #(when (= 201 (:status %)) (:id (json-body %)))
+                                    results)))))))))
 
 (deftest halt-releases-the-ports
   (let [base (with-system (fn [system base]
