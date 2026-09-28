@@ -1,0 +1,56 @@
+x-context: unison-staging
+
+services:
+  quickmeet-app:
+    build:
+      context: .
+      platforms:
+        - linux/amd64
+      cache_from:
+        - type=gha
+      cache_to:
+        - type=gha,mode=max
+    # One hostname for the page and the SFU's signalling: the browser needs
+    # /rtc and /rtc/validate, the twirp room API stays internal.
+    x-caddy: |
+      ${APP_DOMAIN} {
+        handle /rtc* {
+          reverse_proxy {{upstreams 7880}}
+        }
+        handle {
+          reverse_proxy {{upstreams 8080}}
+        }
+      }
+    # WebRTC media cannot go through Caddy. All UDP media is multiplexed on
+    # one port (LIVEKIT_UDP_PORT), plus ICE over TCP as the fallback; host
+    # mode keeps the ports identical inside and outside the container.
+    x-ports:
+      - 7882:7882/udp@host
+      - 7881:7881/tcp@host
+    volumes:
+      - /root/quickmeet-db:/app/db
+    # About 120 MB peak in a two-person call; the host has 1 GB and also runs
+    # unison's JVM, Postgres and MinIO.
+    mem_limit: 256m
+    mem_reservation: 128m
+    # lg ignores SIGTERM, so waiting the default 10 s buys nothing.
+    stop_grace_period: 2s
+    environment:
+      PORT: "8080"
+      LIVEKIT_PORT: "7880"
+      # Caddy reaches the SFU over the overlay network, not loopback.
+      LIVEKIT_BIND: 0.0.0.0
+      LIVEKIT_RTC_TCP_PORT: "7881"
+      LIVEKIT_UDP_PORT: "7882"
+      # Advertise the host's public address (found over STUN) in ICE.
+      LIVEKIT_USE_EXTERNAL_IP: "true"
+      LIVEKIT_LOG_LEVEL: info
+      DB_PATH: /app/db/quickmeet.db
+      LIVEKIT_API_KEY: secret://livekit_api_key
+      LIVEKIT_API_SECRET: secret://livekit_api_secret
+
+secrets:
+  livekit_api_key:
+    x-command: printenv LIVEKIT_API_KEY
+  livekit_api_secret:
+    x-command: printenv LIVEKIT_API_SECRET
