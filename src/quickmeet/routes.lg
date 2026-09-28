@@ -50,6 +50,14 @@
     (when-not (str/blank? (str body))
       (json/read-json body {:keywords? true}))))
 
+(defn- request-host
+  "The host the request was addressed to, port included. Go's server moves
+   the Host header out of the header map; let-go hands it over as
+   :server-addr."
+  [req]
+  (let [addr (:server-addr req)]
+    (if (str/blank? addr) (get-in req [:headers "host"]) addr)))
+
 (defn- signalling-url
   "Where the browser connects for signalling. An explicit :public-url wins.
    Behind a proxy, x-forwarded-proto says whether the page came over TLS,
@@ -57,17 +65,16 @@
    to the SFU, so no port is added. With no proxy, the host the page was
    served from, at the SFU's port."
   [req {:keys [port public-url]}]
-  (let [headers (:headers req)
-        proto (get headers "x-forwarded-proto")]
+  (let [host (request-host req)
+        proto (get-in req [:headers "x-forwarded-proto"])]
     (cond
       (not (str/blank? public-url)) public-url
 
-      proto (str (if (= "https" proto) "wss" "ws") "://" (get headers "host"))
+      proto (str (if (= "https" proto) "wss" "ws") "://" host)
 
       :else
-      (let [host (or (some-> (get headers "host") (str/split ":") first)
-                     "127.0.0.1")]
-        (str "ws://" host ":" port)))))
+      (str "ws://" (or (some-> host (str/split ":") first) "127.0.0.1")
+           ":" port))))
 
 (defn- clean-identity [s]
   (let [s (str/trim (str s))]
