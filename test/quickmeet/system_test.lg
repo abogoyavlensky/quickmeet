@@ -3,6 +3,7 @@
             [http :as http]
             [json :as json]
             [livekit.core :as lk]
+            [quickmeet.sfu :as sfu]
             [quickmeet.system :as system]
             [string :as str]))
 
@@ -40,6 +41,8 @@
                                       "{\"identity\":\"alice\"}"
                                       {:content-type "application/json"}))]
         (is (= 12 (count id)))
+        ;; Nobody has joined, so the SFU has no such room yet: no participants.
+        (is (= [] (:participants (json-body (http/get (str base "/api/rooms/" id))))))
         (is (str/starts-with? (:token tok) "eyJ"))
         (is (= (str "ws://127.0.0.1:" lk-port) (:url tok)))
         ;; Behind a TLS proxy the host the request came in on is kept
@@ -57,6 +60,16 @@
           (is (= 200 (:status res)) (str "SFU rejected the token: " (:body res)))
           (is (= "success" (:body res))))))))
 
+(deftest participants-of-an-unknown-room
+  ;; The SFU creates a room on its first join, so a room the app knows but
+  ;; nobody has joined is unknown to the SFU: an empty vector, not nil.
+  (with-system
+    (fn [_ _]
+      (is (= [] (sfu/participants {:api-key system/dev-api-key
+                                   :api-secret system/dev-api-secret
+                                   :port lk-port}
+                                  "0123456789ab"))))))
+
 (defn- config-from [m]
   (system/config (fn [name] (get m name))))
 
@@ -67,7 +80,9 @@
     (is (= 50000 (:port_range_start rtc)))
     (is (= 50100 (:port_range_end rtc)))
     (is (not (contains? rtc :udp_port)))
-    (is (nil? (get-in c [:quickmeet.routes/handler :livekit :public-url]))))
+    (is (nil? (get-in c [:quickmeet.routes/handler :livekit :public-url])))
+    ;; Two people per room: the SFU enforces the product rule.
+    (is (= 2 (get-in c [:livekit/server :config :room :max_participants]))))
   ;; A container: one multiplexed UDP port, reachable from the proxy.
   (let [c (config-from {"LIVEKIT_UDP_PORT" "7882"
                         "LIVEKIT_PUBLIC_URL" "wss://quickmeet.absky.dev"

@@ -96,6 +96,37 @@ not enough:
 - The SFU detects the host's public IP as its node IP even with
   `use_external_ip false`. Harmless on a laptop, relevant when deploying.
 
+Verified 2026-09-29, for the two-person rule:
+
+- `room.max_participants` in the config caps every auto-created room
+  (`pkg/service/roomallocator.go:189`). At the cap, `Room.Join` returns
+  `ErrMaxParticipantsExceeded` (`pkg/rtc/room.go:466`), which reaches the
+  browser as a plain 500 on the signalling upgrade
+  (`pkg/service/rtcservice.go:404`). `livekit-client` then consults
+  `/rtc/validate`, which does not consider the cap and still answers
+  `success`, so the client raises a generic connection error: a browser
+  cannot tell "full" from "broken" on its own. Hence `quickmeet.sfu`.
+- The SFU's twirp room service takes JSON over its own http port:
+  `POST /twirp/livekit.RoomService/ListParticipants`, body
+  `{"room": "<id>"}`, `Authorization: Bearer <jwt>` with the `roomAdmin`
+  grant for that room (`lk/token` with `:room-admin true`). A room the
+  SFU has not created yet, which is every app room nobody joined, answers
+  404 `requested room does not exist`. Participants carry `state`
+  (`JOINING`, `JOINED`, `ACTIVE`, `DISCONNECTED`). With `LIVEKIT_BIND`
+  `0.0.0.0` loopback still reaches it.
+- `livekit-client` raises `SignalReconnecting` first when only the
+  signalling socket drops, and `Reconnecting` only for a full reconnect;
+  a UI must follow both. `Disconnected` carries a `DisconnectReason`;
+  `CLIENT_INITIATED` is a leave, anything else is a lost connection.
+- `LocalTrack.restartTrack({deviceId})` swaps the capture device and
+  re-attaches to the elements the track was attached to, so a lobby
+  preview switches cameras without touching the `<video>`. The client
+  stops only published tracks on disconnect: preview tracks that never
+  got published must be stopped by the page.
+- Safari (iOS above all) can block remote audio until a user gesture:
+  `RoomEvent.AudioPlaybackStatusChanged` plus `room.canPlaybackAudio`
+  say so, and `room.startAudio()` from a click unblocks it.
+
 ## What the milestone 0 spike proved, 2026-09-27
 
 Two browser participants in one tab, publishing canvas video and
@@ -143,6 +174,18 @@ built binary, run by `lgx e2e` (2026-09-27).
 - let-go's `http/post` is `(http/post url body opts)` with `:headers` and
   `:content-type` in opts; the response map has `:status`, `:headers`,
   `:body`. `http/request` takes one map. `http/request` has no timeout.
+  A non-2xx response comes back as that map, not an exception
+  (`pkg/rt/http.go:640`); only a failed connection throws.
+- Browser layout, learned with headless screenshots (2026-09-29): an
+  author `display: grid` on a section beats the `hidden` attribute's
+  `display: none`, so `[hidden] { display: none !important }` is needed;
+  a `<video>` has an intrinsic height, so a flex or grid container that
+  should fit the viewport needs `min-height: 0` on the items (and
+  `minmax(0, 1fr)` rows) or it grows to the video and pushes absolutely
+  positioned controls off screen; `100dvh` (with a `100vh` fallback and
+  `min-height: 0`) keeps controls above a phone's address bar;
+  `viewport-fit=cover` plus `env(safe-area-inset-bottom)` clears the
+  home indicator.
 - `(str (random-uuid))` renders as `#uuid "..."`, tag included, not the
   bare hex. Strip everything but hex before using it in an id.
 - let-go has `hash/sha256`, `base64url-encode`, `random-uuid`, JSON, but no

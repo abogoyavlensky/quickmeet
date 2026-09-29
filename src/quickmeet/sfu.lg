@@ -1,0 +1,40 @@
+(ns quickmeet.sfu
+  (:require [http :as http]
+            [json :as json]
+            [livekit.core :as lk]))
+
+;; Questions the app asks the embedded SFU about live rooms. The livekit
+;; package exposes no room API, but the SFU's twirp room service accepts
+;; JSON over its own http port, and lk/token mints the admin grant it wants.
+;;
+;; Why the app asks at all: the SFU enforces room.max_participants itself,
+;; but a refused join reaches the browser as a plain 500 on the signalling
+;; upgrade, and /rtc/validate (what livekit-client then consults) does not
+;; consider the cap and still answers "success". So the browser cannot
+;; tell "full" from "broken". The token endpoint asks here first and
+;; answers 409 with a message, and the lobby shows who is already there.
+
+(defn- list-participants-url [port]
+  ;; The SFU may bind 0.0.0.0 in a container; loopback still reaches it.
+  (str "http://127.0.0.1:" port "/twirp/livekit.RoomService/ListParticipants"))
+
+(defn participants
+  "Who the SFU has in `room-id` now: a vector of {:identity ..}, [] when the
+   SFU has no such room (it creates rooms on first join, so an app room
+   nobody joined yet is unknown to it), nil when it could not be asked.
+   `livekit` is the handler's {:api-key :api-secret :port} map."
+  [{:keys [api-key api-secret port]} room-id]
+  (try
+    (let [token (lk/token api-key api-secret
+                          {:room room-id :room-admin true :ttl-seconds 60})
+          res (http/post (list-participants-url port)
+                         (json/write-json {:room room-id})
+                         {:content-type "application/json"
+                          :headers {"Authorization" (str "Bearer " token)}})]
+      (case (:status res)
+        200 (->> (:participants (json/read-json (:body res) {:keywords? true}))
+                 (remove #(= "DISCONNECTED" (:state %)))
+                 (mapv #(select-keys % [:identity])))
+        404 []
+        nil))
+    (catch Exception _ nil)))

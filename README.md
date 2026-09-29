@@ -30,7 +30,11 @@ lgx build && ./bin/quickmeet
 ```
 
 Open http://localhost:8080, click "New meeting", open the room link in a
-second window, join from both.
+second window, join from both. The room page shows a lobby first: a
+preview of your camera, pickers for the camera and microphone, and who
+is already in the room. Rooms are permanent and hold two people; a third
+person is told the meeting is full. A link is created once and reused
+for every call with that person.
 
 ## Browser tests
 
@@ -40,8 +44,12 @@ thing: `lgx e2e` builds `bin/quickmeet`, starts it on test ports (app
 opens two headless Chromiums with fake cameras and microphones on the
 same room link, and checks that each side sees and hears the other:
 the remote video plays, decoded frames and audio packets keep growing,
-nothing is lost, and leaving is noticed. Playwright stops the app when
-the run ends, so it coexists with an `lgx run` on the default ports.
+nothing is lost, and leaving is noticed. Other specs cover the lobby
+(preview, device pickers, who is there, a third person refused), the
+call's states (waiting, reconnecting, a lost connection) and the layout
+on phone-sized and short viewports by bounding boxes. Playwright stops
+the app when the run ends, so it coexists with an `lgx run` on the
+default ports.
 
 ```
 lgx e2e-setup           # once: npm ci and the headless Chromium
@@ -88,8 +96,8 @@ the server accepts for root), `LIVEKIT_API_KEY` (any short identifier)
 and `LIVEKIT_API_SECRET` (32+ random characters, e.g.
 `openssl rand -hex 32`). DNS for `APP_DOMAIN` points at the server.
 
-Staging is public, with no room expiry, participant cap or rate limit
-yet.
+Rooms are permanent and hold two people; staging is public, with no rate
+limit yet.
 
 ## Configuration
 
@@ -118,7 +126,8 @@ main.lg                        starts the system, waits on the http server
 src/quickmeet/system.lg        the integrant config from the environment
 src/quickmeet/db.lg            ::conn (open + migrate), queries
 src/quickmeet/migrations.lg    the schema history (ragtime over sqlite)
-src/quickmeet/routes.lg        ::handler: pages, /api/rooms, join tokens
+src/quickmeet/routes.lg        ::handler: pages, /api/rooms, join tokens, the two-person rule
+src/quickmeet/sfu.lg           asks the embedded SFU who is in a room (twirp over loopback)
 src/quickmeet/server.lg        ::http: http/start on init, http/stop on halt
 resources/public/              index.html, room.html, app.css, vendored livekit-client
 test/quickmeet/                routes over a temp db; migrations; the full system
@@ -136,11 +145,15 @@ so integrant starts the database and the SFU first and halts them last.
 
 ```
 POST /api/rooms                  -> 201 {"id": "0123456789ab"}
-GET  /api/rooms/:id              -> 200 {"id", "created_at"} | 404
+GET  /api/rooms/:id              -> 200 {"id", "created_at", "participants": [{"identity": "alice"}]} | 404
 POST /api/rooms/:id/token        {"identity": "alice"}   (identity optional)
-                                 -> 200 {"token", "identity", "url"} | 404
+                                 -> 200 {"token", "identity", "url"} | 404 | 409 {"error": "full"}
 GET  /room/:id                   the room page
 ```
+
+`participants` is who the SFU has in the room right now (the lobby polls
+it); the token endpoint answers 409 once two people are in. Rooms never
+expire.
 
 The token is a LiveKit join token for that room only, valid for an hour.
 `url` is the signalling address the browser should connect to:
