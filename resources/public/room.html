@@ -35,6 +35,12 @@
   <section id="call" class="call" hidden>
     <div class="tile"><video id="remote" autoplay playsinline></video><span id="remote-name" class="tag">waiting for the other side…</span></div>
     <div class="tile self"><video id="local" autoplay playsinline muted></video><span id="local-name" class="tag">you</span></div>
+    <!-- One banner for the call's state; the sound button for browsers
+         that block remote audio until a tap (iOS Safari). -->
+    <div class="overlay">
+      <p id="status" class="status" hidden></p>
+      <button id="sound" class="primary" hidden>Tap to enable sound</button>
+    </div>
     <footer>
       <button id="mic" class="ghost">Mute</button>
       <button id="cam" class="ghost">Stop video</button>
@@ -49,10 +55,11 @@
     // those same tracks, so there is one permission prompt. Leaving, or a
     // dropped connection, returns to the lobby, which starts over (the
     // client stops local tracks on disconnect).
-    const { Room, RoomEvent, Track, createLocalTracks } = LivekitClient;
+    const { Room, RoomEvent, Track, DisconnectReason, createLocalTracks } = LivekitClient;
     const $ = id => document.getElementById(id);
     const roomId = location.pathname.split('/').pop();
     const FULL = 'This meeting already has two people in it.';
+    const WAITING = 'Waiting for the other person. Share the link.';
 
     $('room-id').textContent = roomId;
     $('copy').addEventListener('click', async () => {
@@ -63,6 +70,7 @@
     const showError = e => { $('error').textContent = String(e.message || e); $('error').hidden = false; };
     const showNotice = text => { $('notice').textContent = text || ''; $('notice').hidden = !text; };
     const show = section => { for (const id of ['gone', 'lobby', 'call']) $(id).hidden = id !== section; };
+    const setStatus = text => { $('status').textContent = text || ''; $('status').hidden = !text; };
 
     // The whole call state, exposed for tests and for poking at from devtools.
     // `joined` flips once the local tracks are published; `remote` is the
@@ -199,6 +207,21 @@
 
     // ---- call -----------------------------------------------------------
 
+    // Presence drives the banner, not media: a receive-only participant
+    // publishes nothing, and is still someone to talk to.
+    const refreshStatus = room => setStatus(room.remoteParticipants.size > 0 ? null : WAITING);
+
+    // Two people can both get tokens before the room fills; the SFU then
+    // refuses one with an error the browser cannot tell from a broken
+    // connection (see sfu.lg). So a failed connect asks the app again.
+    async function isFull() {
+      try {
+        const res = await fetch(`/api/rooms/${roomId}`);
+        if (!res.ok) return false;
+        return (await res.json()).participants.length >= 2;
+      } catch (e) { return false; }
+    }
+
     async function join() {
       if (lobby.joining) return;
       lobby.joining = true;
@@ -224,28 +247,45 @@
           $('remote-name').textContent = participant.identity;
           window.call.remote = participant.identity;
         });
+        room.on(RoomEvent.ParticipantConnected, () => setStatus(null));
         room.on(RoomEvent.ParticipantDisconnected, () => {
           $('remote-name').textContent = 'the other side left';
           window.call.remote = null;
           window.call.tracks = { video: null, audio: null };
+          setStatus('Waiting for the other person.');
         });
-        room.on(RoomEvent.Disconnected, () => {
+        room.on(RoomEvent.Reconnecting, () => setStatus('Reconnecting…'));
+        room.on(RoomEvent.Reconnected, () => refreshStatus(room));
+        room.on(RoomEvent.AudioPlaybackStatusChanged, () => { $('sound').hidden = room.canPlaybackAudio; });
+        room.on(RoomEvent.Disconnected, reason => {
           // A failed join tears itself down in join()'s catch; only a call
           // that was up returns to the lobby from here.
           if (!window.call.joined) return;
           window.call.joined = false;
           window.call.tracks = { video: null, audio: null };
           show('lobby');
-          startLobby();
+          startLobby(reason === DisconnectReason.CLIENT_INITIATED ? null : 'Connection lost. Join again.');
         });
 
-        await room.connect(url, token);
+        try {
+          await room.connect(url, token);
+        } catch (e) {
+          throw (await isFull()) ? new Error(FULL) : e;
+        }
         for (const t of lobby.tracks) {
           await room.localParticipant.publishTrack(t);
           if (t.kind === Track.Kind.Video) t.attach($('local'));
         }
         window.call.joined = true;
         $('local-name').textContent = identity;
+        $('mic').textContent = 'Mute';
+        $('cam').textContent = 'Stop video';
+        refreshStatus(room);
+        $('sound').hidden = room.canPlaybackAudio;
+        $('sound').onclick = async () => {
+          await room.startAudio();
+          $('sound').hidden = room.canPlaybackAudio;
+        };
         show('call');
 
         $('mic').onclick = async () => {

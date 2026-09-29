@@ -57,5 +57,48 @@ test.describe('a call between two participants', () => {
     await expect.poll(() => remoteOf(alice.page)).toBeNull();
     await expect(bob.page.locator('#lobby')).toBeVisible();
     await expect.poll(() => bob.page.evaluate(() => window.call.joined)).toBe(false);
+    // A leave is not a lost connection.
+    await expect(bob.page.locator('#notice')).toBeHidden();
+  });
+
+  test('the status says who we are waiting for', async ({ browser, page }) => {
+    const roomUrl = await newRoom(page);
+    const alice = await joinAs(browser, contexts, roomUrl, 'alice');
+    await expect(alice.page.locator('#status')).toBeVisible();
+    await expect(alice.page.locator('#status')).toContainText('Waiting for the other person');
+
+    const bob = await joinAs(browser, contexts, roomUrl, 'bob');
+    await expect(alice.page.locator('#status')).toBeHidden();
+
+    await bob.page.click('#leave');
+    await expect(alice.page.locator('#status')).toBeVisible({ timeout: 10_000 });
+    await expect(alice.page.locator('#status')).toContainText('Waiting');
+  });
+
+  // The client's reconnection is driven by its own events; network emulation
+  // cannot drop the SFU's UDP media deterministically, so the events are
+  // emitted on the room object and the page's reaction is what is tested.
+  test('reconnecting is shown', async ({ browser, page }) => {
+    const roomUrl = await newRoom(page);
+    const alice = await joinAs(browser, contexts, roomUrl, 'alice');
+    await joinAs(browser, contexts, roomUrl, 'bob');
+    await expect.poll(() => remoteOf(alice.page)).toBe('bob');
+
+    await alice.page.evaluate(() => call.room.emit(LivekitClient.RoomEvent.Reconnecting));
+    await expect(alice.page.locator('#status')).toHaveText('Reconnecting…');
+    await alice.page.evaluate(() => call.room.emit(LivekitClient.RoomEvent.Reconnected));
+    await expect(alice.page.locator('#status')).toBeHidden();
+  });
+
+  test('a lost connection returns to the lobby with a notice', async ({ browser, page }) => {
+    const roomUrl = await newRoom(page);
+    await joinAs(browser, contexts, roomUrl, 'alice');
+    const bob = await joinAs(browser, contexts, roomUrl, 'bob');
+    await expect.poll(() => remoteOf(bob.page)).toBe('alice');
+
+    await bob.page.evaluate(() => call.room.emit(LivekitClient.RoomEvent.Disconnected, LivekitClient.DisconnectReason.SIGNAL_CLOSE));
+    await expect(bob.page.locator('#lobby')).toBeVisible();
+    await expect(bob.page.locator('#notice')).toContainText('Connection lost');
+    await expect.poll(() => bob.page.evaluate(() => window.call.joined)).toBe(false);
   });
 });

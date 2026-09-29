@@ -43,3 +43,6 @@ header .muted { flex: 1; font-family: ui-monospace, monospace; font-size: 14px; 
 .tile.self { position: absolute; right: 28px; bottom: 84px; width: 200px; max-width: 30vw; border: 2px solid var(--line); }
 .tag { position: absolute; left: 10px; bottom: 8px; padding: 2px 8px; border-radius: 8px; background: rgba(0,0,0,.55); color: #fff; font-size: 13px; }
 footer { position: absolute; bottom: 16px; left: 0; right: 0; display: flex; justify-content: center; gap: 12px; }
+.overlay { position: absolute; top: 28px; left: 0; right: 0; display: grid; justify-items: center; gap: 10px; pointer-events: none; }
+.overlay button { pointer-events: auto; }
+.status { margin: 0; padding: 6px 14px; border-radius: 999px; background: rgba(0,0,0,.55); color: #fff; font-size: 14px; }
