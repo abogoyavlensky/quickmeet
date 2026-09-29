@@ -120,6 +120,19 @@
       if (!res.ok) { show('gone'); return; }
       show('lobby');
       startLobby();
+      fillName();
+    }
+
+    // A signed-in person's display name goes into the name field, unless
+    // they typed one already. Guests see the same lobby; nothing waits on
+    // this, so a slow answer cannot delay the preview or a join.
+    async function fillName() {
+      try {
+        const res = await fetch('/api/me');
+        if (!res.ok) return;
+        const { display_name } = await res.json();
+        if (!$('identity').value) $('identity').value = display_name;
+      } catch (e) { /* a guest, or offline: the field stays empty */ }
     }
 
     function startLobby(notice) {

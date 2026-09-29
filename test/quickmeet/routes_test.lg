@@ -189,7 +189,10 @@
         (is (= 200 (:status js)))
         (is (= "text/javascript; charset=utf-8" (get-in js [:headers "Content-Type"])))
         (is (str/includes? (:body js) "livekit-client@2.22.3")))
-      (is (= 404 (:status (call handler :get "/static/nope.js")))))))
+      (is (= 404 (:status (call handler :get "/static/nope.js"))))
+      ;; The account pages, and the script they share.
+      (doseq [page ["/signup" "/signin" "/settings" "/static/account.js"]]
+        (is (= 200 (:status (call handler :get page))) page)))))
 
 (deftest accounts-and-sessions
   (with-handler
