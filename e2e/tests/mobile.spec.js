@@ -86,3 +86,27 @@ test.describe('on a phone held sideways', () => {
     }
   });
 });
+
+// A short desktop window keeps the desktop layout; the tile must give way
+// to the controls instead of reaching under them or being clipped.
+test.describe('in a short desktop window', () => {
+  const short = { viewport: { width: 1280, height: 550 } };
+  test.use(short);
+  let contexts;
+  test.beforeEach(() => { contexts = []; });
+  test.afterEach(async () => { await Promise.all(contexts.map(c => c.close())); });
+
+  test('the remote tile, its name and the controls all fit', async ({ browser, page }) => {
+    const roomUrl = await newRoom(page);
+    const alice = await joinAs(browser, contexts, roomUrl, 'alice', short);
+    await joinAs(browser, contexts, roomUrl, 'bob');
+    await expect.poll(() => remoteOf(alice.page)).toBe('bob');
+    for (const id of ['#remote', '#remote-name', '.tile.self', '#mic', '#cam', '#leave']) {
+      const b = await box(alice.page.locator(id));
+      expect(inside(b, 1280, 550), `${id} inside the viewport: ${JSON.stringify(b)}`).toBe(true);
+    }
+    const remote = await box(alice.page.locator('#remote'));
+    const leave = await box(alice.page.locator('#leave'));
+    expect(overlaps(remote, leave), 'the tile stops above the controls').toBe(false);
+  });
+});
