@@ -1,35 +1,6 @@
 // A real call between two browsers through the SFU embedded in the binary.
-// Each test creates its own room and its own participants, so tests do not
-// depend on each other and retries or --repeat-each stay valid.
 import { test, expect } from '@playwright/test';
-
-// Open the landing page, click "New meeting", return the room URL.
-async function newRoom(page) {
-  await page.goto('/');
-  await page.getByRole('button', { name: 'New meeting' }).click();
-  await expect(page).toHaveURL(/\/room\/[0-9a-f]{12}$/);
-  return page.url();
-}
-
-// A participant: its own browser context (own origin state, permissions and
-// fake devices), joined to the room under `name`. Page errors and console
-// errors are echoed into the test output.
-async function joinAs(browser, contexts, roomUrl, name) {
-  const context = await browser.newContext();
-  contexts.push(context);
-  await context.grantPermissions(['camera', 'microphone']);
-  const page = await context.newPage();
-  page.on('pageerror', e => console.log(`[${name}] pageerror: ${e.message}`));
-  page.on('console', m => { if (m.type() === 'error') console.log(`[${name}] console.error: ${m.text()}`); });
-  await page.goto(roomUrl);
-  await page.fill('#identity', name);
-  await page.click('#join');
-  await page.waitForFunction(() => window.call.joined === true, null, { timeout: 15_000 });
-  return { context, page };
-}
-
-const remoteOf = page => page.evaluate(() => window.call.remote);
-const statsOf = page => page.evaluate(() => window.call.stats());
+import { newRoom, joinAs, remoteOf, statsOf } from './helpers.js';
 
 test.describe('a call between two participants', () => {
   let contexts;

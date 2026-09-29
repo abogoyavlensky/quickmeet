@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>quickmeet</title>
   <link rel="stylesheet" href="/static/app.css">
   <script src="/static/livekit-client.umd.min.js"></script>
@@ -14,11 +14,21 @@
     <button id="copy" class="ghost">Copy link</button>
   </header>
 
-  <section id="lobby" class="lobby">
-    <label>Your name
-      <input id="identity" maxlength="64" placeholder="optional" autofocus>
-    </label>
-    <button id="join" class="primary">Join with camera and mic</button>
+  <!-- The link points at no room: nothing is asked of the camera. -->
+  <section id="gone" class="lobby" hidden>
+    <p>This meeting link does not exist.</p>
+    <p><a href="/">Start a new meeting</a></p>
+  </section>
+
+  <!-- Before joining: a preview, the devices, who is already there. -->
+  <section id="lobby" class="lobby" hidden>
+    <div class="preview"><video id="preview" autoplay playsinline muted></video></div>
+    <p id="presence" class="muted"></p>
+    <p id="notice" class="notice" hidden></p>
+    <label>Camera <select id="cam-select"></select></label>
+    <label>Microphone <select id="mic-select"></select></label>
+    <label>Your name <input id="identity" maxlength="64" placeholder="optional"></label>
+    <button id="join" class="primary">Join</button>
     <p id="error" class="error" hidden></p>
   </section>
 
@@ -33,15 +43,26 @@
   </section>
 
   <script>
+    // The page has three states, one section each: #gone (no such room),
+    // #lobby (preview, devices, presence, not yet in the call) and #call.
+    // The lobby acquires the camera and microphone once; joining publishes
+    // those same tracks, so there is one permission prompt. Leaving, or a
+    // dropped connection, returns to the lobby, which starts over (the
+    // client stops local tracks on disconnect).
+    const { Room, RoomEvent, Track, createLocalTracks } = LivekitClient;
+    const $ = id => document.getElementById(id);
     const roomId = location.pathname.split('/').pop();
-    document.getElementById('room-id').textContent = roomId;
-    document.getElementById('copy').addEventListener('click', async () => {
+    const FULL = 'This meeting already has two people in it.';
+
+    $('room-id').textContent = roomId;
+    $('copy').addEventListener('click', async () => {
       await navigator.clipboard.writeText(location.href);
-      document.getElementById('copy').textContent = 'Copied';
+      $('copy').textContent = 'Copied';
     });
 
-    const $ = id => document.getElementById(id);
     const showError = e => { $('error').textContent = String(e.message || e); $('error').hidden = false; };
+    const showNotice = text => { $('notice').textContent = text || ''; $('notice').hidden = !text; };
+    const show = section => { for (const id of ['gone', 'lobby', 'call']) $(id).hidden = id !== section; };
 
     // The whole call state, exposed for tests and for poking at from devtools.
     // `joined` flips once the local tracks are published; `remote` is the
@@ -68,15 +89,113 @@
       return { video: await inbound(call.tracks.video, true), audio: await inbound(call.tracks.audio, false) };
     };
 
-    async function join() {
-      const { Room, RoomEvent, Track, createLocalTracks } = LivekitClient;
-      $('join').disabled = true;
+    // ---- lobby ----------------------------------------------------------
+
+    // tracks: the local tracks acquired for the preview, published on join.
+    // ready: the promise of acquiring them, awaited by join() so an early
+    // click still works. poll: the presence interval while in the lobby.
+    const lobby = { tracks: [], ready: null, poll: null };
+    const trackOfKind = kind => lobby.tracks.find(t => t.kind === kind) || null;
+
+    async function loadRoom() {
+      const res = await fetch(`/api/rooms/${roomId}`);
+      if (!res.ok) { show('gone'); return; }
+      show('lobby');
+      startLobby();
+    }
+
+    function startLobby(notice) {
+      showNotice(notice);
+      $('error').hidden = true;
+      $('join').disabled = false;
+      lobby.ready = acquireTracks().then(fillDevices);
+      startPolling();
+    }
+
+    // Camera and microphone; failing that, one of them; failing that, join
+    // receive-only. Each fallback says so in the lobby.
+    async function acquireTracks() {
+      const attempts = [
+        [{ audio: true, video: { facingMode: 'user' } }, null],
+        [{ audio: true }, 'No camera found: joining with audio only.'],
+        [{ video: { facingMode: 'user' } }, 'No microphone found: joining without sound.'],
+      ];
+      for (const [options, note] of attempts) {
+        try {
+          lobby.tracks = await createLocalTracks(options);
+          if (note) showNotice(note);
+          const video = trackOfKind(Track.Kind.Video);
+          if (video) video.attach($('preview'));
+          return;
+        } catch (e) { /* the next attempt asks for less */ }
+      }
+      lobby.tracks = [];
+      showNotice('No camera or microphone: you will only see and hear.');
+    }
+
+    // Permission was just granted (or refused), so labels are available and
+    // no second prompt is needed: getLocalDevices(kind, false).
+    async function fillDevices() {
+      const kinds = [['videoinput', 'cam-select', Track.Kind.Video, 'Camera'],
+                     ['audioinput', 'mic-select', Track.Kind.Audio, 'Microphone']];
+      for (const [kind, id, trackKind, fallback] of kinds) {
+        const devices = await Room.getLocalDevices(kind, false);
+        const track = trackOfKind(trackKind);
+        const current = track ? track.mediaStreamTrack.getSettings().deviceId : null;
+        const select = $(id);
+        select.innerHTML = '';
+        devices.forEach((d, i) => {
+          const option = document.createElement('option');
+          option.value = d.deviceId;
+          option.textContent = d.label || `${fallback} ${i + 1}`;
+          option.selected = d.deviceId === current;
+          select.append(option);
+        });
+        select.disabled = devices.length === 0 || !track;
+      }
+    }
+
+    async function onDeviceChange(trackKind, deviceId) {
+      const track = trackOfKind(trackKind);
+      if (!track || !deviceId) return;
       try {
+        // restartTrack swaps the media stream track and re-attaches it to
+        // the preview element.
+        await track.restartTrack({ deviceId: { exact: deviceId } });
+      } catch (e) { showError(e); }
+    }
+    $('cam-select').addEventListener('change', e => onDeviceChange(Track.Kind.Video, e.target.value));
+    $('mic-select').addEventListener('change', e => onDeviceChange(Track.Kind.Audio, e.target.value));
+
+    async function pollPresence() {
+      try {
+        const res = await fetch(`/api/rooms/${roomId}`);
+        if (!res.ok) return;
+        const { participants } = await res.json();
+        const n = participants.length;
+        $('presence').textContent =
+          n === 0 ? 'Nobody has joined yet.' :
+          n === 1 ? `${participants[0].identity} is already here.` : FULL;
+        $('join').disabled = n >= 2;
+      } catch (e) { /* the next poll tries again */ }
+    }
+    function startPolling() { stopPolling(); pollPresence(); lobby.poll = setInterval(pollPresence, 3000); }
+    function stopPolling() { if (lobby.poll) clearInterval(lobby.poll); lobby.poll = null; }
+
+    // ---- call -----------------------------------------------------------
+
+    async function join() {
+      stopPolling();
+      $('join').disabled = true;
+      $('error').hidden = true;
+      try {
+        await lobby.ready;
         const res = await fetch(`/api/rooms/${roomId}/token`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ identity: $('identity').value }),
         });
+        if (res.status === 409) throw new Error(FULL);
         if (!res.ok) throw new Error('could not get a token (' + res.status + ')');
         const { token, url, identity } = await res.json();
 
@@ -96,19 +215,18 @@
         room.on(RoomEvent.Disconnected, () => {
           window.call.joined = false;
           window.call.tracks = { video: null, audio: null };
-          $('call').hidden = true; $('lobby').hidden = false; $('join').disabled = false;
+          show('lobby');
+          startLobby();
         });
 
         await room.connect(url, token);
-        const tracks = await createLocalTracks({ audio: true, video: true });
-        for (const t of tracks) {
+        for (const t of lobby.tracks) {
           await room.localParticipant.publishTrack(t);
           if (t.kind === Track.Kind.Video) t.attach($('local'));
         }
         window.call.joined = true;
         $('local-name').textContent = identity;
-        $('lobby').hidden = true;
-        $('call').hidden = false;
+        show('call');
 
         $('mic').onclick = async () => {
           const on = !room.localParticipant.isMicrophoneEnabled;
@@ -123,10 +241,13 @@
         $('leave').onclick = () => room.disconnect();
       } catch (e) {
         showError(e);
+        startPolling();
         $('join').disabled = false;
       }
     }
     $('join').addEventListener('click', join);
+
+    loadRoom();
   </script>
 </body>
 </html>
