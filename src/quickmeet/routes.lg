@@ -115,7 +115,9 @@
                   (if-let [room (and (valid-room-id? id) (db/get-room conn id))]
                     ;; Who is in the room now, so a lobby can show it. A
                     ;; lookup that could not ask the SFU reads as nobody.
-                    (json-response 200 (assoc room :participants (or (participants id) [])))
+                    (json-response 200 (-> room
+                                           (dissoc :owner_id)
+                                           (assoc :participants (or (participants id) []))))
                     (json-response 404 {:error "not found"}))))}
 
    ;; A join token for a known room. Body: {"identity": "..."} (optional).

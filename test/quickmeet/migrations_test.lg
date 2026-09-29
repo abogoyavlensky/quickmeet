@@ -24,15 +24,24 @@
 (defn- applied [conn]
   (p/applied-migration-ids (migrations/store conn)))
 
+(defn- columns [conn table]
+  (mapv :name (sqlite/query conn [(str "select name from pragma_table_info('" table "')")])))
+
 (deftest migrate-up-and-down
   (with-conn
     (fn [conn]
       (is (= [] (applied conn)))
       (migrations/migrate! conn)
+      (is (= ["001-create-rooms" "002-create-users"] (applied conn)))
+      (is (= ["ragtime_migrations" "rooms" "sessions" "users"] (tables conn)))
+      (is (= ["id" "created_at" "owner_id"] (columns conn "rooms")))
+      (migrations/migrate! conn)
+      (is (= ["001-create-rooms" "002-create-users"] (applied conn)))
+      ;; One step back: the accounts go, the rooms stay, without their owner.
+      (migrations/rollback! conn)
       (is (= ["001-create-rooms"] (applied conn)))
       (is (= ["ragtime_migrations" "rooms"] (tables conn)))
-      (migrations/migrate! conn)
-      (is (= ["001-create-rooms"] (applied conn)))
+      (is (= ["id" "created_at"] (columns conn "rooms")))
       (migrations/rollback! conn)
       (is (= [] (applied conn)))
       (is (= ["ragtime_migrations"] (tables conn))))))
