@@ -57,6 +57,11 @@
       {:config {:port lk-port
                 :bind_addresses [(env lookup "LIVEKIT_BIND" "127.0.0.1")]
                 :rtc (rtc-config lookup)
+                ;; Two people per room is a product decision (ROADMAP.md).
+                ;; The SFU enforces it; the app reports it (routes.lg).
+                ;; empty_timeout and departure_timeout keep LiveKit's
+                ;; defaults (300 s and 20 s).
+                :room {:max_participants 2}
                 :keys {api-key api-secret}
                 :logging {:level (env lookup "LIVEKIT_LOG_LEVEL" "warn")}}}
 

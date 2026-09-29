@@ -67,7 +67,9 @@
     (is (= 50000 (:port_range_start rtc)))
     (is (= 50100 (:port_range_end rtc)))
     (is (not (contains? rtc :udp_port)))
-    (is (nil? (get-in c [:quickmeet.routes/handler :livekit :public-url]))))
+    (is (nil? (get-in c [:quickmeet.routes/handler :livekit :public-url])))
+    ;; Two people per room: the SFU enforces the product rule.
+    (is (= 2 (get-in c [:livekit/server :config :room :max_participants]))))
   ;; A container: one multiplexed UDP port, reachable from the proxy.
   (let [c (config-from {"LIVEKIT_UDP_PORT" "7882"
                         "LIVEKIT_PUBLIC_URL" "wss://quickmeet.absky.dev"
