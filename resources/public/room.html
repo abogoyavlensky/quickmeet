@@ -94,8 +94,18 @@
     // tracks: the local tracks acquired for the preview, published on join.
     // ready: the promise of acquiring them, awaited by join() so an early
     // click still works. poll: the presence interval while in the lobby.
-    const lobby = { tracks: [], ready: null, poll: null };
+    // joining: set from the click until the call is up or has failed, so a
+    // late presence response or a second click cannot start another join.
+    const lobby = { tracks: [], ready: null, poll: null, joining: false };
     const trackOfKind = kind => lobby.tracks.find(t => t.kind === kind) || null;
+
+    // Every lobby start begins from no tracks: whatever the previous lobby
+    // or call held is stopped, so a failed join does not leak a capture
+    // stream (the client stops only published tracks on disconnect).
+    function stopTracks() {
+      for (const t of lobby.tracks) { t.stop(); t.detach(); }
+      lobby.tracks = [];
+    }
 
     async function loadRoom() {
       const res = await fetch(`/api/rooms/${roomId}`);
@@ -105,6 +115,8 @@
     }
 
     function startLobby(notice) {
+      stopTracks();
+      lobby.joining = false;
       showNotice(notice);
       $('error').hidden = true;
       $('join').disabled = false;
@@ -172,6 +184,9 @@
         const res = await fetch(`/api/rooms/${roomId}`);
         if (!res.ok) return;
         const { participants } = await res.json();
+        // A response that lands after the lobby was left, or after Join
+        // was clicked, must not touch the button.
+        if (!lobby.poll || lobby.joining) return;
         const n = participants.length;
         $('presence').textContent =
           n === 0 ? 'Nobody has joined yet.' :
@@ -185,6 +200,8 @@
     // ---- call -----------------------------------------------------------
 
     async function join() {
+      if (lobby.joining) return;
+      lobby.joining = true;
       stopPolling();
       $('join').disabled = true;
       $('error').hidden = true;
@@ -213,6 +230,9 @@
           window.call.tracks = { video: null, audio: null };
         });
         room.on(RoomEvent.Disconnected, () => {
+          // A failed join tears itself down in join()'s catch; only a call
+          // that was up returns to the lobby from here.
+          if (!window.call.joined) return;
           window.call.joined = false;
           window.call.tracks = { video: null, audio: null };
           show('lobby');
@@ -240,9 +260,14 @@
         };
         $('leave').onclick = () => room.disconnect();
       } catch (e) {
+        // Whatever got as far as connecting is torn down, then the lobby
+        // starts over with the error on show.
+        const room = window.call.room;
+        window.call.room = null;
+        if (room) await room.disconnect().catch(() => {});
+        show('lobby');
+        startLobby();
         showError(e);
-        startPolling();
-        $('join').disabled = false;
       }
     }
     $('join').addEventListener('click', join);
