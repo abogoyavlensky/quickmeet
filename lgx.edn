@@ -50,7 +50,13 @@
         ;; Routing.
         askonomm/ruuter
         {:git/url "https://git.nmm.ee/asko/ruuter"
-         :git/tag "v2.1.1"}}
+         :git/tag "v2.1.1"}
+
+        ;; Password hashing, generated bindings and no shim: a let-go string
+        ;; crosses as []byte and the hash comes back as a string. The alias
+        ;; must be the package path's last segment. livekit-server already
+        ;; pulls this module in, so the pin stays within the graph it uses.
+        golang.org/x/crypto/bcrypt {:go/version "v0.56.0" :go/interop "bcrypt"}}
 
  :tasks
  {;; Browser tests: build the binary that ships, then let Playwright start it
