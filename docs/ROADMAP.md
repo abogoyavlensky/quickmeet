@@ -66,15 +66,28 @@ device selection, reconnection states) are about behaviour on real
 devices, which headless Chromium with fake media cannot judge, so they
 follow with a real device to test them on.
 
-- A lobby with camera and microphone preview and device selection.
-- Mute, stop video, leave; a clear state when the other side leaves or the
-  connection drops; reconnection handled by `livekit-client`.
-- A visible "waiting for the other person" state and a copyable link.
-- Room lifetime: rooms expire after inactivity; the SFU's empty timeout and
-  the `rooms` table agree.
-- Two-person rule enforced: a third join is refused with a message. With
-  the browser suite in place, this starts with a third-join test in
-  `e2e/tests/call.spec.js`.
+- Done 2026-09-29: a lobby with camera preview, camera and microphone
+  pickers, and who is already in the room (polled every 3 s); joining
+  publishes the preview tracks (`e2e/tests/lobby.spec.js`).
+- Done 2026-09-29: mute, stop video, leave; one status banner for
+  "waiting for the other person", "reconnecting" (the client's own
+  reconnection) and the other side leaving; a dropped connection returns
+  to the lobby with a notice; "tap to enable sound" for iOS
+  (`e2e/tests/call.spec.js`).
+- Done 2026-09-29: a layout for phones, portrait and landscape, and for
+  short desktop windows (`e2e/tests/mobile.spec.js`).
+- Done 2026-09-29: two-person rule. The SFU caps rooms at two
+  (`room.max_participants`); the app asks the SFU who is in the room so
+  the token endpoint can say 409 "full" and the lobby can show who is
+  there. Needed because a refusal by the SFU alone reaches the browser as
+  a generic connection error (`src/quickmeet/sfu.lg`).
+- Decided 2026-09-29: rooms are permanent, no expiry. A link is created
+  once and reused for every call with that person. Expiry only bounded
+  what a stale link can cost, and the two-person cap does that already:
+  a permanent link and a forgotten one cost the same, one call at a time.
+  M3 and M4 give rooms owners; deleting one becomes an owner action. On
+  the SFU side nothing changes: an empty LiveKit room closes after its
+  timeout and is recreated on the next join; the sqlite row is the room.
 - Done 2026-09-27: `livekit-client` served from the binary instead of a
   CDN (`lgx vendor-livekit-client`).
 - Done 2026-09-27: a browser test with headless Chromium and fake media,
@@ -164,6 +177,9 @@ other boxes, release builds and tagging, macOS.
   but only accounts keep strangers from using an instance at all.
 - Whether room pages should work without JavaScript beyond
   `livekit-client` (currently plain DOM code, no framework).
+- Resolved 2026-09-29: room lifetime. Permanent, see M2. Presence in the
+  lobby is polled from the SFU; M4's webhooks can feed the same endpoint
+  from memory without changing its contract.
 - Resolved 2026-09-28: the signalling WebSocket stays on LiveKit's port.
   A deployment exposes one hostname and splits it by path at the reverse
   proxy (`/rtc*` to the SFU, the rest to the app); nothing is proxied in
