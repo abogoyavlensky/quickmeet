@@ -3,6 +3,7 @@
             [http :as http]
             [json :as json]
             [livekit.core :as lk]
+            [quickmeet.sfu :as sfu]
             [quickmeet.system :as system]
             [string :as str]))
 
@@ -56,6 +57,16 @@
                                  "/rtc/validate?access_token=" (:token tok)))]
           (is (= 200 (:status res)) (str "SFU rejected the token: " (:body res)))
           (is (= "success" (:body res))))))))
+
+(deftest participants-of-an-unknown-room
+  ;; The SFU creates a room on its first join, so a room the app knows but
+  ;; nobody has joined is unknown to the SFU: an empty vector, not nil.
+  (with-system
+    (fn [_ _]
+      (is (= [] (sfu/participants {:api-key system/dev-api-key
+                                   :api-secret system/dev-api-secret
+                                   :port lk-port}
+                                  "0123456789ab"))))))
 
 (defn- config-from [m]
   (system/config (fn [name] (get m name))))
