@@ -1,6 +1,6 @@
 # Staging on uncloud Implementation Plan
 
-> **Status (2026-09-28):** Tasks 1-5 and 7 done on branch `staging-on-uncloud`. Tasks 6 (provisioning) and 8 (first deploy, phone check) are user-driven and still open. See "Execution summary" at the end.
+> **Status: completed (2026-09-29).** Staging runs at `https://quickmeet.absky.dev`; two phones on different networks held a call there. See "Execution summary" at the end.
 
 > **For agentic workers:** Use executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -274,16 +274,16 @@ Compose interpolates `${APP_DOMAIN}`; `{{upstreams ...}}` is uncloud's Go templa
 
 No repo files change. Merging to master triggers the first deploy, so these come first.
 
-- [ ] **Step 1: DNS**
+- [x] **Step 1: DNS**
   An A record `quickmeet.absky.dev` → the `unison-staging` server IP. Caddy obtains the certificate on first request; TCP 80 and 443 are already open for unison.
 
-- [ ] **Step 2: Firewall**
+- [x] **Step 2: Firewall**
   Inbound UDP 7882 and TCP 7881 must reach the machine. Check with the provider's firewall and `ufw status` if used.
 
-- [ ] **Step 3: Database directory**
+- [x] **Step 3: Database directory**
   On the server: `mkdir -p /root/quickmeet-db`. sqlite creates the file; the directory must exist.
 
-- [ ] **Step 4: GitHub repository settings**
+- [x] **Step 4: GitHub repository settings**
   Variables: `SERVER_IP`, `APP_DOMAIN=quickmeet.absky.dev`. Secrets: `SSH_PRIVATE_KEY` (the key whose public half is in the server's `authorized_keys`, same as unison), `LIVEKIT_API_KEY` (any short identifier), `LIVEKIT_API_SECRET` (32+ random characters, e.g. `openssl rand -hex 32`).
 
 ---
@@ -314,25 +314,28 @@ No repo files change. Merging to master triggers the first deploy, so these come
 
 **Files:** none.
 
-- [ ] **Step 1: Merge to master and watch the deploy**
+- [x] **Step 1: Merge to master and watch the deploy**
   Run: `gh run watch` on the deploy run, or `gh run list --workflow deploy.yml`.
   Expected: tests green, `uc deploy` reports the service running.
 
-- [ ] **Step 2: Inspect the generated Caddyfile and the service**
+- [x] **Step 2: Inspect the generated Caddyfile and the service**
   Run: `uc --context unison-staging --connect root@<SERVER_IP> caddy config | grep -A8 quickmeet.absky.dev` and `uc ... ps`.
   Expected: the `/rtc*` handle with the SFU upstream on 7880 and the default handle on 8080; one container running.
 
-- [ ] **Step 3: Probe over HTTPS**
+- [x] **Step 3: Probe over HTTPS**
   Run: `curl -fsS https://quickmeet.absky.dev/ | head -3` and `curl -s -X POST https://quickmeet.absky.dev/api/rooms`, then the token endpoint for that room.
   Expected: the landing page; a room id; `"url":"wss://quickmeet.absky.dev"`.
   Run: `curl -s "https://quickmeet.absky.dev/rtc/validate?access_token=<token>"`
   Expected: `success`.
 
-- [ ] **Step 4: The exit check**
+- [x] **Step 4: The exit check**
   Open the link on two phones on different networks (one on Wi-Fi, one on cellular), join from both. Expected: both see and hear each other. If media does not flow, `uc ... logs quickmeet-app` and check the ICE candidates the SFU advertises; the fallback is an explicit `rtc.node_ip` from a variable.
 
-- [ ] **Step 5: Record the outcome**
+- [x] **Step 5: Record the outcome**
   Update `docs/ROADMAP.md` M5 with the date, and add anything learned in Step 4 to `docs/KNOWLEDGE.md`. Commit: `git commit -m "docs: staging deployed"`.
+
+> Deviation: Step 2 was not run: the executing machine has no SSH access to the cluster, so `uc caddy config` and `uc ps` were not inspected. The routing was checked from outside instead: `/` and `/api/*` reach the app, `/rtc/validate` reaches the SFU, the `/rtc` WebSocket upgrades (101), and the SFU's twirp API is not exposed (404). `uc deploy` reported the container `Running` on `staging-ru-1`.
+> Deviation: before Step 4, a headless-Chromium call ran from the dev machine against staging (the call spec's technique, ad hoc, not committed): video and audio both ways, zero loss, one participant on UDP `85.193.88.17:7882`, the other on the TCP fallback `:7881`, RTT 43-50 ms.
 
 ---
 
@@ -358,4 +361,11 @@ No repo files change. Merging to master triggers the first deploy, so these come
 - Task 5: CI runtime cache key gained `static` so the static runtime actually gets cached; the image smoke step runs before buildx setup so `docker run` can see the image; `curl` retries instead of a fixed sleep.
 - Environment: mise cannot install Go 1.27 on this machine (`go1.27.1` 404), and `lgx` on `PATH` is 0.2.0; ran the pinned `lgx` 0.4.2 binary with the system Go 1.26.7.
 
-**What the plan could have specified better:** verify request-shape assumptions (headers, host) against a real HTTP round trip, not a hand-built request map, and check how `actions/cache` and buildx drivers behave when a plan changes a cache-keyed build variable or adds a `docker run` after buildx setup.
+**First deploy (2026-09-28 to 2026-09-29):** PR #1 merged; the deploy run failed twice before it succeeded.
+- The image smoke test failed with `curl: (56) Connection reset by peer`: Docker's port proxy accepts the connection before the app listens and resets it, which `--retry-connrefused` does not cover. Fixed in PR #2 (`--retry-all-errors`, no `--rm` so a crashed container keeps its logs).
+- `uc deploy` then failed with `Permission denied (publickey)`: the deploy key (the same one unison uses) was no longer in root's `authorized_keys` on 85.193.88.17. Fixed on the server by the user; the re-run deployed.
+- Probes over HTTPS all passed (see the Task 8 deviations), and two phones on different networks held a call (2026-09-29).
+- From the dev machine about one in four TCP connections to 85.193.88.17 timed out, for unison's domain as much as quickmeet's: a network or server-side issue, not the app.
+- Still unknown: how uncloud rolls an update of a service holding host-mode ports. The first deploy created the service; the next push to master is the first update.
+
+**What the plan could have specified better:** verify request-shape assumptions (headers, host) against a real HTTP round trip, not a hand-built request map, and check how `actions/cache` and buildx drivers behave when a plan changes a cache-keyed build variable or adds a `docker run` after buildx setup. For deploys: a readiness probe through Docker's port proxy must retry on resets, and a provisioning checklist that reuses another project's SSH key should verify the key still logs in (`ssh -i <key> root@<ip> true`) rather than assume it.
