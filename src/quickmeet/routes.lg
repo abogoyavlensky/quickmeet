@@ -3,13 +3,15 @@
             [json :as json]
             [livekit.core :as lk]
             [quickmeet.db :as db]
+            [quickmeet.sfu :as sfu]
             [ruuter.core :as r]
             [string :as str]))
 
-;; The HTTP handler: a Ring-style function over the db connection and the
-;; LiveKit credentials, and the integrant component between them and the
-;; server. Tests call `handler` directly over a throwaway database; token
-;; minting needs only the key and secret, not a running SFU.
+;; The HTTP handler: a Ring-style function over the db connection, the
+;; LiveKit credentials and a participant lookup, and the integrant component
+;; between them and the server. Tests call `handler` directly over a
+;; throwaway database with a stubbed lookup; token minting needs only the
+;; key and secret, not a running SFU.
 
 (defn- json-response [status data]
   {:status status
@@ -83,7 +85,7 @@
       (> (count s) 64) (subs s 0 64)
       :else s)))
 
-(defn- routes [conn {:keys [api-key api-secret] :as livekit}]
+(defn- routes [conn {:keys [api-key api-secret] :as livekit} participants]
   [{:path "/"
     :method :get
     :response (fn [_] (static-response "index.html"))}
@@ -111,15 +113,27 @@
     :response (fn [req]
                 (let [id (-> req :params :id)]
                   (if-let [room (and (valid-room-id? id) (db/get-room conn id))]
-                    (json-response 200 room)
+                    ;; Who is in the room now, so a lobby can show it. A
+                    ;; lookup that could not ask the SFU reads as nobody.
+                    (json-response 200 (assoc room :participants (or (participants id) [])))
                     (json-response 404 {:error "not found"}))))}
 
    ;; A join token for a known room. Body: {"identity": "..."} (optional).
+   ;; Two people per room: a third gets 409 and a message the page can show.
+   ;; The SFU enforces the same cap itself (system.lg); this check exists
+   ;; because a refusal there is not distinguishable in the browser (sfu.lg).
    {:path "/api/rooms/:id/token"
     :method :post
     :response (fn [req]
                 (let [id (-> req :params :id)]
-                  (if (and (valid-room-id? id) (db/get-room conn id))
+                  (cond
+                    (not (and (valid-room-id? id) (db/get-room conn id)))
+                    (json-response 404 {:error "not found"})
+
+                    (>= (count (participants id)) 2)
+                    (json-response 409 {:error "full"})
+
+                    :else
                     (let [identity (clean-identity (:identity (read-json-body req)))]
                       (json-response 200
                                      {:token (lk/token api-key api-secret
@@ -128,19 +142,22 @@
                                                         :room-join true
                                                         :ttl-seconds 3600})
                                       :identity identity
-                                      :url (signalling-url req livekit)}))
-                    (json-response 404 {:error "not found"}))))}
+                                      :url (signalling-url req livekit)})))))}
 
    {:path :not-found
     :response (fn [_] (json-response 404 {:error "not found"}))}])
 
 (defn handler
   "A Ring-style handler: request map in, response map out. `livekit` is
-   {:api-key :api-secret :port :public-url}; :public-url is optional."
-  [conn livekit]
-  (let [table (routes conn livekit)]
+   {:api-key :api-secret :port :public-url}; :public-url is optional.
+   `participants` is (fn [room-id]) -> vector of {:identity ..}, [] for a
+   room nobody is in, nil when the SFU could not be asked."
+  [conn livekit participants]
+  (let [table (routes conn livekit participants)]
     (fn [req]
       (r/route table req))))
 
+;; The real lookup is built from the same :livekit map the routes use, so a
+;; system that moves the SFU port (the tests do) asks the right one.
 (defmethod ig/init-key ::handler [_ {:keys [db livekit]}]
-  (handler db livekit))
+  (handler db livekit (partial sfu/participants livekit)))

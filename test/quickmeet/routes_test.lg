@@ -16,11 +16,12 @@
 
 (defn- with-handler
   ([f] (with-handler livekit f))
-  ([lk f]
+  ([lk f] (with-handler lk (constantly []) f))
+  ([lk participants f]
    (let [path (str "/tmp/quickmeet-routes-" (rand-int 100000000) ".db")
          system (ig/init {:quickmeet.db/conn {:path path}})]
      (try
-       (f (routes/handler (:quickmeet.db/conn system) lk))
+       (f (routes/handler (:quickmeet.db/conn system) lk participants))
        (finally
          (ig/halt! system)
          (os/sh "rm" "-f" path (str path "-wal") (str path "-shm")))))))
@@ -93,6 +94,41 @@
   (is (= "ws://meet.example:7880"
          (signalling-url-for livekit {:server-addr nil
                                       :headers {"host" "meet.example:8080"}}))))
+
+(deftest presence-and-the-two-person-rule
+  ;; The participant lookup is a function the handler is given, so what the
+  ;; SFU would say is stubbed here: the real one lives in quickmeet.sfu.
+  (let [room-and-token
+        (fn [participants]
+          (with-handler livekit participants
+            (fn [handler]
+              (let [id (:id (:json (call handler :post "/api/rooms")))]
+                {:id id
+                 :room (:json (call handler :get (str "/api/rooms/" id)))
+                 :token (call handler :post (str "/api/rooms/" id "/token") "{}")}))))]
+    ;; Nobody there yet.
+    (let [{:keys [room token]} (room-and-token (constantly []))]
+      (is (= [] (:participants room)))
+      (is (= 200 (:status token))))
+    ;; One person: the lookup names them, a second may join.
+    (let [{:keys [room token]} (room-and-token (constantly [{:identity "alice"}]))]
+      (is (= [{:identity "alice"}] (:participants room)))
+      (is (= 200 (:status token))))
+    ;; Two people: full.
+    (let [{:keys [room token]} (room-and-token (constantly [{:identity "alice"}
+                                                            {:identity "bob"}]))]
+      (is (= ["alice" "bob"] (mapv :identity (:participants room))))
+      (is (= 409 (:status token)))
+      (is (= {:error "full"} (:json token))))
+    ;; The SFU could not be asked: unknown is not full. The SFU's own cap
+    ;; still holds.
+    (let [{:keys [room token]} (room-and-token (constantly nil))]
+      (is (= [] (:participants room)))
+      (is (= 200 (:status token))))
+    ;; The lookup is asked about the room by id, once per request.
+    (let [asked (atom [])
+          {:keys [id]} (room-and-token (fn [room-id] (swap! asked conj room-id) []))]
+      (is (= [id id] @asked)))))
 
 (deftest unknown-and-invalid-rooms
   (with-handler

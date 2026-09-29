@@ -41,6 +41,8 @@
                                       "{\"identity\":\"alice\"}"
                                       {:content-type "application/json"}))]
         (is (= 12 (count id)))
+        ;; Nobody has joined, so the SFU has no such room yet: no participants.
+        (is (= [] (:participants (json-body (http/get (str base "/api/rooms/" id))))))
         (is (str/starts-with? (:token tok) "eyJ"))
         (is (= (str "ws://127.0.0.1:" lk-port) (:url tok)))
         ;; Behind a TLS proxy the host the request came in on is kept
