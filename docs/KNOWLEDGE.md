@@ -218,6 +218,25 @@ Learned while setting up staging on uncloud, 2026-09-28:
 - `lg` ignores SIGTERM (see "Dev tooling gotchas"), so the service sets
   `stop_grace_period: 2s`; waiting Docker's default 10 s buys nothing.
 
+The first deploy, 2026-09-28 to 2026-09-29:
+
+- It works end to end: two phones on different networks held a call at
+  `https://quickmeet.absky.dev`. A headless-Chromium call from the dev
+  machine showed ICE using UDP `85.193.88.17:7882` for one participant and
+  the TCP fallback on 7881 for the other, zero loss, RTT 43-50 ms.
+- STUN discovery inside the container found the server's public IP, so
+  `rtc.node_ip` was not needed. Caddy passes the `/rtc` WebSocket upgrade
+  with no extra config.
+- A readiness probe against a freshly started container gets `curl: (56)
+  Connection reset by peer`, not "connection refused": Docker's port proxy
+  accepts the connection before the app listens. Use `--retry-all-errors`.
+- The staging server (85.193.88.17, uncloud machine `staging-ru-1`)
+  dropped about one in four new TCP connections from the dev machine, for
+  unison's domain as much as quickmeet's. If pages hang there, look at the
+  network or the server's firewall before the app.
+- Not yet seen: how uncloud updates a service that holds host-mode ports.
+  The first deploy created the service; the next one is the first update.
+
 ---
 
 > **Verify against:** `lgx.edn`, `compose.yaml` and

@@ -120,10 +120,10 @@ history.
 
 ### M5: deployment
 
-Staging, pending its first deploy (2026-09-28): every push to master
-tests, builds and deploys the app with uncloud to
-`https://quickmeet.absky.dev`, one hostname with Caddy routing `/rtc*` to
-the SFU, media on one UDP port and one TCP port in host mode. See
+Staging done (2026-09-29): every push to master tests, builds and deploys
+the app with uncloud to `https://quickmeet.absky.dev`, one hostname with
+Caddy routing `/rtc*` to the SFU, media on one UDP port and one TCP port
+in host mode. Two phones on different networks held a call there. See
 "Deployment" in the README. What remains below: the install guide for
 other boxes, release builds and tagging, macOS.
 
