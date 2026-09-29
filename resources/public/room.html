@@ -254,6 +254,9 @@
           window.call.tracks = { video: null, audio: null };
           setStatus('Waiting for the other person.');
         });
+        // A dropped signalling socket raises SignalReconnecting first and
+        // Reconnecting only if a full reconnect follows; both are one state.
+        room.on(RoomEvent.SignalReconnecting, () => setStatus('Reconnecting…'));
         room.on(RoomEvent.Reconnecting, () => setStatus('Reconnecting…'));
         room.on(RoomEvent.Reconnected, () => refreshStatus(room));
         room.on(RoomEvent.AudioPlaybackStatusChanged, () => { $('sound').hidden = room.canPlaybackAudio; });

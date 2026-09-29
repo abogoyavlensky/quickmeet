@@ -84,10 +84,13 @@ test.describe('a call between two participants', () => {
     await joinAs(browser, contexts, roomUrl, 'bob');
     await expect.poll(() => remoteOf(alice.page)).toBe('bob');
 
-    await alice.page.evaluate(() => call.room.emit(LivekitClient.RoomEvent.Reconnecting));
-    await expect(alice.page.locator('#status')).toHaveText('Reconnecting…');
-    await alice.page.evaluate(() => call.room.emit(LivekitClient.RoomEvent.Reconnected));
-    await expect(alice.page.locator('#status')).toBeHidden();
+    // Both the signalling-only recovery and a full reconnect show the banner.
+    for (const event of ['SignalReconnecting', 'Reconnecting']) {
+      await alice.page.evaluate(ev => call.room.emit(LivekitClient.RoomEvent[ev]), event);
+      await expect(alice.page.locator('#status')).toHaveText('Reconnecting…');
+      await alice.page.evaluate(() => call.room.emit(LivekitClient.RoomEvent.Reconnected));
+      await expect(alice.page.locator('#status')).toBeHidden();
+    }
   });
 
   test('a lost connection returns to the lobby with a notice', async ({ browser, page }) => {
