@@ -25,7 +25,10 @@ button:disabled { opacity: .6; cursor: default; }
 .error { color: var(--danger); }
 .muted { color: var(--muted); }
 
-body.room { display: flex; flex-direction: column; height: 100vh; }
+/* min-height: 0 so the base rule above cannot beat 100dvh: on a phone the
+   address bar shrinks the visible height, and 100vh would push the controls
+   below it. */
+body.room { display: flex; flex-direction: column; min-height: 0; height: 100vh; height: 100dvh; }
 header { display: flex; gap: 12px; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--line); }
 .brand { font-weight: 600; }
 header .muted { flex: 1; font-family: ui-monospace, monospace; font-size: 14px; }
@@ -46,3 +49,24 @@ footer { position: absolute; bottom: 16px; left: 0; right: 0; display: flex; jus
 .overlay { position: absolute; top: 28px; left: 0; right: 0; display: grid; justify-items: center; gap: 10px; pointer-events: none; }
 .overlay button { pointer-events: auto; }
 .status { margin: 0; padding: 6px 14px; border-radius: 999px; background: rgba(0,0,0,.55); color: #fff; font-size: 14px; }
+
+/* Phones: the remote video fills the call area edge to edge, the self view
+   is a portrait thumbnail top right so the controls never cover it, and the
+   controls sit above the home indicator (safe-area inset). */
+@media (max-width: 700px) {
+  header #room-id { display: none; }
+  .lobby { margin-top: 16px; }
+  .preview { aspect-ratio: 3 / 4; max-height: 45dvh; }
+  .call { padding: 0; }
+  .tile { max-width: none; aspect-ratio: auto; height: 100%; border-radius: 0; }
+  /* height: auto, or the rule above makes it a full-height strip. */
+  .tile.self { top: 12px; right: 12px; bottom: auto; width: 28vw; height: auto; aspect-ratio: 3 / 4; border-radius: 10px; }
+  .overlay { top: calc(12px + 28vw * 4 / 3 + 12px); }
+  /* The remote tile is the whole screen, so its name tag moves to the top
+     left, clear of the controls; the self view's tag stays inside it. */
+  .tile:not(.self) .tag { top: 12px; bottom: auto; }
+  footer { bottom: calc(12px + env(safe-area-inset-bottom)); }
+  footer button { min-height: 44px; padding: 10px 16px; }
+  /* Over video, not over the page background. */
+  footer button.ghost { background: rgba(0,0,0,.55); color: #fff; border-color: transparent; }
+}
