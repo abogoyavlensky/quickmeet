@@ -3,9 +3,22 @@
 // --repeat-each stay valid.
 import { expect } from '@playwright/test';
 
-// Open the landing page, click "New meeting", return the room URL.
+// Sign a fresh account up in this page's context (the cookie lives there),
+// landing on the home page signed in. Returns the address. Only the person
+// who starts a meeting signs up; guests never do.
+export async function signUp(page, name = 'host') {
+  const email = `${name}-${Date.now()}-${Math.floor(Math.random() * 1e6)}@example.com`;
+  await page.goto('/signup');
+  await page.fill('#email', email);
+  await page.fill('#password', 'correct horse');
+  await page.click('#submit');
+  await expect(page).toHaveURL(/\/$/);
+  return email;
+}
+
+// Sign up, click "New meeting", return the room URL.
 export async function newRoom(page) {
-  await page.goto('/');
+  await signUp(page);
   await page.getByRole('button', { name: 'New meeting' }).click();
   await expect(page).toHaveURL(/\/room\/[0-9a-f]{12}$/);
   // The URL changes when the navigation commits; the room page's elements
@@ -26,7 +39,11 @@ export async function openLobby(browser, contexts, roomUrl, name, contextOptions
   await context.grantPermissions(['camera', 'microphone']);
   const page = await context.newPage();
   page.on('pageerror', e => console.log(`[${name}] pageerror: ${e.message}`));
-  page.on('console', m => { if (m.type() === 'error') console.log(`[${name}] console.error: ${m.text()}`); });
+  // A guest's /api/me answers 401 by design; the browser logs that as a
+  // resource error, so it is the one message not worth echoing.
+  page.on('console', m => {
+    if (m.type() === 'error' && !/status of 401/.test(m.text())) console.log(`[${name}] console.error: ${m.text()}`);
+  });
   await page.goto(roomUrl);
   await page.fill('#identity', name);
   return { context, page };
