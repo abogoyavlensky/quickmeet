@@ -366,6 +366,6 @@ No repo files change. Merging to master triggers the first deploy, so these come
 - `uc deploy` then failed with `Permission denied (publickey)`: the deploy key (the same one unison uses) was no longer in root's `authorized_keys` on 85.193.88.17. Fixed on the server by the user; the re-run deployed.
 - Probes over HTTPS all passed (see the Task 8 deviations), and two phones on different networks held a call (2026-09-29).
 - From the dev machine about one in four TCP connections to 85.193.88.17 timed out, for unison's domain as much as quickmeet's: a network or server-side issue, not the app.
-- Still unknown: how uncloud rolls an update of a service holding host-mode ports. The first deploy created the service; the next push to master is the first update.
+- How uncloud updates a service holding host-mode ports, the plan's first known unknown: stop-first, chosen automatically (seen on the #3 deploy, 2026-09-29). No fallback was needed.
 
 **What the plan could have specified better:** verify request-shape assumptions (headers, host) against a real HTTP round trip, not a hand-built request map, and check how `actions/cache` and buildx drivers behave when a plan changes a cache-keyed build variable or adds a `docker run` after buildx setup. For deploys: a readiness probe through Docker's port proxy must retry on resets, and a provisioning checklist that reuses another project's SSH key should verify the key still logs in (`ssh -i <key> root@<ip> true`) rather than assume it.

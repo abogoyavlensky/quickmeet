@@ -234,8 +234,12 @@ The first deploy, 2026-09-28 to 2026-09-29:
   dropped about one in four new TCP connections from the dev machine, for
   unison's domain as much as quickmeet's. If pages hang there, look at the
   network or the server's firewall before the app.
-- Not yet seen: how uncloud updates a service that holds host-mode ports.
-  The first deploy created the service; the next one is the first update.
+- uncloud updates a service that holds host-mode ports stop-first,
+  chosen on its own (plan line `replace container ... (stop-first)`): the
+  old container stops, the new one starts and is monitored for 5 s, then
+  the old one is removed. No port conflict and no config needed; a deploy
+  drops any live call for a few seconds. The sqlite file on the bind mount
+  survives (a room created before the 2026-09-29 update was still there).
 
 ---
 
