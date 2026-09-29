@@ -1,6 +1,6 @@
 # M2: a call people can rely on, on phones — Implementation Plan
 
-> **Status: completed (2026-09-29), pending the real-device checklist in Task 8.** See "Execution summary" at the end.
+> **Status: completed (2026-09-29).** Merged as PR #5, deployed to staging, verified on two phones the same day. See "Execution summary" at the end.
 
 > **For agentic workers:** Use executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -210,9 +210,9 @@ Elements the tests and the tasks share (ids): `#gone` (dead-link section), `#lob
 
 **Files:** none
 
-- [ ] **Step 1: PR and merge.** Push the branch, open a PR, wait for `test.yml`, merge. `deploy.yml` deploys staging.
-- [ ] **Step 2: Real-device checklist (the user, two phones on different networks).** Lobby: preview shows, the camera picker lists front and back and switching works, "Nobody has joined yet" then "<name> is already here" on the second phone. Call: remote video fills the screen, the self view is top right, the controls are reachable above the home indicator, mute and video toggles work. iOS: if sound is silent, the "Tap to enable sound" button appears and works. Reconnect: toggle airplane mode for 5 seconds; "Reconnecting…" shows and the call resumes, or the lobby shows "Connection lost". Third phone or a laptop: the lobby says the meeting already has two people.
-- [ ] **Step 3: Record.** Anything learned goes into `docs/KNOWLEDGE.md`; anything broken becomes a backlog entry (`/backlog`) or a fix. Commit as `docs: M2 verified on phones`.
+- [x] **Step 1: PR and merge.** Push the branch, open a PR, wait for `test.yml`, merge. `deploy.yml` deploys staging.
+- [x] **Step 2: Real-device checklist (the user, two phones on different networks).** Lobby: preview shows, the camera picker lists front and back and switching works, "Nobody has joined yet" then "<name> is already here" on the second phone. Call: remote video fills the screen, the self view is top right, the controls are reachable above the home indicator, mute and video toggles work. iOS: if sound is silent, the "Tap to enable sound" button appears and works. Reconnect: toggle airplane mode for 5 seconds; "Reconnecting…" shows and the call resumes, or the lobby shows "Connection lost". Third phone or a laptop: the lobby says the meeting already has two people.
+- [x] **Step 3: Record.** Anything learned goes into `docs/KNOWLEDGE.md`; anything broken becomes a backlog entry (`/backlog`) or a fix. Commit as `docs: M2 verified on phones`.
 
 ---
 
@@ -242,6 +242,6 @@ Elements the tests and the tasks share (ids): `#gone` (dead-link section), `#lob
 
 **Deviations** (also noted under each task): `[hidden] { display: none !important }` was needed because the sections' `display: grid` beat the attribute, a bug that predates this plan; `newRoom` waits for the load state; a third media fallback (video without audio); mute and video button labels reset on every join; the look by eye was done with screenshots, not a windowed browser; the phone overlay sits beside the thumbnail rather than at the top.
 
-**Not done:** Task 8's real-device checklist needs two phones; it is the user's step after the deploy.
+**Task 8:** PR #5 merged and deployed 2026-09-29; a headless call against staging confirmed presence, media both ways, the 409 and the full lobby; the user ran the real-device checklist on two phones the same day: all good.
 
 **What the plan could have specified better:** viewports. It named one phone size and let "desktop keeps the current look" stand in for everything else; two of the four codex findings were viewports the plan never mentioned (landscape phones, short desktop windows), and both hid a CSS mechanism (intrinsic video height, `hidden` versus author display rules) that a plan cannot foresee but a test matrix of three or four sizes would have caught in the first run. Also: the fixed SFU port in `system_test.lg` makes two concurrent `lgx test` runs fail each other; a free port, as the http server already uses, would remove that.
