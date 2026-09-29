@@ -88,6 +88,8 @@ follow with a real device to test them on.
   M3 and M4 give rooms owners; deleting one becomes an owner action. On
   the SFU side nothing changes: an empty LiveKit room closes after its
   timeout and is recreated on the next join; the sqlite row is the room.
+- Verified 2026-09-29 on two phones against staging after PR #5: lobby,
+  presence, call, the third person refused.
 - Done 2026-09-27: `livekit-client` served from the binary instead of a
   CDN (`lgx vendor-livekit-client`).
 - Done 2026-09-27: a browser test with headless Chromium and fake media,
