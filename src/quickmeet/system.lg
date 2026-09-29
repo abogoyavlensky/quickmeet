@@ -20,6 +20,9 @@
 ;; Media goes over a UDP port range by default. LIVEKIT_UDP_PORT switches the
 ;; SFU to one multiplexed UDP port instead, for containers: one published
 ;; port is all a host-mode mapping needs.
+;;
+;; ALLOWED_EMAILS, comma-separated, limits who may have an account (sign-up,
+;; sign-in, and every request of a live session); unset, sign-up is open.
 
 (defn- env [lookup name default]
   (let [v (lookup name)]
@@ -30,6 +33,16 @@
 
 (defn- env-bool [lookup name default]
   (= "true" (env lookup name (str default))))
+
+(defn- env-emails
+  "A set of normalised addresses from a comma-separated variable, or nil
+   when it is unset or blank."
+  [lookup name]
+  (let [emails (->> (str/split (env lookup name "") ",")
+                    (map #(str/lower-case (str/trim %)))
+                    (remove str/blank?)
+                    set)]
+    (when (seq emails) emails)))
 
 (def dev-api-key "devkey")
 (def dev-api-secret "quickmeet-dev-secret-change-me-in-production!")
@@ -69,7 +82,8 @@
                                  :livekit {:api-key api-key
                                            :api-secret api-secret
                                            :port lk-port
-                                           :public-url (env lookup "LIVEKIT_PUBLIC_URL" nil)}}
+                                           :public-url (env lookup "LIVEKIT_PUBLIC_URL" nil)}
+                                 :auth {:allowed-emails (env-emails lookup "ALLOWED_EMAILS")}}
 
       ;; The server refs the SFU so it never accepts a join before the SFU
       ;; can take the participant.

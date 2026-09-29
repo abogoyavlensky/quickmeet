@@ -96,7 +96,15 @@
     (is (not (contains? rtc :udp_port)))
     (is (nil? (get-in c [:quickmeet.routes/handler :livekit :public-url])))
     ;; Two people per room: the SFU enforces the product rule.
-    (is (= 2 (get-in c [:livekit/server :config :room :max_participants]))))
+    (is (= 2 (get-in c [:livekit/server :config :room :max_participants])))
+    ;; No allowlist: open sign-up.
+    (is (nil? (get-in c [:quickmeet.routes/handler :auth :allowed-emails]))))
+  ;; An allowlist, however it is spaced and cased; blank means unset.
+  (is (= #{"a@b.com" "c@d.org"}
+         (get-in (config-from {"ALLOWED_EMAILS" " A@b.com, c@d.org ,"})
+                 [:quickmeet.routes/handler :auth :allowed-emails])))
+  (is (nil? (get-in (config-from {"ALLOWED_EMAILS" "  "})
+                    [:quickmeet.routes/handler :auth :allowed-emails])))
   ;; A container: one multiplexed UDP port, reachable from the proxy.
   (let [c (config-from {"LIVEKIT_UDP_PORT" "7882"
                         "LIVEKIT_PUBLIC_URL" "wss://quickmeet.absky.dev"
@@ -108,6 +116,18 @@
     (is (= ["0.0.0.0"] (get-in c [:livekit/server :config :bind_addresses])))
     (is (= "wss://quickmeet.absky.dev"
            (get-in c [:quickmeet.routes/handler :livekit :public-url])))))
+
+(deftest rooms-need-an-account-over-http
+  (with-system
+    (fn [_ base]
+      (is (= 401 (:status (http/post (str base "/api/rooms") "" {}))))
+      (is (= 201 (:status (http/post (str base "/api/rooms") "" {:headers (signup base)}))))
+      ;; The cookie the server sets is the one a browser would send back.
+      (let [res (post-json (str base "/api/auth/signup")
+                           {:email "over-http@example.com" :password "correct horse"})]
+        (is (= 201 (:status res)))
+        (is (re-find #"^session=[0-9a-f]{32}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000$"
+                     (str (get-in res [:headers "set-cookie"]))))))))
 
 (deftest concurrent-room-creation
   ;; Every request runs on its own goroutine and the pool hands each its own
