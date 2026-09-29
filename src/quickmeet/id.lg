@@ -1,0 +1,13 @@
+(ns quickmeet.id
+  (:require [string :as str]))
+
+;; Random ids for rooms, users and sessions. random-uuid reads crypto/rand,
+;; so a v4 uuid is 122 random bits. (str uuid) renders as #uuid "..." in
+;; let-go, tag included: take the 36-character uuid out of it first, or the
+;; d of "uuid" survives a strip of non-hex characters (every room id made
+;; before M3 starts with a d for that reason).
+
+(defn random-hex
+  "32 hex characters from a fresh random uuid."
+  []
+  (str/replace (re-find #"[0-9a-f-]{36}" (str (random-uuid))) #"-" ""))

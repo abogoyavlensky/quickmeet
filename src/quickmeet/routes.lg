@@ -3,6 +3,7 @@
             [json :as json]
             [livekit.core :as lk]
             [quickmeet.db :as db]
+            [quickmeet.id :as id]
             [quickmeet.sfu :as sfu]
             [ruuter.core :as r]
             [string :as str]))
@@ -40,9 +41,8 @@
 
 ;; Room ids are short, URL-safe and unguessable enough for a link that is
 ;; shared on purpose: 12 hex chars of a random UUID.
-;; (str uuid) renders as #uuid "..." in let-go, so keep only the hex.
 (defn new-room-id []
-  (subs (str/replace (str (random-uuid)) #"[^0-9a-f]" "") 0 12))
+  (subs (id/random-hex) 0 12))
 
 (defn- valid-room-id? [id]
   (some? (re-find #"^[0-9a-f]{12}$" (str id))))
