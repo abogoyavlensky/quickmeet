@@ -193,14 +193,14 @@
 ;; argument order below follows the rendered SQL, not the map.
 
 (def ^:private open-call-sql
-  (sql-of {:select [:id :room_id :ended_at]
+  (sql-of {:select [:id :room_id :sid :ended_at]
            :from [:calls]
            :where [:and [:= :room_id "room"] [:= :ended_at nil]]}))
 
 (def ^:private create-call-sql
   (sql-of {:insert-into :calls
-           :values [{:id "id" :room_id "room"}]
-           :returning [:id :room_id :ended_at]}))
+           :values [{:id "id" :room_id "room" :sid "sid"}]
+           :returning [:id :room_id :sid :ended_at]}))
 
 (def ^:private call-participant-sql
   (sql-of {:select [:sid :call_id :user_id :name :joined_at :left_at]
@@ -252,8 +252,10 @@
 (defn open-call [conn room-id]
   (sqlite/execute-one! conn [open-call-sql room-id]))
 
-(defn create-call! [conn id room-id]
-  (sqlite/execute-one! conn [create-call-sql id room-id]))
+(defn create-call!
+  "Open a call in the room; `sid` is the SFU's id for this lifetime of it."
+  [conn id room-id sid]
+  (sqlite/execute-one! conn [create-call-sql id room-id sid]))
 
 (defn call-participant [conn sid]
   (sqlite/execute-one! conn [call-participant-sql sid]))

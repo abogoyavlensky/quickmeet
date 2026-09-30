@@ -14,6 +14,8 @@
 ;;   participant.joinedAt  unix seconds, a string (protojson renders int64 so)
 ;;   createdAt             unix seconds, a string: when the event happened
 ;;
+;;   room.sid              the SFU's id for this lifetime of the room ("RM_..")
+;;
 ;; A call is one stretch of a room being occupied: the room's open call is
 ;; the one without ended_at. LiveKit delivers a room's events in order,
 ;; and every write below is idempotent, so a redelivery changes nothing.
@@ -21,17 +23,31 @@
 ;; stands in for a participant_left that never arrived. Leaving and
 ;; finishing key on the participant and the call, not the room row, so
 ;; they land even if the room was deleted mid-call.
+;;
+;; The SFU dies with the process (the container is killed on every
+;; deploy), and then no room_finished ever comes for a call that was on.
+;; The SFU gives each lifetime of a room a new sid, so a join whose room
+;; sid differs from the open call's is a new meeting: the stale call is
+;; closed at that moment and a fresh one opened.
 
 (defn- user-id-of [identity]
   (second (re-matches #"user:(.+)" (str identity))))
 
-(defn- joined! [conn {:keys [room participant joinedAt]}]
+(defn- current-call!
+  "The room's open call for this SFU room lifetime, opened if need be."
+  [conn room-id room-sid at]
+  (let [open (db/open-call conn room-id)]
+    (if (and open (= (:sid open) room-sid))
+      open
+      (do (when open (db/close-call! conn (:id open) at))
+          (db/create-call! conn (id/random-hex) room-id room-sid)))))
+
+(defn- joined! [conn {:keys [room participant createdAt]}]
   (let [room-id (:name room)
         sid (:sid participant)]
     (when (and (db/get-room conn room-id)
                (not (db/call-participant conn sid)))
-      (let [call (or (db/open-call conn room-id)
-                     (db/create-call! conn (id/random-hex) room-id))]
+      (let [call (current-call! conn room-id (:sid room) createdAt)]
         (db/add-call-participant! conn sid (:id call)
                                   (user-id-of (:identity participant))
                                   (str (:name participant))

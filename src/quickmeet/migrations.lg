@@ -62,6 +62,7 @@
                {:create-table :calls
                 :with-columns [[:id :text [:primary-key]]
                                [:room_id :text [:not nil]]
+                               [:sid :text [:not nil]]
                                [:ended_at :text]]}
                {:create-table :call_participants
                 :with-columns [[:sid :text [:primary-key]]

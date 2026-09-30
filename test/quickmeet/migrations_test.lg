@@ -87,7 +87,7 @@
       (is (= [{:room_id "aaaaaaaaaaaa" :user_id "u1"}]
              (sqlite/query conn ["select room_id, user_id from room_members"])))
       (sqlite/execute! conn ["update rooms set name = 'Mom' where id = 'aaaaaaaaaaaa'"])
-      (sqlite/execute! conn ["insert into calls (id, room_id) values ('c1', 'aaaaaaaaaaaa')"])
+      (sqlite/execute! conn ["insert into calls (id, room_id, sid) values ('c1', 'aaaaaaaaaaaa', 'RM_1')"])
       (sqlite/execute! conn ["insert into call_participants (sid, call_id, user_id, name, joined_at)
                               values ('PA_1', 'c1', 'u1', 'a', '2026-09-30 10:00:00')"])
       (migrations/rollback! conn)
