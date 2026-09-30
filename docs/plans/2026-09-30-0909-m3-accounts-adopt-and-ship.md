@@ -34,9 +34,9 @@ The draft's code was read on 2026-09-30 and looks right; both suites pass (28 un
 - Cookie handling: parsing, the `Set-Cookie` attributes, `Secure` only behind the proxy, sign-out clearing the right cookie.
 - Session lookup: the SQL window, no way to keep a session after the address leaves the allowlist.
 - Sign-in and sign-up: normalisation, the same error for unknown address and wrong password, password byte limits, the allowlist checked in the right order.
-- Gating: nothing but `POST /api/rooms` requires a session; the room lookup does not leak `owner_id` or `password_hash` anywhere.
-- Migration 002: up and down both work on a database that already has rooms.
-- Pages: a 401 anywhere sends to sign-in and never loops.
+- Gating: among the room operations only `POST /api/rooms` requires a session (the room page, the lookup and the join token stay open to guests); the account endpoints (`/api/me`, sign-out) keep their session checks. The room lookup does not leak `owner_id`, and `password_hash` never leaves `db`.
+- Migration 002: up and down both work on a database that already has rooms. The existing test runs on an empty database; add a case that seeds rooms under 001, applies 002, rolls it back, and finds the rooms intact.
+- Pages: a 401 on a protected action (creating a room, saving settings) sends to sign-in and never loops. A guest's room page and the signed-out landing page get a 401 from `/api/me` by design and must carry on.
 
 Findings are fixed as commits on the branch, each with the usual Codex checkpoint. Advisory findings are noted in this plan.
 
