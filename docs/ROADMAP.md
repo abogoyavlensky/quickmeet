@@ -167,35 +167,57 @@ invitation.
   whatever chat you already use. The rooms list showing who is waiting is
   the in-app signal. Ringing is "After v1", see Web Push there.
 
-### M5: deployment
+### M5: release
+
+Decided 2026-09-30: what was left of M5 (deployment) and all of M6
+(hardening) became one milestone, the release: installable by someone
+other than the author, and safe to leave running. linux/amd64 only;
+macOS builds moved to "After v1". Backups moved to the backlog
+(`docs/backlog/sqlite-backups.md`). Plan:
+`docs/plans/2026-09-30-2252-release-milestone.md`.
 
 Staging done (2026-09-29): every push to master tests, builds and deploys
 the app with uncloud to `https://quickmeet.absky.dev`, one hostname with
 Caddy routing `/rtc*` to the SFU, media on one UDP port and one TCP port
 in host mode. Two phones on different networks held a call there. See
-"Deployment" in the README. What remains below: the install guide for
-other boxes, release builds and tagging, macOS.
+"Deployment" in the README.
 
-- A documented single-box install: the binary, a systemd unit, Caddy for
-  TLS and for exposing the signalling WebSocket as `wss://`, the UDP range
-  or the built-in TURN, and the environment variables.
-- Production defaults: bind to all interfaces, `use_external_ip true`,
-  a generated API secret, a real log level.
-- Release builds via `lgx build`; linux/amd64 first, native macOS second.
-- A smoke check after deploy: two devices on different networks in a call.
-
-### M6: hardening
-
-- Rate limits on room and account creation, and on sign-in.
-- Sign-in timing: an unknown address skips bcrypt, so response time says
-  whether an account exists. A dummy comparison closes it.
-- Room ids that are not enumerable and a check that a room link cannot be
-  guessed from another.
-- Graceful shutdown: SIGTERM stops the http server, waits for the SFU to
-  drain participants, then exits.
-- Backups: the sqlite file, documented. linkboard's Litestream sidecar
-  plan applies unchanged: the database is a bind-mounted file on the
-  uncloud host.
+- Measured 2026-09-30, before planning: a call survives the server being
+  killed and restarted. The browsers reconnect by themselves: media was
+  back 18 s after the kill for a 5 s outage and 40 s after for a 30 s one;
+  at 60 s they gave up after 48 s and returned to the lobby. See
+  "Restarts and shutdown" in `KNOWLEDGE.md`.
+- Decided 2026-09-30: shutdown never stops the SFU. On SIGTERM the app
+  stops serving, closes open calls in history and exits; the SFU dies
+  with the process and the browsers reconnect to the next one. The
+  earlier plan, "wait for the SFU to drain participants", would either
+  wait forever (LiveKit's graceful stop waits for every participant to
+  leave) or end every call (its forced stop tells them to).
+- Decided 2026-09-30: production defaults stay development defaults, and
+  the dangerous combination refuses to start: the built-in API secret on
+  an SFU other machines can reach. The install guide's environment file
+  sets the rest (bind address, external IP, log level).
+- Done 2026-09-30: rate limits in memory, per client address for sign-in
+  (10 a minute) and sign-up (10 an hour), per account for room creation
+  (60 an hour); 429 with `Retry-After`. `RATE_LIMIT=false` for the
+  browser suite (`src/quickmeet/ratelimit.lg`).
+- Done 2026-09-30: sign-in with an unknown address pays for one bcrypt
+  comparison too, so response time no longer says whether an account
+  exists.
+- Done 2026-09-30: `HOST` binds the app's port; the install puts it on
+  loopback behind Caddy, which is what makes the forwarded client address
+  trustworthy for the rate limits.
+- Done 2026-09-30: SIGTERM and SIGINT shut down cleanly (exit 0 in about
+  a tenth of a second), and a start closes any call a dead process left
+  open. The compose stop grace period is 10 s again.
+- Done 2026-09-30: `docs/INSTALL.md` with a systemd unit, a Caddyfile and
+  an environment example in `deploy/`; `release.yml` publishes a
+  linux/amd64 tarball on a `v*` tag; `lgx smoke` holds a two-browser call
+  against any instance as the post-install check.
+- Satisfied since M3: room ids are 12 hex characters of a random v4 UUID,
+  48 bits from crypto/rand, each independent of every other, so no link
+  can be guessed from another (`src/quickmeet/id.lg`,
+  `src/quickmeet/routes.lg`).
 
 ## After v1
 
@@ -214,6 +236,9 @@ other boxes, release builds and tagging, macOS.
   signing that let-go does not have; a small Go shim or a hosted push
   service. The PWA above covers phones without any of that.
 - More than two people, screen sharing, chat over LiveKit data channels.
+- macOS builds. Cross-building from linux fails (a stats dependency of
+  livekit-server needs cgo on darwin), so a release would need a macOS
+  runner building natively. Dropped from v1 on 2026-09-30.
 
 ## Open questions
 
