@@ -98,6 +98,20 @@
 (defn- with-cookie [response value]
   (assoc-in response [:headers "Set-Cookie"] value))
 
+;; The account endpoints take JSON and nothing else. An html form cannot
+;; send application/json, and a cross-site fetch with it needs a preflight
+;; this server never answers, so the check keeps another site from posting
+;; a sign-in (and its cookie) into a visitor's browser: login CSRF.
+(defn- json-request? [req]
+  (str/starts-with? (str (get-in req [:headers "content-type"])) "application/json"))
+
+(def ^:private unsupported-media
+  (json-response 415 {:error "expected application/json"}))
+
+(defn- json-only [handle]
+  (fn [req]
+    (if (json-request? req) (handle req) unsupported-media)))
+
 (defn- public-user [user]
   (select-keys user [:email :display_name]))
 
@@ -149,15 +163,17 @@
    ;; Accounts. Body: {"email": "...", "password": "..."}.
    {:path "/api/auth/signup"
     :method :post
-    :response (fn [req]
-                (let [{:keys [email password]} (read-json-body req)]
-                  (session-response req 201 (auth/sign-up! conn auth email password))))}
+    :response (json-only
+               (fn [req]
+                 (let [{:keys [email password]} (read-json-body req)]
+                   (session-response req 201 (auth/sign-up! conn auth email password)))))}
 
    {:path "/api/auth/signin"
     :method :post
-    :response (fn [req]
-                (let [{:keys [email password]} (read-json-body req)]
-                  (session-response req 200 (auth/sign-in! conn auth email password))))}
+    :response (json-only
+               (fn [req]
+                 (let [{:keys [email password]} (read-json-body req)]
+                   (session-response req 200 (auth/sign-in! conn auth email password)))))}
 
    {:path "/api/auth/signout"
     :method :post
@@ -175,13 +191,14 @@
    ;; Body: {"display_name": "..."}.
    {:path "/api/me"
     :method :post
-    :response (fn [req]
-                (if-let [user (current-user req)]
-                  (let [result (auth/rename! conn (:id user) (:display_name (read-json-body req)))]
-                    (if (:error result)
-                      (error-response result)
-                      (json-response 200 (public-user (:user result)))))
-                  unauthorized))}
+    :response (json-only
+               (fn [req]
+                 (if-let [user (current-user req)]
+                   (let [result (auth/rename! conn (:id user) (:display_name (read-json-body req)))]
+                     (if (:error result)
+                       (error-response result)
+                       (json-response 200 (public-user (:user result)))))
+                   unauthorized)))}
 
    {:path "/room/:id"
     :method :get

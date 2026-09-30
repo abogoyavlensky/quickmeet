@@ -34,11 +34,15 @@
   ([handler method uri] (call handler method uri nil))
   ([handler method uri body] (call handler method uri body nil))
   ([handler method uri body extra]
-   (let [res (handler (merge {:request-method method
-                              :uri uri
-                              :server-addr "meet.example:8080"
-                              :body body}
-                             extra))]
+   (let [res (handler (-> {:request-method method
+                           :uri uri
+                           :server-addr "meet.example:8080"
+                           :body body}
+                          (merge extra)
+                          ;; A body is JSON unless the test says otherwise,
+                          ;; as the pages and the http client send it.
+                          (assoc :headers (merge (when body {"content-type" "application/json"})
+                                                 (:headers extra)))))]
      (assoc res :json (when (and (seq (:body res))
                                  (= "application/json"
                                     (get-in res [:headers "Content-Type"])))
@@ -244,6 +248,27 @@
         (is (str/includes? (:error (:json short)) "8")))
       (is (= 409 (:status (signup handler "alice@example.com"))))
       (is (= {:error "exists"} (:json (signup handler "ALICE@example.com")))))))
+
+(deftest account-endpoints-take-json-only
+  ;; Login CSRF: a cross-site form with enctype text/plain can carry a
+  ;; body that parses as JSON, and a sign-in response would then set an
+  ;; attacker's session in the victim's browser. A browser cannot send
+  ;; application/json cross-site without a preflight this server never
+  ;; answers, so requiring it shuts the door.
+  (with-handler
+    (fn [handler _]
+      (let [body (json/write-json {:email "csrf@example.com" :password "correct horse"})
+            as-form {:headers {"content-type" "text/plain"}}]
+        (doseq [path ["/api/auth/signup" "/api/auth/signin"]]
+          (let [res (call handler :post path body as-form)]
+            (is (= 415 (:status res)) path)
+            (is (nil? (get-in res [:headers "Set-Cookie"])) path)))
+        (let [{:keys [cookie]} (signup handler "csrf@example.com")]
+          (is (= 415 (:status (call handler :post "/api/me" "{\"display_name\":\"x\"}"
+                                    (assoc-in (as cookie) [:headers "content-type"] "text/plain")))))
+          ;; With a charset the type still counts.
+          (is (= 200 (:status (call handler :post "/api/me" "{\"display_name\":\"x\"}"
+                                    (assoc-in (as cookie) [:headers "content-type"] "application/json; charset=utf-8"))))))))))
 
 (deftest the-cookie-is-secure-behind-tls
   (with-handler
