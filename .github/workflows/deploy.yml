@@ -84,6 +84,7 @@ jobs:
       - name: Build and deploy
         env:
           APP_DOMAIN: ${{ vars.APP_DOMAIN }}
+          ALLOWED_EMAILS: ${{ vars.ALLOWED_EMAILS }}
           LIVEKIT_API_KEY: ${{ secrets.LIVEKIT_API_KEY }}
           LIVEKIT_API_SECRET: ${{ secrets.LIVEKIT_API_SECRET }}
         run: uc --context unison-staging --connect root@${{ vars.SERVER_IP }} deploy -f compose.yaml --yes quickmeet-app

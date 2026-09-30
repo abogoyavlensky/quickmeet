@@ -46,6 +46,8 @@ services:
       LIVEKIT_USE_EXTERNAL_IP: "true"
       LIVEKIT_LOG_LEVEL: info
       DB_PATH: /app/db/quickmeet.db
+      # Who may have an account, comma-separated; empty means open sign-up.
+      ALLOWED_EMAILS: ${ALLOWED_EMAILS:-}
       LIVEKIT_API_KEY: secret://livekit_api_key
       LIVEKIT_API_SECRET: secret://livekit_api_secret
 

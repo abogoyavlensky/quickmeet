@@ -14,14 +14,18 @@
                         :api-secret "test-secret-test-secret-test-secret!!"
                         :port 7880})
 
+(def ^:private anyone {:allowed-emails nil})
+
 (defn- with-handler
   ([f] (with-handler livekit f))
   ([lk f] (with-handler lk (constantly []) f))
-  ([lk participants f]
+  ([lk participants f] (with-handler lk participants anyone f))
+  ([lk participants auth f]
    (let [path (str "/tmp/quickmeet-routes-" (rand-int 100000000) ".db")
          system (ig/init {:quickmeet.db/conn {:path path}})]
      (try
-       (f (routes/handler (:quickmeet.db/conn system) lk participants))
+       (f (routes/handler (:quickmeet.db/conn system) lk participants auth)
+          (:quickmeet.db/conn system))
        (finally
          (ig/halt! system)
          (os/sh "rm" "-f" path (str path "-wal") (str path "-shm")))))))
@@ -30,15 +34,42 @@
   ([handler method uri] (call handler method uri nil))
   ([handler method uri body] (call handler method uri body nil))
   ([handler method uri body extra]
-   (let [res (handler (merge {:request-method method
-                              :uri uri
-                              :server-addr "meet.example:8080"
-                              :body body}
-                             extra))]
+   (let [res (handler (-> {:request-method method
+                           :uri uri
+                           :server-addr "meet.example:8080"
+                           :body body}
+                          (merge extra)
+                          ;; A body is JSON unless the test says otherwise,
+                          ;; as the pages and the http client send it.
+                          (assoc :headers (merge (when body {"content-type" "application/json"})
+                                                 (:headers extra)))))]
      (assoc res :json (when (and (seq (:body res))
                                  (= "application/json"
                                     (get-in res [:headers "Content-Type"])))
                         (json/read-json (:body res) {:keywords? true}))))))
+
+(defn- cookie-of
+  "The session id a response's Set-Cookie carries."
+  [res]
+  (second (re-find #"^session=([^;]*)" (str (get-in res [:headers "Set-Cookie"])))))
+
+(defn- signup
+  "Sign `email` up with a fixed password; the response plus its :cookie."
+  ([handler] (signup handler (str "user" (rand-int 100000000) "@example.com")))
+  ([handler email]
+   (let [res (call handler :post "/api/auth/signup"
+                   (json/write-json {:email email :password "correct horse"}))]
+     (assoc res :cookie (cookie-of res)))))
+
+(defn- as
+  "Request extras that carry a session cookie."
+  [cookie]
+  {:headers {"cookie" (str "session=" cookie)}})
+
+(defn- new-room
+  "A room made by a freshly signed-up user; its id."
+  [handler]
+  (:id (:json (call handler :post "/api/rooms" nil (as (:cookie (signup handler)))))))
 
 (deftest room-ids-are-short-hex
   (let [id (routes/new-room-id)]
@@ -48,8 +79,8 @@
 
 (deftest create-room-then-join
   (with-handler
-    (fn [handler]
-      (let [created (call handler :post "/api/rooms")
+    (fn [handler _]
+      (let [created (call handler :post "/api/rooms" nil (as (:cookie (signup handler))))
             id (:id (:json created))]
         (is (= 201 (:status created)))
         (is (= 12 (count id)))
@@ -73,8 +104,8 @@
    with `extra` keys (:server-addr, :headers)."
   [lk extra]
   (with-handler lk
-    (fn [handler]
-      (let [id (:id (:json (call handler :post "/api/rooms")))]
+    (fn [handler _]
+      (let [id (new-room handler)]
         (:url (:json (call handler :post (str "/api/rooms/" id "/token")
                            "{}" extra)))))))
 
@@ -101,8 +132,8 @@
   (let [room-and-token
         (fn [participants]
           (with-handler livekit participants
-            (fn [handler]
-              (let [id (:id (:json (call handler :post "/api/rooms")))]
+            (fn [handler _]
+              (let [id (new-room handler)]
                 {:id id
                  :room (:json (call handler :get (str "/api/rooms/" id)))
                  :token (call handler :post (str "/api/rooms/" id "/token") "{}")}))))]
@@ -132,7 +163,7 @@
 
 (deftest unknown-and-invalid-rooms
   (with-handler
-    (fn [handler]
+    (fn [handler _]
       (is (= 404 (:status (call handler :get "/api/rooms/000000000000"))))
       (is (= 404 (:status (call handler :post "/api/rooms/000000000000/token" "{}"))))
       (is (= 404 (:status (call handler :post "/api/rooms/not-hex/token" "{}"))))
@@ -141,12 +172,12 @@
 
 (deftest pages-and-static
   (with-handler
-    (fn [handler]
+    (fn [handler _]
       (let [index (call handler :get "/")]
         (is (= 200 (:status index)))
         (is (= "text/html; charset=utf-8" (get-in index [:headers "Content-Type"])))
         (is (str/includes? (:body index) "New meeting")))
-      (let [id (:id (:json (call handler :post "/api/rooms")))
+      (let [id (new-room handler)
             page (call handler :get (str "/room/" id))]
         (is (= 200 (:status page)))
         ;; The client library is vendored and served from the binary.
@@ -162,4 +193,131 @@
         (is (= 200 (:status js)))
         (is (= "text/javascript; charset=utf-8" (get-in js [:headers "Content-Type"])))
         (is (str/includes? (:body js) "livekit-client@2.22.3")))
-      (is (= 404 (:status (call handler :get "/static/nope.js")))))))
+      (is (= 404 (:status (call handler :get "/static/nope.js"))))
+      ;; The account pages, and the script they share.
+      (doseq [page ["/signup" "/signin" "/settings" "/static/account.js"]]
+        (is (= 200 (:status (call handler :get page))) page)))))
+
+(deftest accounts-and-sessions
+  (with-handler
+    (fn [handler _]
+      (let [{:keys [status json cookie] :as res} (signup handler "Alice@Example.com")
+            set-cookie (get-in res [:headers "Set-Cookie"])]
+        (is (= 201 status))
+        (is (= {:email "alice@example.com" :display_name "alice"} json))
+        (is (re-find #"^[0-9a-f]{32}$" cookie))
+        ;; Plain http: no Secure flag, everything else set.
+        (doseq [attr ["Path=/" "HttpOnly" "SameSite=Lax" "Max-Age=31536000"]]
+          (is (str/includes? set-cookie attr) attr))
+        (is (not (str/includes? set-cookie "Secure")))
+        ;; The cookie is the session.
+        (is (= 200 (:status (call handler :get "/api/me" nil (as cookie)))))
+        (is (= json (:json (call handler :get "/api/me" nil (as cookie)))))
+        (is (= 401 (:status (call handler :get "/api/me"))))
+        (is (= 401 (:status (call handler :get "/api/me" nil (as "not-a-session")))))
+        ;; Renaming.
+        (let [renamed (call handler :post "/api/me" "{\"display_name\":\" Alice B. \"}" (as cookie))]
+          (is (= 200 (:status renamed)))
+          (is (= "Alice B." (:display_name (:json renamed))))
+          (is (= "Alice B." (:display_name (:json (call handler :get "/api/me" nil (as cookie)))))))
+        (let [bad (call handler :post "/api/me" "{\"display_name\":\"  \"}" (as cookie))]
+          (is (= 400 (:status bad)))
+          (is (string? (:error (:json bad)))))
+        (is (= 401 (:status (call handler :post "/api/me" "{\"display_name\":\"x\"}"))))
+        ;; Signing out ends the session and clears the cookie.
+        (let [out (call handler :post "/api/auth/signout" nil (as cookie))]
+          (is (= 200 (:status out)))
+          (is (str/includes? (get-in out [:headers "Set-Cookie"]) "Max-Age=0")))
+        (is (= 401 (:status (call handler :get "/api/me" nil (as cookie))))))
+      ;; Signing in.
+      (let [ok (call handler :post "/api/auth/signin" (json/write-json {:email "alice@example.com" :password "correct horse"}))
+            wrong (call handler :post "/api/auth/signin" (json/write-json {:email "alice@example.com" :password "wrong"}))
+            nobody (call handler :post "/api/auth/signin" (json/write-json {:email "nobody@example.com" :password "correct horse"}))]
+        (is (= 200 (:status ok)))
+        (is (= "Alice B." (:display_name (:json ok))))
+        (is (= 200 (:status (call handler :get "/api/me" nil (as (cookie-of ok))))))
+        (is (= 401 (:status wrong)))
+        (is (= {:error "invalid email or password"} (:json wrong)))
+        (is (= (:json wrong) (:json nobody))))
+      ;; Bad input is 400 with a message; a repeat is 409.
+      (let [bad (call handler :post "/api/auth/signup" (json/write-json {:email "no-at" :password "correct horse"}))]
+        (is (= 400 (:status bad)))
+        (is (str/includes? (:error (:json bad)) "email")))
+      (let [short (call handler :post "/api/auth/signup" (json/write-json {:email "b@example.com" :password "short"}))]
+        (is (= 400 (:status short)))
+        (is (str/includes? (:error (:json short)) "8")))
+      (is (= 409 (:status (signup handler "alice@example.com"))))
+      (is (= {:error "exists"} (:json (signup handler "ALICE@example.com")))))))
+
+(deftest account-endpoints-take-json-only
+  ;; Login CSRF: a cross-site form with enctype text/plain can carry a
+  ;; body that parses as JSON, and a sign-in response would then set an
+  ;; attacker's session in the victim's browser. A browser cannot send
+  ;; application/json cross-site without a preflight this server never
+  ;; answers, so requiring it shuts the door.
+  (with-handler
+    (fn [handler _]
+      (let [body (json/write-json {:email "csrf@example.com" :password "correct horse"})
+            as-form {:headers {"content-type" "text/plain"}}]
+        (doseq [path ["/api/auth/signup" "/api/auth/signin"]]
+          (let [res (call handler :post path body as-form)]
+            (is (= 415 (:status res)) path)
+            (is (nil? (get-in res [:headers "Set-Cookie"])) path)))
+        (let [{:keys [cookie]} (signup handler "csrf@example.com")]
+          (is (= 415 (:status (call handler :post "/api/me" "{\"display_name\":\"x\"}"
+                                    (assoc-in (as cookie) [:headers "content-type"] "text/plain")))))
+          ;; With a charset the type still counts.
+          (is (= 200 (:status (call handler :post "/api/me" "{\"display_name\":\"x\"}"
+                                    (assoc-in (as cookie) [:headers "content-type"] "application/json; charset=utf-8"))))))))))
+
+(deftest the-cookie-is-secure-behind-tls
+  (with-handler
+    (fn [handler _]
+      (let [res (call handler :post "/api/auth/signup"
+                      (json/write-json {:email "tls@example.com" :password "correct horse"})
+                      {:headers {"x-forwarded-proto" "https"}})]
+        (is (= 201 (:status res)))
+        (is (str/includes? (get-in res [:headers "Set-Cookie"]) "; Secure"))))))
+
+(deftest creating-a-room-needs-an-account
+  (with-handler
+    (fn [handler conn]
+      (is (= 401 (:status (call handler :post "/api/rooms"))))
+      (is (= {:error "unauthorized"} (:json (call handler :post "/api/rooms"))))
+      (let [{:keys [cookie json]} (signup handler "owner@example.com")
+            created (call handler :post "/api/rooms" nil (as cookie))
+            id (:id (:json created))]
+        (is (= 201 (:status created)))
+        ;; The row remembers who made it; the API does not say.
+        (is (= (:id (quickmeet.db/user-by-email conn "owner@example.com"))
+               (:owner_id (quickmeet.db/get-room conn id))))
+        (is (not (contains? (:json (call handler :get (str "/api/rooms/" id))) :owner_id)))
+        ;; A guest with the link needs no account.
+        (is (= 200 (:status (call handler :get (str "/api/rooms/" id)))))
+        (is (= 200 (:status (call handler :post (str "/api/rooms/" id "/token") "{}"))))
+        (is (= 200 (:status (call handler :get (str "/room/" id)))))
+        (is (= "owner" (:display_name json)))))))
+
+(deftest the-allowlist
+  (let [path (str "/tmp/quickmeet-allow-" (rand-int 100000000) ".db")
+        system (ig/init {:quickmeet.db/conn {:path path}})
+        conn (:quickmeet.db/conn system)
+        handler-for (fn [auth] (routes/handler conn livekit (constantly []) auth))]
+    (try
+      (let [only-ok (handler-for {:allowed-emails #{"ok@example.com"}})
+            refused (signup only-ok "no@example.com")
+            accepted (signup only-ok "OK@example.com")]
+        (is (= 403 (:status refused)))
+        (is (= {:error "not allowed"} (:json refused)))
+        (is (= 201 (:status accepted)))
+        (is (= 200 (:status (call only-ok :get "/api/me" nil (as (:cookie accepted))))))
+        ;; The operator removes the address: the session is over at its
+        ;; next request, and signing in again is refused.
+        (let [nobody (handler-for {:allowed-emails #{}})]
+          (is (= 401 (:status (call nobody :get "/api/me" nil (as (:cookie accepted))))))
+          (is (= 403 (:status (call nobody :post "/api/auth/signin"
+                                    (json/write-json {:email "ok@example.com" :password "correct horse"})))))
+          (is (= 401 (:status (call nobody :post "/api/rooms" nil (as (:cookie accepted))))))))
+      (finally
+        (ig/halt! system)
+        (os/sh "rm" "-f" path (str path "-wal") (str path "-shm"))))))

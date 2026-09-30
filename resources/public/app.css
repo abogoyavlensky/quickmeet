@@ -15,6 +15,12 @@ body {
   font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, sans-serif;
 }
 main { max-width: 480px; margin: 18vh auto 0; padding: 0 16px; text-align: center; }
+main section { display: grid; gap: 12px; justify-items: center; }
+/* The account forms share the lobby's input styling below. */
+.form { display: grid; gap: 14px; text-align: left; margin: 0 0 20px; }
+.form p { margin: 0; }
+.links a { color: var(--accent); }
+button.link { border: 0; background: none; padding: 0; color: var(--accent); text-decoration: underline; }
 h1 { font-size: 28px; margin: 0 0 8px; }
 .lead { color: var(--muted); margin: 0 0 24px; }
 button { font: inherit; border-radius: 10px; padding: 10px 18px; cursor: pointer; border: 1px solid var(--line); background: var(--card); color: var(--fg); }
@@ -33,8 +39,8 @@ header { display: flex; gap: 12px; align-items: center; padding: 12px 16px; bord
 .brand { font-weight: 600; }
 header .muted { flex: 1; font-family: ui-monospace, monospace; font-size: 14px; }
 .lobby { width: 100%; max-width: 480px; margin: 24px auto 0; padding: 0 16px 24px; display: grid; gap: 14px; }
-.lobby label { display: grid; gap: 6px; font-size: 14px; color: var(--muted); }
-.lobby input, .lobby select { font: inherit; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--fg); }
+.lobby label, .form label { display: grid; gap: 6px; font-size: 14px; color: var(--muted); }
+.lobby input, .lobby select, .form input { font: inherit; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--fg); }
 .lobby p { margin: 0; }
 .lobby a { color: var(--accent); }
 .preview { width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: 14px; overflow: hidden; }

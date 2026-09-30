@@ -10,25 +10,61 @@
   <main>
     <h1>quickmeet</h1>
     <p class="lead">A video call in one click. Start a meeting, share the link, talk.</p>
-    <button id="new" class="primary">New meeting</button>
+
+    <!-- Starting a meeting takes an account; both sections stay hidden
+         until /api/me says which one applies. -->
+    <section id="signed-out" hidden>
+      <p class="links"><a href="/signin">Sign in</a> · <a href="/signup">Sign up</a></p>
+      <p class="muted">Starting a meeting takes an account. Joining one takes only the link.</p>
+    </section>
+
+    <section id="signed-in" hidden>
+      <button id="new" class="primary">New meeting</button>
+      <p class="muted">Signed in as <span id="who"></span> ·
+        <a href="/settings">Settings</a> ·
+        <button id="signout" class="link">Sign out</button></p>
+    </section>
+
     <p id="error" class="error" hidden></p>
   </main>
   <script>
-    document.getElementById('new').addEventListener('click', async () => {
-      const button = document.getElementById('new');
-      button.disabled = true;
+    const $ = id => document.getElementById(id);
+    const showError = e => { $('error').textContent = String(e.message || e); $('error').hidden = false; };
+
+    async function load() {
+      try {
+        const res = await fetch('/api/me');
+        if (res.ok) {
+          $('who').textContent = (await res.json()).display_name;
+          $('signed-in').hidden = false;
+        } else {
+          $('signed-out').hidden = false;
+        }
+      } catch (e) { showError(e); }
+    }
+
+    $('new').addEventListener('click', async () => {
+      $('new').disabled = true;
       try {
         const res = await fetch('/api/rooms', { method: 'POST' });
+        // The session ended (signed out elsewhere, expired, removed from
+        // the allowlist): sign in again.
+        if (res.status === 401) { location.href = '/signin'; return; }
         if (!res.ok) throw new Error('could not create a room (' + res.status + ')');
         const { id } = await res.json();
         location.href = '/room/' + id;
       } catch (e) {
-        const err = document.getElementById('error');
-        err.textContent = String(e.message || e);
-        err.hidden = false;
-        button.disabled = false;
+        showError(e);
+        $('new').disabled = false;
       }
     });
+
+    $('signout').addEventListener('click', async () => {
+      await fetch('/api/auth/signout', { method: 'POST' });
+      location.reload();
+    });
+
+    load();
   </script>
 </body>
 </html>

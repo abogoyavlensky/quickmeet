@@ -40,11 +40,11 @@
   [query]
   (first (sql/format query)))
 
-(def ^:private room-columns [:id :created_at])
+(def ^:private room-columns [:id :created_at :owner_id])
 
 (def ^:private create-room-sql
   (sql-of {:insert-into :rooms
-           :values [{:id "id"}]
+           :values [{:id "id" :owner_id "owner"}]
            :returning room-columns}))
 
 (def ^:private get-room-sql
@@ -52,8 +52,82 @@
            :from [:rooms]
            :where [:= :id "id"]}))
 
-(defn create-room! [conn id]
-  (sqlite/execute-one! conn [create-room-sql id]))
+(defn create-room!
+  "Insert a room. `owner-id` is the creating user's id, or nil."
+  ([conn id] (create-room! conn id nil))
+  ([conn id owner-id]
+   (sqlite/execute-one! conn [create-room-sql id owner-id])))
 
 (defn get-room [conn id]
   (sqlite/execute-one! conn [get-room-sql id]))
+
+;; Users and sessions. The password hash is read only where sign-in needs
+;; it; every other lookup returns user-columns.
+
+(def ^:private user-columns [:id :email :display_name :created_at])
+
+(def ^:private create-user-sql
+  (sql-of {:insert-into :users
+           :values [{:id "id" :email "email" :password_hash "hash" :display_name "name"}]
+           :returning user-columns}))
+
+(def ^:private user-by-email-sql
+  (sql-of {:select (conj user-columns :password_hash)
+           :from [:users]
+           :where [:= :email "email"]}))
+
+(def ^:private user-by-id-sql
+  (sql-of {:select user-columns
+           :from [:users]
+           :where [:= :id "id"]}))
+
+(def ^:private update-display-name-sql
+  (sql-of {:update :users
+           :set {:display_name "name"}
+           :where [:= :id "id"]
+           :returning user-columns}))
+
+(def ^:private create-session-sql
+  (sql-of {:insert-into :sessions
+           :values [{:id "id" :user_id "user"}]
+           :returning [:id :user_id :created_at]}))
+
+;; A session is valid for a year from creation (365 days here, the same
+;; number as auth/session-days, which sets the cookie's Max-Age). The
+;; comparison is sqlite's, so no time handling in let-go and no clock to
+;; inject.
+(def ^:private session-user-sql
+  (sql-of {:select (mapv #(keyword (str "u." (name %))) user-columns)
+           :from [[:sessions :s]]
+           :join [[:users :u] [:= :u.id :s.user_id]]
+           :where [:and [:= :s.id "id"]
+                   [:> :s.created_at [:raw "datetime('now', '-365 days')"]]]}))
+
+(def ^:private delete-session-sql
+  (sql-of {:delete-from :sessions
+           :where [:= :id "id"]}))
+
+(defn create-user! [conn id email password-hash display-name]
+  (sqlite/execute-one! conn [create-user-sql id email password-hash display-name]))
+
+(defn user-by-email
+  "The user with `email`, password hash included, or nil."
+  [conn email]
+  (sqlite/execute-one! conn [user-by-email-sql email]))
+
+(defn user-by-id [conn id]
+  (sqlite/execute-one! conn [user-by-id-sql id]))
+
+(defn update-display-name! [conn id display-name]
+  (sqlite/execute-one! conn [update-display-name-sql display-name id]))
+
+(defn create-session! [conn id user-id]
+  (sqlite/execute-one! conn [create-session-sql id user-id]))
+
+(defn session-user
+  "The user a live session belongs to, or nil for an unknown or expired id."
+  [conn session-id]
+  (sqlite/execute-one! conn [session-user-sql session-id]))
+
+(defn delete-session! [conn session-id]
+  (sqlite/execute! conn [delete-session-sql session-id]))

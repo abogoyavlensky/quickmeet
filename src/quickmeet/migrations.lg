@@ -18,7 +18,28 @@
                 :with-columns [[:id :text [:primary-key]]
                                [:created_at :text [:not nil]
                                 [:default [:raw "CURRENT_TIMESTAMP"]]]]}]
-              [{:drop-table :rooms}])])
+              [{:drop-table :rooms}])
+
+   ;; Accounts (M3): users and their sessions; a room remembers who made it.
+   ;; The column is nullable so rooms from before M3 keep working.
+   (migration "002-create-users"
+              [{:create-table :users
+                :with-columns [[:id :text [:primary-key]]
+                               [:email :text [:not nil] [:unique]]
+                               [:password_hash :text [:not nil]]
+                               [:display_name :text [:not nil]]
+                               [:created_at :text [:not nil]
+                                [:default [:raw "CURRENT_TIMESTAMP"]]]]}
+               {:create-table :sessions
+                :with-columns [[:id :text [:primary-key]]
+                               [:user_id :text [:not nil] [:references :users :id]]
+                               [:created_at :text [:not nil]
+                                [:default [:raw "CURRENT_TIMESTAMP"]]]]}
+               {:alter-table :rooms
+                :add-column [:owner_id :text [:references :users :id]]}]
+              [{:alter-table :rooms :drop-column :owner_id}
+               {:drop-table :sessions}
+               {:drop-table :users}])])
 
 (defn store
   "The ragtime DataStore over `conn`."

@@ -1,6 +1,7 @@
 (ns quickmeet.migrations-test
   (:require [clojure.test :refer [deftest is]]
             [quickmeet.migrations :as migrations]
+            [ragtime.letgo :as rt]
             [ragtime.protocols :as p]
             [sqlite.core :as sqlite]))
 
@@ -24,15 +25,42 @@
 (defn- applied [conn]
   (p/applied-migration-ids (migrations/store conn)))
 
+(defn- columns [conn table]
+  (mapv :name (sqlite/query conn [(str "select name from pragma_table_info('" table "')")])))
+
 (deftest migrate-up-and-down
   (with-conn
     (fn [conn]
       (is (= [] (applied conn)))
       (migrations/migrate! conn)
+      (is (= ["001-create-rooms" "002-create-users"] (applied conn)))
+      (is (= ["ragtime_migrations" "rooms" "sessions" "users"] (tables conn)))
+      (is (= ["id" "created_at" "owner_id"] (columns conn "rooms")))
+      (migrations/migrate! conn)
+      (is (= ["001-create-rooms" "002-create-users"] (applied conn)))
+      ;; One step back: the accounts go, the rooms stay, without their owner.
+      (migrations/rollback! conn)
       (is (= ["001-create-rooms"] (applied conn)))
       (is (= ["ragtime_migrations" "rooms"] (tables conn)))
-      (migrations/migrate! conn)
-      (is (= ["001-create-rooms"] (applied conn)))
+      (is (= ["id" "created_at"] (columns conn "rooms")))
       (migrations/rollback! conn)
       (is (= [] (applied conn)))
       (is (= ["ragtime_migrations"] (tables conn))))))
+
+(deftest rooms-survive-migration-002-both-ways
+  ;; A database from before M3 holds rooms. Migration 002 adds their owner
+  ;; column, and rolling it back drops the column again: the rooms and
+  ;; their ids come through both.
+  (with-conn
+    (fn [conn]
+      (rt/migrate {:datastore (migrations/store conn)
+                   :migrations [(first migrations/migrations)]})
+      (sqlite/execute! conn ["insert into rooms (id) values ('aaaaaaaaaaaa'), ('bbbbbbbbbbbb')"])
+      (migrations/migrate! conn)
+      (is (= ["id" "created_at" "owner_id"] (columns conn "rooms")))
+      (is (= [{:id "aaaaaaaaaaaa" :owner_id nil} {:id "bbbbbbbbbbbb" :owner_id nil}]
+             (sqlite/query conn ["select id, owner_id from rooms order by id"])))
+      (migrations/rollback! conn)
+      (is (= ["id" "created_at"] (columns conn "rooms")))
+      (is (= [{:id "aaaaaaaaaaaa"} {:id "bbbbbbbbbbbb"}]
+             (sqlite/query conn ["select id from rooms order by id"]))))))

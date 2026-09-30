@@ -1,0 +1,158 @@
+(ns quickmeet.auth
+  (:require [quickmeet.db :as db]
+            [quickmeet.id :as id]
+            [quickmeet.password :as password]
+            [string :as str]))
+
+;; Accounts and sessions as plain functions over the database: sign up,
+;; sign in, who a session belongs to, sign out, and the cookie that carries
+;; the session id. Nothing here knows about http beyond the cookie string;
+;; routes.lg turns the results into responses.
+;;
+;; Results are maps: {:user user :session id} on success, or
+;; {:error :bad-input :message "..."}, {:error :exists}, {:error :invalid},
+;; {:error :not-allowed}.
+;;
+;; `auth` is the handler's {:allowed-emails #{..} | nil}: with a set, only
+;; those addresses may sign up, sign in, or keep a session; nil is open.
+
+(def cookie-name "session")
+
+;; Sessions last a year: the cookie's Max-Age here, the SQL window in
+;; db/session-user-sql, both from this number. "Indefinite" is not on
+;; offer: browsers cap a cookie's lifetime (Chrome at 400 days).
+(def session-days 365)
+(def ^:private max-age-seconds (* session-days 24 60 60))
+
+(defn normalize-email
+  "Trimmed and lower-cased: the form that is stored and compared."
+  [s]
+  (str/lower-case (str/trim (str s))))
+
+(defn- valid-email? [email]
+  (and (<= (count email) 254)
+       (some? (re-matches #"[^@\s]+@[^@\s]+" email))))
+
+;; bcrypt reads at most 72 bytes of a password, so the limit is in bytes.
+(defn- password-problem [password]
+  (let [n (count (.getBytes (str password)))]
+    (cond
+      (< n 8) "The password must be at least 8 characters."
+      (> n 72) "The password must be at most 72 bytes."
+      :else nil)))
+
+(defn- display-name-problem [name]
+  (let [n (count name)]
+    (cond
+      (zero? n) "Enter a name."
+      (> n 64) "The name must be at most 64 characters."
+      :else nil)))
+
+(defn- bad-input [message]
+  {:error :bad-input :message message})
+
+(defn allowed?
+  "Whether `email` (normalised) may use this instance."
+  [{:keys [allowed-emails]} email]
+  (or (nil? allowed-emails) (contains? allowed-emails email)))
+
+;; The part before the @, cut to the display name's limit. valid-email?
+;; guarantees it is not empty.
+(defn- default-display-name [email]
+  (let [local (subs email 0 (str/index-of email "@"))]
+    (subs local 0 (min 64 (count local)))))
+
+(defn- new-session! [conn user]
+  (let [session (id/random-hex)]
+    (db/create-session! conn session (:id user))
+    {:user user :session session}))
+
+;; Two requests can race to register one address: both pass the lookup,
+;; the unique index refuses the second insert. That refusal is the same
+;; :exists as the lookup's, not a failure. Anything else is rethrown.
+(defn- create-user! [conn email password]
+  (try
+    (db/create-user! conn (id/random-hex) email (password/hash password)
+                     (default-display-name email))
+    (catch Exception e
+      (if (db/user-by-email conn email)
+        nil
+        (throw e)))))
+
+(defn sign-up!
+  "Create an account and a session for it."
+  [conn auth email password]
+  (let [email (normalize-email email)]
+    (cond
+      (not (valid-email? email)) (bad-input "Enter a valid email address.")
+      (password-problem password) (bad-input (password-problem password))
+      (not (allowed? auth email)) {:error :not-allowed}
+      (db/user-by-email conn email) {:error :exists}
+      :else (if-let [user (create-user! conn email password)]
+              (new-session! conn user)
+              {:error :exists}))))
+
+(defn sign-in!
+  "A new session for an existing account. An unknown address and a wrong
+   password are the same :invalid; the allowlist is asked only once the
+   password is right, so a refusal says nothing about other accounts."
+  [conn auth email password]
+  (let [email (normalize-email email)
+        user (db/user-by-email conn email)]
+    (cond
+      (not (and user (password/check (:password_hash user) (str password))))
+      {:error :invalid}
+
+      (not (allowed? auth email))
+      {:error :not-allowed}
+
+      :else (new-session! conn (dissoc user :password_hash)))))
+
+(defn current-user
+  "The user behind `session-id`: a session younger than session-days whose
+   address is still allowed. Anything else is nil, signed out."
+  [conn auth session-id]
+  (when-not (str/blank? (str session-id))
+    (when-let [user (db/session-user conn session-id)]
+      (when (allowed? auth (:email user))
+        user))))
+
+(defn sign-out! [conn session-id]
+  (when-not (str/blank? (str session-id))
+    (db/delete-session! conn session-id))
+  nil)
+
+(defn rename!
+  "Change a user's display name."
+  [conn user-id display-name]
+  (let [name (str/trim (str display-name))]
+    (if-let [problem (display-name-problem name)]
+      (bad-input problem)
+      {:user (db/update-display-name! conn user-id name)})))
+
+;; ---- cookies ------------------------------------------------------------
+
+(defn parse-cookies
+  "The Cookie header, `a=1; b=2`, as a map of name to value."
+  [header]
+  (->> (str/split (str header) ";")
+       (map str/trim)
+       (keep (fn [part]
+               (when-let [i (str/index-of part "=")]
+                 [(subs part 0 i) (subs part (inc i))])))
+       (into {})))
+
+(defn session-cookie
+  "The Set-Cookie value that carries `session-id`. HttpOnly keeps it from
+   scripts, SameSite=Lax keeps it off cross-site posts, and Secure is added
+   only when the request came over TLS: development is plain http on
+   localhost, where a Secure cookie would never be sent back."
+  [session-id secure?]
+  (str cookie-name "=" session-id
+       "; Path=/; HttpOnly; SameSite=Lax; Max-Age=" max-age-seconds
+       (when secure? "; Secure")))
+
+(defn clear-cookie
+  "The Set-Cookie value that removes the session cookie."
+  []
+  (str cookie-name "=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0"))

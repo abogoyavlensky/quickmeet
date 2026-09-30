@@ -1,0 +1,114 @@
+(ns quickmeet.auth-test
+  (:require [clojure.test :refer [deftest is]]
+            [integrant.core :as ig]
+            [quickmeet.auth :as auth]
+            [quickmeet.db]
+            [quickmeet.id :as id]
+            [sqlite.core :as sqlite]
+            [string :as str]))
+
+;; Accounts over a throwaway sqlite file; integrant starts only the db.
+
+(defn- with-db [f]
+  (let [path (str "/tmp/quickmeet-auth-" (rand-int 100000000) ".db")
+        system (ig/init {:quickmeet.db/conn {:path path}})]
+    (try
+      (f (:quickmeet.db/conn system))
+      (finally
+        (ig/halt! system)
+        (os/sh "rm" "-f" path (str path "-wal") (str path "-shm"))))))
+
+(def ^:private anyone {:allowed-emails nil})
+
+(deftest ids-are-32-hex-chars
+  (let [a (id/random-hex)]
+    (is (re-find #"^[0-9a-f]{32}$" a))
+    (is (not= a (id/random-hex)))))
+
+(deftest emails-are-normalised
+  (is (= "a@b.com" (auth/normalize-email "  A@B.Com "))))
+
+(deftest sign-up-validates
+  (with-db
+    (fn [conn]
+      (is (= :bad-input (:error (auth/sign-up! conn anyone "not-an-email" "longenough"))))
+      (is (= :bad-input (:error (auth/sign-up! conn anyone "@example.com" "longenough"))))
+      (is (= :bad-input (:error (auth/sign-up! conn anyone "a b@example.com" "longenough"))))
+      (is (str/includes? (:message (auth/sign-up! conn anyone "a@example.com" "short")) "at least 8"))
+      (is (str/includes? (:message (auth/sign-up! conn anyone "a@example.com" (apply str (repeat 37 "é")))) "72 bytes"))
+      (is (nil? (:error (auth/sign-up! conn anyone "a@example.com" (apply str (repeat 36 "é")))))))))
+
+(deftest sign-up-and-sign-in
+  (with-db
+    (fn [conn]
+      (let [{:keys [user session error]} (auth/sign-up! conn anyone " Alice@Example.com " "correct horse")]
+        (is (nil? error))
+        (is (= "alice@example.com" (:email user)))
+        (is (= "alice" (:display_name user)))
+        (is (not (contains? user :password_hash)))
+        (is (re-find #"^[0-9a-f]{32}$" session))
+        (is (= (:id user) (:id (auth/current-user conn anyone session)))))
+      ;; The same address, differently cased, is the same account.
+      (is (= :exists (:error (auth/sign-up! conn anyone "ALICE@example.com" "another one"))))
+      (let [{:keys [user session error]} (auth/sign-in! conn anyone "alice@example.com" "correct horse")]
+        (is (nil? error))
+        (is (= "alice" (:display_name user)))
+        (is (not (contains? user :password_hash)))
+        (is (= "alice@example.com" (:email (auth/current-user conn anyone session)))))
+      (is (= :invalid (:error (auth/sign-in! conn anyone "alice@example.com" "wrong"))))
+      (is (= :invalid (:error (auth/sign-in! conn anyone "nobody@example.com" "correct horse")))))))
+
+(deftest sessions-end
+  (with-db
+    (fn [conn]
+      (let [{:keys [session]} (auth/sign-up! conn anyone "bob@example.com" "correct horse")]
+        (is (nil? (auth/current-user conn anyone nil)))
+        (is (nil? (auth/current-user conn anyone "")))
+        (is (nil? (auth/current-user conn anyone (id/random-hex))))
+        (is (some? (auth/current-user conn anyone session)))
+        ;; Signing out ends the session; signing out again is harmless.
+        (auth/sign-out! conn session)
+        (auth/sign-out! conn session)
+        (is (nil? (auth/current-user conn anyone session))))
+      ;; A session lasts a year: one from 364 days ago still works, one
+      ;; from 366 days ago is no session.
+      (let [{:keys [session]} (auth/sign-in! conn anyone "bob@example.com" "correct horse")]
+        (sqlite/execute! conn ["update sessions set created_at = datetime('now', '-364 days') where id = ?" session])
+        (is (some? (auth/current-user conn anyone session)))
+        (sqlite/execute! conn ["update sessions set created_at = datetime('now', '-366 days') where id = ?" session])
+        (is (nil? (auth/current-user conn anyone session)))))))
+
+(deftest the-allowlist
+  (with-db
+    (fn [conn]
+      (let [only-carol {:allowed-emails #{"carol@example.com"}}]
+        (is (= :not-allowed (:error (auth/sign-up! conn only-carol "dave@example.com" "correct horse"))))
+        (let [{:keys [session error]} (auth/sign-up! conn only-carol "Carol@example.com" "correct horse")]
+          (is (nil? error))
+          (is (some? (auth/current-user conn only-carol session)))
+          ;; Removed from the list: the live session stops working, and a
+          ;; correct password no longer signs in. A wrong one is still
+          ;; :invalid, so a refusal says nothing about the list.
+          (let [nobody {:allowed-emails #{}}]
+            (is (nil? (auth/current-user conn nobody session)))
+            (is (= :not-allowed (:error (auth/sign-in! conn nobody "carol@example.com" "correct horse"))))
+            (is (= :invalid (:error (auth/sign-in! conn nobody "carol@example.com" "wrong"))))))))))
+
+(deftest renaming
+  (with-db
+    (fn [conn]
+      (let [{:keys [user]} (auth/sign-up! conn anyone "erin@example.com" "correct horse")]
+        (is (= "Erin B." (:display_name (:user (auth/rename! conn (:id user) "  Erin B. ")))))
+        (is (= "Erin B." (:display_name (auth/current-user conn anyone (:session (auth/sign-in! conn anyone "erin@example.com" "correct horse"))))))
+        (is (= :bad-input (:error (auth/rename! conn (:id user) "   "))))
+        (is (= :bad-input (:error (auth/rename! conn (:id user) (apply str (repeat 65 "x"))))))))))
+
+(deftest cookies
+  (is (= {"a" "1" "session" "abc"} (auth/parse-cookies "a=1; session=abc")))
+  (is (= {} (auth/parse-cookies nil)))
+  (is (= {} (auth/parse-cookies "")))
+  (is (= "session=abc; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000"
+         (auth/session-cookie "abc" false)))
+  (is (= "session=abc; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000; Secure"
+         (auth/session-cookie "abc" true)))
+  (is (str/includes? (auth/clear-cookie) "Max-Age=0")))

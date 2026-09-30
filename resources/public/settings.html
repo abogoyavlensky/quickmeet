@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Settings · quickmeet</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <main>
+    <h1>Settings</h1>
+    <p class="lead">Signed in as <span id="email"></span>.</p>
+    <form id="form" class="form">
+      <label>Your name <input id="display-name" maxlength="64" required></label>
+      <p class="muted">Shown to the other person in a call.</p>
+      <button id="submit" class="primary" type="submit">Save</button>
+      <p id="status" class="notice" hidden>Saved.</p>
+      <p id="error" class="error" hidden></p>
+    </form>
+    <p class="links"><a href="/">Back to meetings</a></p>
+  </main>
+  <script>
+    const $ = id => document.getElementById(id);
+
+    // Settings are for a signed-in person; anyone else goes to sign in.
+    async function load() {
+      const res = await fetch('/api/me');
+      if (!res.ok) { location.href = '/signin'; return; }
+      const { email, display_name } = await res.json();
+      $('email').textContent = email;
+      $('display-name').value = display_name;
+    }
+
+    $('form').addEventListener('submit', async event => {
+      event.preventDefault();
+      $('submit').disabled = true;
+      $('status').hidden = true;
+      $('error').hidden = true;
+      try {
+        const res = await fetch('/api/me', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ display_name: $('display-name').value }),
+        });
+        if (res.status === 401) { location.href = '/signin'; return; }
+        if (!res.ok) throw new Error((await res.json()).error);
+        const { display_name } = await res.json();
+        $('display-name').value = display_name;
+        $('status').hidden = false;
+      } catch (e) {
+        $('error').textContent = String(e.message || e);
+        $('error').hidden = false;
+      } finally {
+        $('submit').disabled = false;
+      }
+    });
+
+    load();
+  </script>
+</body>
+</html>

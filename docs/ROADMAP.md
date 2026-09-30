@@ -101,26 +101,34 @@ follow with a real device to test them on.
 The smallest auth that gates starting a call and supports contacts and
 history.
 
-- Email plus password. Sessions are opaque random ids stored in sqlite and
-  sent as a cookie; nothing needs signing. Password hashing through a Go
-  package (`golang.org/x/crypto/bcrypt` as a `:go/interop` coord is the
-  first thing to try).
-- Sign up, sign in, sign out, and a settings page with the display name.
-- A guest stays a guest: joining a link never requires an account.
-- Creating a room requires one. "New meeting" and `POST /api/rooms` are
-  for signed-in users; the token endpoint stays open to anyone holding a
-  room link. Until then, staging is open to anyone who finds it.
-- An email allowlist: an environment variable (`ALLOWED_EMAILS`,
-  comma-separated) that, when set, limits sign-up and sign-in to those
-  addresses; unset, sign-up is open. Removing an address ends that
-  account's access at its next request, not at its next sign-in.
-- Decision to make before starting: magic-link email instead of
-  passwords would remove hashing entirely at the cost of an SMTP
-  dependency. The allowlist weighs on it: with passwords and no email
-  verification, anyone who knows an allowed address can register it
-  before its owner does. A magic link proves the address; passwords
-  need a verification email (the same SMTP dependency) or accounts
-  created by the operator.
+- Done 2026-09-29: email plus password. Sessions are opaque random ids
+  in sqlite, sent as an `HttpOnly` `SameSite=Lax` cookie (`Secure`
+  behind TLS), valid a year (browsers cap a cookie's lifetime, so
+  "indefinite" is not available); nothing is signed. Hashing is
+  `golang.org/x/crypto/bcrypt` as a `:go/interop` coord, no shim
+  (`src/quickmeet/password.lg`).
+- Done 2026-09-29: sign up, sign in, sign out, and a settings page with
+  the display name, which the room lobby pre-fills.
+- Done 2026-09-29: a guest stays a guest; creating a room takes a
+  session (`POST /api/rooms` is 401 without one) and the room records
+  its owner for M4.
+- Done 2026-09-29: `ALLOWED_EMAILS`, checked on sign-up, sign-in and on
+  every request of a live session, so a removed address is out at its
+  next request. Staging reads it from a repository variable, set to the
+  operator's address when M3 shipped.
+- Decided 2026-09-30, on a draft written 2026-09-29 without approval
+  and approved after review (`docs/plans/2026-09-30-0909-m3-accounts-adopt-and-ship.md`):
+  passwords, not magic links. A magic link needs
+  SMTP, a second service the "one binary" rule exists to avoid; bcrypt
+  is one line. The allowlist race stands and is documented: with no
+  proof of address, whoever registers an allowed address first owns it.
+  On a personal instance the operator adds an address and tells the
+  person to sign up. No password reset either (same reason); the
+  operator deletes the row. If either bites, a verification email is an
+  addition, not a change to the data model.
+- Reviewed 2026-09-30 before shipping: two fixes. A lost race for one
+  address on sign-up is 409, not an error; the account endpoints take
+  JSON only, which closes login CSRF from a cross-site form.
 
 ### M4: contacts and history
 
@@ -152,7 +160,9 @@ other boxes, release builds and tagging, macOS.
 
 ### M6: hardening
 
-- Rate limits on room and account creation.
+- Rate limits on room and account creation, and on sign-in.
+- Sign-in timing: an unknown address skips bcrypt, so response time says
+  whether an account exists. A dummy comparison closes it.
 - Room ids that are not enumerable and a check that a room link cannot be
   guessed from another.
 - Graceful shutdown: SIGTERM stops the http server, waits for the SFU to
@@ -171,8 +181,8 @@ other boxes, release builds and tagging, macOS.
 
 ## Open questions
 
-- Passwords or magic links for M3; the email allowlist needs proof of
-  address either way (see M3).
+- Resolved 2026-09-30: passwords for M3, the allowlist without proof of
+  address (see M3).
 - Resolved 2026-09-28: who may start a call. Signed-in users only;
   anyone with a link may join. The M2 and M6 limits (two-person cap,
   room expiry, rate limits) bound what one room or one client can cost,
