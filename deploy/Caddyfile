@@ -1,0 +1,11 @@
+# Caddy in front of quickmeet on the same box: TLS for the domain, the
+# SFU's signalling WebSocket on /rtc*, everything else to the app.
+# Replace meet.example.com with your domain. See docs/INSTALL.md.
+meet.example.com {
+	handle /rtc* {
+		reverse_proxy 127.0.0.1:7880
+	}
+	handle {
+		reverse_proxy 127.0.0.1:8080
+	}
+}
