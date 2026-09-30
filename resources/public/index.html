@@ -70,9 +70,13 @@
 
     const presenceOf = n => n >= 2 ? 'in a call' : n === 1 ? '1 waiting' : '';
 
+    // The row keeps the latest room data on itself (`li.room`): the
+    // buttons' handlers read it there, so an in-place refresh (below)
+    // reaches them too.
     function roomRow(room) {
       const li = document.createElement('li');
       li.dataset.id = room.id;
+      li.room = room;
       const title = document.createElement('a');
       title.className = 'room-name';
       title.href = '/room/' + room.id;
@@ -94,7 +98,7 @@
       });
       if (room.owner) {
         button('Rename', async () => {
-          const name = prompt('Name this room', room.name || '');
+          const name = prompt('Name this room', li.room.name || '');
           if (name === null) return;
           await api('/api/rooms/' + room.id, {
             method: 'POST',
@@ -123,6 +127,7 @@
         const same = rows.length === rooms.length && rows.every((li, i) => li.dataset.id === rooms[i].id);
         if (same) {
           rooms.forEach((room, i) => {
+            rows[i].room = room;
             rows[i].querySelector('.room-name').textContent = room.name || 'Room ' + room.id;
             rows[i].querySelector('.presence').textContent = presenceOf(room.present);
           });

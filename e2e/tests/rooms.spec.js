@@ -18,10 +18,15 @@ test.describe('my rooms', () => {
     await expect(row.locator('.room-name')).toHaveText('Room ' + id);
     await expect(row.locator('.presence')).toHaveText('');
 
-    // Rename through the prompt.
+    // Rename through the prompt; the next prompt offers the new name.
     page.once('dialog', d => d.accept('Mom'));
     await row.getByRole('button', { name: 'Rename' }).click();
     await expect(row.locator('.room-name')).toHaveText('Mom');
+    let offered;
+    page.once('dialog', d => { offered = d.defaultValue(); d.accept('Mum'); });
+    await row.getByRole('button', { name: 'Rename' }).click();
+    await expect(row.locator('.room-name')).toHaveText('Mum');
+    expect(offered).toBe('Mom');
 
     // A guest waiting in the room shows up within a refresh.
     await joinAs(browser, contexts, roomUrl, 'bob');
