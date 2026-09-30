@@ -63,7 +63,8 @@
   ([lookup]
    (let [api-key (env lookup "LIVEKIT_API_KEY" dev-api-key)
          api-secret (env lookup "LIVEKIT_API_SECRET" dev-api-secret)
-         lk-port (env-int lookup "LIVEKIT_PORT" 7880)]
+         lk-port (env-int lookup "LIVEKIT_PORT" 7880)
+         port (env lookup "PORT" "8080")]
      {:quickmeet.db/conn {:path (env lookup "DB_PATH" "quickmeet.db")}
 
       :livekit/server
@@ -75,6 +76,13 @@
                 ;; empty_timeout and departure_timeout keep LiveKit's
                 ;; defaults (300 s and 20 s).
                 :room {:max_participants 2}
+                ;; The SFU reports joins, leaves and finished rooms to
+                ;; this app over loopback, which reaches it whatever it
+                ;; binds; routes.lg verifies the signature, history.lg
+                ;; records the events. The keys are LiveKit's own; its
+                ;; parser is strict.
+                :webhook {:api_key api-key
+                          :urls [(str "http://127.0.0.1:" port "/api/webhooks/livekit")]}
                 :keys {api-key api-secret}
                 :logging {:level (env lookup "LIVEKIT_LOG_LEVEL" "warn")}}}
 
@@ -87,7 +95,7 @@
 
       ;; The server refs the SFU so it never accepts a join before the SFU
       ;; can take the participant.
-      :quickmeet.server/http {:addr (str ":" (env lookup "PORT" "8080"))
+      :quickmeet.server/http {:addr (str ":" port)
                               :handler (ig/ref :quickmeet.routes/handler)
                               :livekit (ig/ref :livekit/server)}})))
 

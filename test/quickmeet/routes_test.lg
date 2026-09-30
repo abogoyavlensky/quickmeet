@@ -1,9 +1,12 @@
 (ns quickmeet.routes-test
   (:require [clojure.test :refer [deftest is]]
             [integrant.core :as ig]
+            [hash :as hash]
             [json :as json]
+            [livekit.core :as lk]
             [quickmeet.db]
             [quickmeet.routes :as routes]
+            [sqlite.core :as sqlite]
             [string :as str]))
 
 ;; The handler as a plain function over a throwaway sqlite file: integrant
@@ -16,15 +19,34 @@
 
 (def ^:private anyone {:allowed-emails nil})
 
+(defn- verify [header body]
+  (lk/verify-webhook header body (:api-key livekit) (:api-secret livekit)))
+
+(def ^:private nobody-anywhere
+  {:participants (constantly []) :active-rooms (constantly {}) :verify verify})
+
+;; A webhook as the SFU signs it: a JWT from the app's key whose sha256
+;; claim is the base64 SHA-256 of the raw body. hash/sha256 gives hex, and
+;; a let-go string holds raw bytes, so the claim is a decode and an encode.
+(defn- signed-webhook
+  ([body] (signed-webhook body (:api-secret livekit)))
+  ([body secret]
+   {:headers {"authorization" (lk/token (:api-key livekit) secret
+                                        {:sha256 (io/encode :base64 (io/decode :hex (hash/sha256 body)))})
+              "content-type" "application/json"}}))
+
+;; `lookups` is the handler's map of SFU questions, or just the
+;; :participants function for the tests that only care about one room.
 (defn- with-handler
   ([f] (with-handler livekit f))
-  ([lk f] (with-handler lk (constantly []) f))
-  ([lk participants f] (with-handler lk participants anyone f))
-  ([lk participants auth f]
+  ([lk f] (with-handler lk nobody-anywhere f))
+  ([lk lookups f] (with-handler lk lookups anyone f))
+  ([lk lookups auth f]
    (let [path (str "/tmp/quickmeet-routes-" (rand-int 100000000) ".db")
-         system (ig/init {:quickmeet.db/conn {:path path}})]
+         system (ig/init {:quickmeet.db/conn {:path path}})
+         lookups (if (fn? lookups) (assoc nobody-anywhere :participants lookups) lookups)]
      (try
-       (f (routes/handler (:quickmeet.db/conn system) lk participants auth)
+       (f (routes/handler (:quickmeet.db/conn system) lk lookups auth)
           (:quickmeet.db/conn system))
        (finally
          (ig/halt! system)
@@ -88,16 +110,25 @@
         (let [tok (call handler :post (str "/api/rooms/" id "/token")
                         "{\"identity\":\"alice\"}")]
           (is (= 200 (:status tok)))
-          (is (= "alice" (:identity (:json tok))))
+          ;; A guest: a random identity, the typed name.
+          (is (re-find #"^guest:[0-9a-f]{4}$" (:identity (:json tok))))
+          (is (= "alice" (:name (:json tok))))
           ;; A JWT: three base64url segments, HS256 header.
           (is (str/starts-with? (:token (:json tok)) "eyJ"))
           (is (= 3 (count (str/split (:token (:json tok)) "."))))
           ;; The signalling URL is the host the page was served from, at
           ;; the SFU's port.
           (is (= "ws://meet.example:7880" (:url (:json tok)))))
-        ;; No identity: a guest name is invented.
+        ;; No name: a guest name is invented.
         (let [tok (call handler :post (str "/api/rooms/" id "/token") "{}")]
-          (is (str/starts-with? (:identity (:json tok)) "guest-")))))))
+          (is (str/starts-with? (:name (:json tok)) "guest-")))
+        ;; Signed in: the account is the identity, the display name the name,
+        ;; whatever was typed.
+        (let [{:keys [cookie json]} (signup handler "carol@example.com")
+              tok (call handler :post (str "/api/rooms/" id "/token")
+                        "{\"identity\":\"someone else\"}" (as cookie))]
+          (is (str/starts-with? (:identity (:json tok)) "user:"))
+          (is (= (:display_name json) (:name (:json tok)))))))))
 
 (defn- signalling-url-for
   "The :url a token response carries, for a handler over `lk` and a request
@@ -142,8 +173,8 @@
       (is (= [] (:participants room)))
       (is (= 200 (:status token))))
     ;; One person: the lookup names them, a second may join.
-    (let [{:keys [room token]} (room-and-token (constantly [{:identity "alice"}]))]
-      (is (= [{:identity "alice"}] (:participants room)))
+    (let [{:keys [room token]} (room-and-token (constantly [{:identity "guest:ab12" :name "alice"}]))]
+      (is (= [{:identity "guest:ab12" :name "alice"}] (:participants room)))
       (is (= 200 (:status token))))
     ;; Two people: full.
     (let [{:keys [room token]} (room-and-token (constantly [{:identity "alice"}
@@ -194,8 +225,8 @@
         (is (= "text/javascript; charset=utf-8" (get-in js [:headers "Content-Type"])))
         (is (str/includes? (:body js) "livekit-client@2.22.3")))
       (is (= 404 (:status (call handler :get "/static/nope.js"))))
-      ;; The account pages, and the script they share.
-      (doseq [page ["/signup" "/signin" "/settings" "/static/account.js"]]
+      ;; The account pages, the script they share, and history.
+      (doseq [page ["/signup" "/signin" "/settings" "/history" "/static/account.js"]]
         (is (= 200 (:status (call handler :get page))) page)))))
 
 (deftest accounts-and-sessions
@@ -321,3 +352,95 @@
       (finally
         (ig/halt! system)
         (os/sh "rm" "-f" path (str path "-wal") (str path "-shm"))))))
+
+(deftest my-rooms-are-the-ones-I-own-or-joined
+  (with-handler livekit (assoc nobody-anywhere :active-rooms (constantly {"000000000000" 2}))
+    (fn [handler conn]
+      (is (= 401 (:status (call handler :get "/api/rooms"))))
+      (let [alice (signup handler "alice@example.com")
+            bob (signup handler "bob@example.com")
+            first-id (:id (:json (call handler :post "/api/rooms" nil (as (:cookie alice)))))
+            second-id (:id (:json (call handler :post "/api/rooms" nil (as (:cookie alice)))))]
+        (sqlite/execute! conn ["update rooms set created_at = '2026-01-01 00:00:00' where id = ?" first-id])
+        ;; Alice owns both, newest first; nobody is in them.
+        (let [rooms (:json (call handler :get "/api/rooms" nil (as (:cookie alice))))]
+          (is (= [second-id first-id] (mapv :id rooms)))
+          (is (= [true true] (mapv :owner rooms)))
+          (is (= [0 0] (mapv :present rooms)))
+          (is (= [nil nil] (mapv :name rooms))))
+        ;; Bob has none until he joins one; a guest's token adds nobody.
+        (is (= [] (:json (call handler :get "/api/rooms" nil (as (:cookie bob))))))
+        (call handler :post (str "/api/rooms/" first-id "/token") "{}")
+        (is (= [] (:json (call handler :get "/api/rooms" nil (as (:cookie bob))))))
+        (call handler :post (str "/api/rooms/" first-id "/token") "{}" (as (:cookie bob)))
+        (let [rooms (:json (call handler :get "/api/rooms" nil (as (:cookie bob))))]
+          (is (= [first-id] (mapv :id rooms)))
+          (is (= [false] (mapv :owner rooms))))
+        ;; Presence comes from the SFU's active rooms, keyed by id.
+        (sqlite/execute! conn ["update rooms set id = '000000000000' where id = ?" second-id])
+        (sqlite/execute! conn ["update room_members set room_id = '000000000000' where room_id = ?" second-id])
+        (is (= [2 0] (mapv :present (:json (call handler :get "/api/rooms" nil (as (:cookie alice)))))))))))
+
+(deftest only-the-owner-renames-and-deletes
+  (with-handler
+    (fn [handler _]
+      (let [alice (signup handler "alice@example.com")
+            bob (signup handler "bob@example.com")
+            id (:id (:json (call handler :post "/api/rooms" nil (as (:cookie alice)))))
+            rename (fn [who name] (call handler :post (str "/api/rooms/" id)
+                                        (json/write-json {:name name}) (as (:cookie who))))]
+        ;; Bob joins, so the room is on his list, but it is not his.
+        (call handler :post (str "/api/rooms/" id "/token") "{}" (as (:cookie bob)))
+        (is (= 403 (:status (rename bob "Bob's"))))
+        (is (= 401 (:status (call handler :post (str "/api/rooms/" id) (json/write-json {:name "x"})))))
+        (is (= 415 (:status (call handler :post (str "/api/rooms/" id) "{}"
+                                  (merge (as (:cookie alice)) {:headers {"content-type" "text/plain"
+                                                                         "cookie" (str "session=" (:cookie alice))}})))))
+        (let [res (rename alice "  Mom  ")]
+          (is (= 200 (:status res)))
+          (is (= "Mom" (:name (:json res))))
+          (is (= true (:owner (:json res)))))
+        (is (= "Mom" (:name (first (:json (call handler :get "/api/rooms" nil (as (:cookie alice))))))))
+        (is (nil? (:name (:json (rename alice "")))))
+        (is (= 400 (:status (rename alice (apply str (repeat 65 "x"))))))
+        (is (= 404 (:status (call handler :post "/api/rooms/000000000000"
+                                  (json/write-json {:name "x"}) (as (:cookie alice))))))
+        ;; Delete: the room is gone for everyone, the link says so.
+        (is (= 401 (:status (call handler :delete (str "/api/rooms/" id)))))
+        (is (= 403 (:status (call handler :delete (str "/api/rooms/" id) nil (as (:cookie bob))))))
+        (is (= 200 (:status (call handler :delete (str "/api/rooms/" id) nil (as (:cookie alice))))))
+        (is (= 404 (:status (call handler :get (str "/api/rooms/" id)))))
+        (is (= [] (:json (call handler :get "/api/rooms" nil (as (:cookie alice))))))
+        (is (= [] (:json (call handler :get "/api/rooms" nil (as (:cookie bob))))))
+        (is (= 404 (:status (call handler :delete (str "/api/rooms/" id) nil (as (:cookie alice))))))))))
+
+(deftest webhooks-are-verified-and-recorded
+  (with-handler
+    (fn [handler _]
+      (let [alice (signup handler "alice@example.com")
+            id (:id (:json (call handler :post "/api/rooms" nil (as (:cookie alice)))))
+            user-id (:identity (:json (call handler :post (str "/api/rooms/" id "/token") "{}" (as (:cookie alice)))))
+            event (fn [m] (json/write-json (merge {:room {:name id :sid "RM_1"} :createdAt "1000"} m)))
+            joined (event {:event "participant_joined"
+                           :participant {:sid "PA_1" :identity user-id :name "Alice" :joinedAt "1000"}})
+            guest (event {:event "participant_joined"
+                          :participant {:sid "PA_2" :identity "guest:ab12" :name "bob" :joinedAt "1010"}})
+            left (event {:event "participant_left" :createdAt "1100"
+                         :participant {:sid "PA_2" :identity "guest:ab12" :name "bob"}})
+            post (fn [body extra] (call handler :post "/api/webhooks/livekit" body extra))]
+        (is (= 401 (:status (call handler :get "/api/calls"))))
+        ;; Unsigned, or signed with another secret: refused, nothing kept.
+        (is (= 401 (:status (post joined nil))))
+        (is (= 401 (:status (post joined (signed-webhook joined "another-secret-another-secret-another!")))))
+        ;; The header must match this body, not some other.
+        (is (= 401 (:status (post joined (signed-webhook guest)))))
+        (is (= [] (:json (call handler :get "/api/calls" nil (as (:cookie alice))))))
+        ;; Genuine: recorded, and the call shows up in Alice's history.
+        (is (= 200 (:status (post joined (signed-webhook joined)))))
+        (is (= 200 (:status (post guest (signed-webhook guest)))))
+        (is (= 200 (:status (post left (signed-webhook left)))))
+        (let [[call :as calls] (:json (call handler :get "/api/calls" nil (as (:cookie alice))))]
+          (is (= 1 (count calls)))
+          (is (= id (:room_id call)))
+          (is (= "bob" (:with call)))
+          (is (nil? (:ended_at call))))))))

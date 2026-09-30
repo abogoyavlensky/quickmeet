@@ -7,10 +7,15 @@
 ;; ragtime_migrations table) and the Migration record; this namespace holds
 ;; only the app's own history. Append, never edit, once a migration shipped.
 
+;; A step is a HoneySQL map, or a SQL string for what HoneySQL under let-go
+;; cannot render (an INSERT ... SELECT comes out with the clauses reordered).
+(defn- statement [step]
+  (if (string? step) [step] (sql/format step)))
+
 (defn- migration [id up down]
   (rt/sql-migration {:id id
-                     :up (mapv sql/format up)
-                     :down (mapv sql/format down)}))
+                     :up (mapv statement up)
+                     :down (mapv statement down)}))
 
 (def migrations
   [(migration "001-create-rooms"
@@ -39,7 +44,39 @@
                 :add-column [:owner_id :text [:references :users :id]]}]
               [{:alter-table :rooms :drop-column :owner_id}
                {:drop-table :sessions}
-               {:drop-table :users}])])
+               {:drop-table :users}])
+
+   ;; Rooms first (M4): a room gets a name, its members are the signed-in
+   ;; people who own or joined it, and history is the calls the SFU
+   ;; reported for it. Every owner so far becomes a member, so rooms from
+   ;; before M4 show up in their owner's list.
+   (migration "003-rooms-members-calls"
+              [{:alter-table :rooms
+                :add-column [:name :text]}
+               {:create-table :room_members
+                :with-columns [[:room_id :text [:not nil] [:references :rooms :id]]
+                               [:user_id :text [:not nil] [:references :users :id]]
+                               [:created_at :text [:not nil]
+                                [:default [:raw "CURRENT_TIMESTAMP"]]]
+                               [[:primary-key :room_id :user_id]]]}
+               {:create-table :calls
+                :with-columns [[:id :text [:primary-key]]
+                               [:room_id :text [:not nil]]
+                               [:sid :text [:not nil]]
+                               [:ended_at :text]]}
+               {:create-table :call_participants
+                :with-columns [[:sid :text [:primary-key]]
+                               [:call_id :text [:not nil] [:references :calls :id]]
+                               [:user_id :text [:references :users :id]]
+                               [:name :text [:not nil]]
+                               [:joined_at :text [:not nil]]
+                               [:left_at :text]]}
+               "INSERT INTO room_members (room_id, user_id)
+                SELECT id, owner_id FROM rooms WHERE owner_id IS NOT NULL"]
+              [{:drop-table :call_participants}
+               {:drop-table :calls}
+               {:drop-table :room_members}
+               {:alter-table :rooms :drop-column :name}])])
 
 (defn store
   "The ragtime DataStore over `conn`."

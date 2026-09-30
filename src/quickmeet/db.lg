@@ -40,7 +40,7 @@
   [query]
   (first (sql/format query)))
 
-(def ^:private room-columns [:id :created_at :owner_id])
+(def ^:private room-columns [:id :created_at :owner_id :name])
 
 (def ^:private create-room-sql
   (sql-of {:insert-into :rooms
@@ -52,14 +52,68 @@
            :from [:rooms]
            :where [:= :id "id"]}))
 
+;; Members are the signed-in people a room is listed for: its owner from
+;; creation, and whoever asked for a join token since. The pair is the
+;; primary key, so adding a member twice is a no-op.
+(def ^:private add-member-sql
+  (sql-of {:insert-into :room_members
+           :values [{:room_id "room" :user_id "user"}]
+           :on-conflict []
+           :do-nothing true}))
+
+(def ^:private rooms-of-user-sql
+  (sql-of {:select (mapv #(keyword (str "r." (name %))) room-columns)
+           :from [[:rooms :r]]
+           :join [[:room_members :m] [:= :m.room_id :r.id]]
+           :where [:= :m.user_id "user"]
+           :order-by [[:r.created_at :desc] [:r.id :asc]]}))
+
+(def ^:private rename-room-sql
+  (sql-of {:update :rooms
+           :set {:name "name"}
+           :where [:= :id "id"]
+           :returning room-columns}))
+
+(def ^:private delete-members-sql
+  (sql-of {:delete-from :room_members
+           :where [:= :room_id "room"]}))
+
+(def ^:private delete-room-sql
+  (sql-of {:delete-from :rooms
+           :where [:= :id "id"]}))
+
+(defn add-member!
+  "Make `user-id` a member of the room; nothing happens if they are one."
+  [conn room-id user-id]
+  (sqlite/execute! conn [add-member-sql room-id user-id]))
+
 (defn create-room!
-  "Insert a room. `owner-id` is the creating user's id, or nil."
+  "Insert a room. `owner-id` is the creating user's id, or nil; an owner is
+   also the room's first member."
   ([conn id] (create-room! conn id nil))
   ([conn id owner-id]
-   (sqlite/execute-one! conn [create-room-sql id owner-id])))
+   (let [room (sqlite/execute-one! conn [create-room-sql id owner-id])]
+     (when owner-id (add-member! conn id owner-id))
+     room)))
 
 (defn get-room [conn id]
   (sqlite/execute-one! conn [get-room-sql id]))
+
+(defn rooms-of-user
+  "The rooms `user-id` is a member of, newest first."
+  [conn user-id]
+  (sqlite/query conn [rooms-of-user-sql user-id]))
+
+(defn rename-room!
+  "Set the room's name; nil clears it."
+  [conn id name]
+  (sqlite/execute-one! conn [rename-room-sql name id]))
+
+(defn delete-room!
+  "Delete the room and its memberships. Its calls stay in history."
+  [conn id]
+  (sqlite/execute! conn [delete-members-sql id])
+  (sqlite/execute! conn [delete-room-sql id]))
 
 ;; Users and sessions. The password hash is read only where sign-in needs
 ;; it; every other lookup returns user-columns.
@@ -131,3 +185,101 @@
 
 (defn delete-session! [conn session-id]
   (sqlite/execute! conn [delete-session-sql session-id]))
+
+;; History: a call is one stretch of a room being occupied, and its
+;; participants are what the SFU's webhooks reported (quickmeet.history).
+;; Times arrive as unix seconds and are stored as sqlite datetimes; the
+;; `?` inside a :raw is a positional parameter like any other, so the
+;; argument order below follows the rendered SQL, not the map.
+
+(def ^:private open-call-sql
+  (sql-of {:select [:id :room_id :sid :ended_at]
+           :from [:calls]
+           :where [:and [:= :room_id "room"] [:= :ended_at nil]]}))
+
+(def ^:private create-call-sql
+  (sql-of {:insert-into :calls
+           :values [{:id "id" :room_id "room" :sid "sid"}]
+           :returning [:id :room_id :sid :ended_at]}))
+
+(def ^:private call-participant-sql
+  (sql-of {:select [:sid :call_id :user_id :name :joined_at :left_at]
+           :from [:call_participants]
+           :where [:= :sid "sid"]}))
+
+(def ^:private add-call-participant-sql
+  (sql-of {:insert-into :call_participants
+           :values [{:sid "sid" :call_id "call" :user_id "user" :name "name"
+                     :joined_at [:raw "datetime(?, 'unixepoch')"]}]
+           :on-conflict []
+           :do-nothing true}))
+
+(def ^:private set-left-at-sql
+  (sql-of {:update :call_participants
+           :set {:left_at [:raw "datetime(?, 'unixepoch')"]}
+           :where [:and [:= :sid "sid"] [:= :left_at nil]]}))
+
+;; A room_finished stands in for any participant_left that never came.
+(def ^:private fill-left-at-sql
+  (sql-of {:update :call_participants
+           :set {:left_at [:raw "datetime(?, 'unixepoch')"]}
+           :where [:and [:= :call_id "call"] [:= :left_at nil]]}))
+
+(def ^:private close-call-sql
+  (sql-of {:update :calls
+           :set {:ended_at [:raw "datetime(?, 'unixepoch')"]}
+           :where [:= :id "id"]}))
+
+;; A user's calls: those with a participant row of theirs. Start is the
+;; first join, end the last leave once everyone has left (null while the
+;; call is on), and `with` names the others, guests included.
+(def ^:private calls-of-user-sql
+  (sql-of {:select [[:c.id :id]
+                    [:c.room_id :room_id]
+                    [[:min :p.joined_at] :started_at]
+                    [[:raw "case when count(*) = count(p.left_at) then max(p.left_at) end"] :ended_at]
+                    [[:raw "case when count(*) = count(p.left_at)
+                            then strftime('%s', max(p.left_at)) - strftime('%s', min(p.joined_at)) end"] :seconds]
+                    [[:raw "group_concat(distinct case when p.user_id is null or p.user_id <> ? then p.name end)"] :with]]
+           :from [[:calls :c]]
+           :join [[:call_participants :p] [:= :p.call_id :c.id]]
+           :where [:exists {:select [[[:raw "1"]]]
+                            :from [[:call_participants :me]]
+                            :where [:and [:= :me.call_id :c.id] [:= :me.user_id "user"]]}]
+           :group-by [:c.id]
+           :order-by [[:started_at :desc]]}))
+
+(defn open-call [conn room-id]
+  (sqlite/execute-one! conn [open-call-sql room-id]))
+
+(defn create-call!
+  "Open a call in the room; `sid` is the SFU's id for this lifetime of it."
+  [conn id room-id sid]
+  (sqlite/execute-one! conn [create-call-sql id room-id sid]))
+
+(defn call-participant [conn sid]
+  (sqlite/execute-one! conn [call-participant-sql sid]))
+
+(defn add-call-participant!
+  "Record a participant session; `joined-at` is unix seconds. A sid already
+   recorded is left alone."
+  [conn sid call-id user-id name joined-at]
+  (sqlite/execute! conn [add-call-participant-sql sid call-id user-id name joined-at]))
+
+(defn set-left-at!
+  "Record when the participant left, unless already recorded."
+  [conn sid left-at]
+  (sqlite/execute! conn [set-left-at-sql left-at sid]))
+
+(defn close-call!
+  "End the call at `ended-at`: participants still without a leave time get
+   it, then the call is closed."
+  [conn call-id ended-at]
+  (sqlite/execute! conn [fill-left-at-sql ended-at call-id])
+  (sqlite/execute! conn [close-call-sql ended-at call-id]))
+
+(defn calls-of-user
+  "The calls `user-id` took part in, newest first: {:id :room_id
+   :started_at :ended_at :seconds :with}."
+  [conn user-id]
+  (sqlite/query conn [calls-of-user-sql user-id user-id]))

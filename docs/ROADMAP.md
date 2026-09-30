@@ -28,7 +28,8 @@ the SFU handles more, and the UI is what would need to change.
   LiveKit server, which is what LiveKit's mobile SDKs need; see
   "After v1".
 - Federation, multi-node LiveKit, or any deployment larger than one box.
-- Push notifications and call ringing. Calls are joined from a link.
+- Push notifications and call ringing. Calls are joined from a link; see
+  "After v1" for Web Push.
 
 ## Milestones
 
@@ -130,16 +131,41 @@ history.
   address on sign-up is 409, not an error; the account endpoints take
   JSON only, which closes login CSRF from a cross-site form.
 
-### M4: contacts and history
+### M4: rooms, members and history
 
-- Contacts: add by email, remove, list. A contact's page has a "call"
-  button that creates a room and shows the link to share (no ringing).
-- History: LiveKit's webhooks (`participant_joined`, `participant_left`,
-  `room_finished`) recorded through `verify-webhook` into a `calls` table
-  keyed by room id. Signed-in users see their calls with who, when and how
-  long; guests see nothing.
-- Join tokens for signed-in users carry their account identity, so history
-  attributes calls correctly.
+Decided 2026-09-30: rooms first, no contacts table. A room is the durable
+thing (permanent since M2, owned since M3); the people you call are the
+people you share rooms with. The roadmap's earlier shape, a contacts list
+added by email with a "call" button, duplicated the rooms list and needed
+a rule for addresses with no account yet. Sharing the link is the
+invitation.
+
+- Done 2026-09-30: rooms have an optional name; signed-in users see "my
+  rooms", every room they own or have joined, with its name, the link to
+  copy, and who is in it right now (one `ListRooms` question to the SFU
+  for the whole list); the owner renames and deletes
+  (`e2e/tests/rooms.spec.js`).
+- Done 2026-09-30: members. The owner from creation, and whoever asks for
+  a join token with a session (`room_members`); every owner so far was
+  backfilled by the migration. Guests leave no trace beyond history.
+- Done 2026-09-30: history from the SFU's webhooks, posted to the app over
+  loopback and checked with `verify-webhook`: a `calls` row per stretch
+  of a room being occupied, a `call_participants` row per participant
+  session. Signed-in users see their calls with who, when and how long;
+  guests see nothing.
+- Decided 2026-09-30: a participant's identity to the SFU is `user:<id>`
+  for an account and `guest:<hex>` otherwise, with the display or typed
+  name as the token's `name`. The typed name was the identity before,
+  so two guests called "bob" evicted each other, and history could not
+  tell an account from a guest. Pages show names.
+- Decided 2026-09-30, from review: a call records the SFU's room sid. The
+  process is killed on every deploy, so a call that was on never gets its
+  `room_finished`; the next meeting's join carries a new sid, closes the
+  stale call there and opens a new one. A `room_finished` also fills in
+  any leave that never arrived.
+- Notifying the other person stays out of band in v1: the link goes over
+  whatever chat you already use. The rooms list showing who is waiting is
+  the in-app signal. Ringing is "After v1", see Web Push there.
 
 ### M5: deployment
 
@@ -173,10 +199,20 @@ other boxes, release builds and tagging, macOS.
 
 ## After v1
 
+- Ringing via Web Push and an installable web app (PWA). Browser push
+  works on desktop, Android and iOS (installed to the home screen, iOS
+  16.4+) and needs no SMTP and no third-party account: the app holds a
+  VAPID key pair, stores each device's push subscription, and sends one
+  HTTPS request per notification to the browser vendor's endpoint. A Go
+  web-push library goes in as a `:go/interop` coord the way bcrypt did.
+  What it costs: a service worker and manifest, a subscriptions table,
+  a per-device permission prompt, and a "call" action on a room that
+  notifies its other members. This fits "one binary"; it is after v1
+  only because it is not small.
 - Mobile: LiveKit's Swift, Kotlin and React Native SDKs talk to the same
-  SFU and the same token endpoint. What mobile adds on the server is push
-  notifications for ringing, which need APNs and FCM signing that let-go
-  does not have; a small Go shim or a hosted push service.
+  SFU and the same token endpoint. Native ringing needs APNs and FCM
+  signing that let-go does not have; a small Go shim or a hosted push
+  service. The PWA above covers phones without any of that.
 - More than two people, screen sharing, chat over LiveKit data channels.
 
 ## Open questions

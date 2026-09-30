@@ -69,13 +69,15 @@
 
     const showError = e => { $('error').textContent = String(e.message || e); $('error').hidden = false; };
     const showNotice = text => { $('notice').textContent = text || ''; $('notice').hidden = !text; };
+    const nameOf = p => p.name || p.identity;
     const show = section => { for (const id of ['gone', 'lobby', 'call']) $(id).hidden = id !== section; };
     const setStatus = text => { $('status').textContent = text || ''; $('status').hidden = !text; };
 
     // The whole call state, exposed for tests and for poking at from devtools.
     // `joined` flips once the local tracks are published; `remote` is the
-    // other participant's identity; `tracks` holds the subscribed remote
-    // tracks so `stats()` can read their inbound RTP counters.
+    // other participant's name (what they typed, or their account's display
+    // name), not their LiveKit identity; `tracks` holds the subscribed
+    // remote tracks so `stats()` can read their inbound RTP counters.
     window.call = { room: null, remote: null, joined: false, tracks: { video: null, audio: null } };
 
     // Inbound RTP stats for the remote video and audio: null for a kind that
@@ -211,7 +213,7 @@
         const n = participants.length;
         $('presence').textContent =
           n === 0 ? 'Nobody has joined yet.' :
-          n === 1 ? `${participants[0].identity} is already here.` : FULL;
+          n === 1 ? `${nameOf(participants[0])} is already here.` : FULL;
         $('join').disabled = n >= 2;
       } catch (e) { /* the next poll tries again */ }
     }
@@ -250,15 +252,15 @@
         });
         if (res.status === 409) throw new Error(FULL);
         if (!res.ok) throw new Error('could not get a token (' + res.status + ')');
-        const { token, url, identity } = await res.json();
+        const { token, url, name } = await res.json();
 
         const room = new Room({ adaptiveStream: true, dynacast: true });
         window.call.room = room;
         room.on(RoomEvent.TrackSubscribed, (track, pub, participant) => {
           if (track.kind === Track.Kind.Video) { track.attach($('remote')); window.call.tracks.video = track; }
           if (track.kind === Track.Kind.Audio) { track.attach(); window.call.tracks.audio = track; }
-          $('remote-name').textContent = participant.identity;
-          window.call.remote = participant.identity;
+          $('remote-name').textContent = nameOf(participant);
+          window.call.remote = nameOf(participant);
         });
         room.on(RoomEvent.ParticipantConnected, () => setStatus(null));
         room.on(RoomEvent.ParticipantDisconnected, () => {
@@ -293,7 +295,7 @@
           if (t.kind === Track.Kind.Video) t.attach($('local'));
         }
         window.call.joined = true;
-        $('local-name').textContent = identity;
+        $('local-name').textContent = name;
         $('mic').textContent = 'Mute';
         $('cam').textContent = 'Stop video';
         refreshStatus(room);

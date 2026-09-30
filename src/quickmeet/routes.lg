@@ -4,21 +4,23 @@
             [livekit.core :as lk]
             [quickmeet.auth :as auth]
             [quickmeet.db :as db]
+            [quickmeet.history :as history]
             [quickmeet.id :as id]
             [quickmeet.sfu :as sfu]
             [ruuter.core :as r]
             [string :as str]))
 
 ;; The HTTP handler: a Ring-style function over the db connection, the
-;; LiveKit credentials, a participant lookup and the auth settings, and the
+;; LiveKit credentials, the SFU lookups and the auth settings, and the
 ;; integrant component between them and the server. Tests call `handler`
-;; directly over a throwaway database with a stubbed lookup; token minting
+;; directly over a throwaway database with stubbed lookups; token minting
 ;; needs only the key and secret, not a running SFU.
 ;;
-;; Who may do what: creating a room takes an account (a session cookie);
-;; the room page, the room lookup and the join token are open to anyone
-;; holding a link. The account logic lives in quickmeet.auth; the routes
-;; here only turn its results into responses.
+;; Who may do what: creating a room takes an account (a session cookie),
+;; and only its owner renames or deletes it; the room page, the room lookup
+;; and the join token are open to anyone holding a link. The account logic
+;; lives in quickmeet.auth; the routes here only turn its results into
+;; responses.
 
 (defn- json-response [status data]
   {:status status
@@ -118,6 +120,12 @@
 (def ^:private unauthorized
   (json-response 401 {:error "unauthorized"}))
 
+(def ^:private forbidden
+  (json-response 403 {:error "forbidden"}))
+
+(def ^:private room-not-found
+  (json-response 404 {:error "not found"}))
+
 (def ^:private error-responses
   {:not-allowed (json-response 403 {:error "not allowed"})
    :exists (json-response 409 {:error "exists"})
@@ -135,15 +143,46 @@
     (with-cookie (json-response status (public-user (:user result)))
       (auth/session-cookie (:session result) (secure? req)))))
 
-(defn- clean-identity [s]
+(defn- clean-name [s]
   (let [s (str/trim (str s))]
     (cond
       (str/blank? s) (str "guest-" (subs (new-room-id) 0 4))
       (> (count s) 64) (subs s 0 64)
       :else s)))
 
-(defn- routes [conn {:keys [api-key api-secret] :as livekit} participants auth]
-  (let [current-user (fn [req] (auth/current-user conn auth (session-id req)))]
+;; Who a participant is to the SFU, and to history. The identity must be
+;; unique in the room (LiveKit evicts the earlier holder of a repeated
+;; one), so it is the account's id or a random tag, never the typed name;
+;; the name is what people see. history.lg reads the user id back out.
+(defn- participant-identity [user typed-name]
+  (if user
+    {:identity (str "user:" (:id user)) :name (:display_name user)}
+    {:identity (str "guest:" (subs (id/random-hex) 0 4)) :name (clean-name typed-name)}))
+
+(defn- room-name-problem [name]
+  (when (> (count name) 64) "The name must be at most 64 characters."))
+
+(defn- public-room [room user active]
+  {:id (:id room)
+   :name (:name room)
+   :created_at (:created_at room)
+   :owner (= (:owner_id room) (:id user))
+   :present (get active (:id room) 0)})
+
+(defn- routes [conn {:keys [api-key api-secret] :as livekit}
+               {:keys [participants active-rooms verify]} auth]
+  (let [current-user (fn [req] (auth/current-user conn auth (session-id req)))
+        ;; An owner's action on a room: 401 without a session, 404 for no
+        ;; such room, 403 for someone else's.
+        as-owner (fn [req handle]
+                   (let [id (-> req :params :id)
+                         user (current-user req)
+                         room (and (valid-room-id? id) (db/get-room conn id))]
+                     (cond
+                       (not user) unauthorized
+                       (not room) room-not-found
+                       (not= (:owner_id room) (:id user)) forbidden
+                       :else (handle room))))]
   [{:path "/"
     :method :get
     :response (fn [_] (static-response "index.html"))}
@@ -159,6 +198,10 @@
    {:path "/settings"
     :method :get
     :response (fn [_] (static-response "settings.html"))}
+
+   {:path "/history"
+    :method :get
+    :response (fn [_] (static-response "history.html"))}
 
    ;; Accounts. Body: {"email": "...", "password": "..."}.
    {:path "/api/auth/signup"
@@ -221,6 +264,40 @@
                     (json-response 201 {:id (:id room)}))
                   unauthorized))}
 
+   ;; My rooms: the ones I own or have joined, newest first, with how many
+   ;; are in each right now (one question to the SFU for all of them; if it
+   ;; could not be asked, nobody is).
+   {:path "/api/rooms"
+    :method :get
+    :response (fn [req]
+                (if-let [user (current-user req)]
+                  (let [active (or (active-rooms) {})]
+                    (json-response 200 (mapv #(public-room % user active)
+                                             (db/rooms-of-user conn (:id user)))))
+                  unauthorized))}
+
+   ;; Rename. Body: {"name": "..."}; blank clears the name.
+   {:path "/api/rooms/:id"
+    :method :post
+    :response (json-only
+               (fn [req]
+                 (as-owner req
+                   (fn [room]
+                     (let [name (str/trim (str (:name (read-json-body req))))]
+                       (if-let [problem (room-name-problem name)]
+                         (json-response 400 {:error problem})
+                         (let [room (db/rename-room! conn (:id room)
+                                                     (when-not (str/blank? name) name))]
+                           (json-response 200 (public-room room (current-user req) {})))))))))}
+
+   {:path "/api/rooms/:id"
+    :method :delete
+    :response (fn [req]
+                (as-owner req
+                  (fn [room]
+                    (db/delete-room! conn (:id room))
+                    (json-response 200 {}))))}
+
    {:path "/api/rooms/:id"
     :method :get
     :response (fn [req]
@@ -233,7 +310,8 @@
                                            (assoc :participants (or (participants id) []))))
                     (json-response 404 {:error "not found"}))))}
 
-   ;; A join token for a known room. Body: {"identity": "..."} (optional).
+   ;; A join token for a known room. Body: {"identity": "..."}, the name a
+   ;; guest typed (optional; a signed-in person's display name is used).
    ;; Two people per room: a third gets 409 and a message the page can show.
    ;; The SFU enforces the same cap itself (system.lg); this check exists
    ;; because a refusal there is not distinguishable in the browser (sfu.lg).
@@ -249,15 +327,41 @@
                     (json-response 409 {:error "full"})
 
                     :else
-                    (let [identity (clean-identity (:identity (read-json-body req)))]
+                    (let [user (current-user req)
+                          {:keys [identity name]} (participant-identity user (:identity (read-json-body req)))]
+                      ;; Joining as a signed-in person puts the room on
+                      ;; their list.
+                      (when user (db/add-member! conn id (:id user)))
                       (json-response 200
                                      {:token (lk/token api-key api-secret
                                                        {:identity identity
+                                                        :name name
                                                         :room id
                                                         :room-join true
                                                         :ttl-seconds 3600})
                                       :identity identity
+                                      :name name
                                       :url (signalling-url req livekit)})))))}
+
+   ;; My call history, newest first.
+   {:path "/api/calls"
+    :method :get
+    :response (fn [req]
+                (if-let [user (current-user req)]
+                  (json-response 200 (history/calls-of-user conn (:id user)))
+                  unauthorized))}
+
+   ;; Where the embedded SFU posts its events (system.lg gives it this
+   ;; URL). The request is signed with the app's own API key, checked
+   ;; here before anything is read; let-go lowercases header names.
+   {:path "/api/webhooks/livekit"
+    :method :post
+    :response (fn [req]
+                (let [body (str (:body req))]
+                  (if (verify (get-in req [:headers "authorization"]) body)
+                    (do (history/record! conn (json/read-json body {:keywords? true}))
+                        (json-response 200 {}))
+                    unauthorized)))}
 
    {:path :not-found
     :response (fn [_] (json-response 404 {:error "not found"}))}]))
@@ -265,17 +369,25 @@
 (defn handler
   "A Ring-style handler: request map in, response map out. `livekit` is
    {:api-key :api-secret :port :public-url}; :public-url is optional.
-   `participants` is (fn [room-id]) -> vector of {:identity ..}, [] for a
-   room nobody is in, nil when the SFU could not be asked. `auth` is
-   {:allowed-emails #{..} | nil}: the addresses that may have an account,
-   or nil for open sign-up."
-  [conn livekit participants auth]
-  (let [table (routes conn livekit participants auth)]
+   `lookups` are the questions asked of the SFU, as functions so tests can
+   stub them: :participants, (fn [room-id]) -> vector of {:identity :name},
+   [] for a room nobody is in, nil when the SFU could not be asked;
+   :active-rooms, (fn []) -> map of room id to how many are in it, nil when
+   it could not be asked; :verify, (fn [authorization-header body]) ->
+   whether a webhook is genuinely the SFU's. `auth` is {:allowed-emails
+   #{..} | nil}: the addresses that may have an account, or nil for open
+   sign-up."
+  [conn livekit lookups auth]
+  (let [table (routes conn livekit lookups auth)]
     (fn [req]
       (r/route table req))))
 
-;; The real lookup is built from the same :livekit map the routes use, so a
-;; system that moves the SFU port (the tests do) asks the right one.
+;; The real lookups are built from the same :livekit map the routes use, so
+;; a system that moves the SFU port (the tests do) asks the right one.
 (defmethod ig/init-key ::handler [_ {:keys [db livekit auth]}]
-  (handler db livekit (partial sfu/participants livekit)
-           (or auth {:allowed-emails nil})))
+  (let [{:keys [api-key api-secret]} livekit]
+    (handler db livekit
+             {:participants (partial sfu/participants livekit)
+              :active-rooms (partial sfu/active-rooms livekit)
+              :verify (fn [header body] (lk/verify-webhook header body api-key api-secret))}
+             (or auth {:allowed-emails nil}))))
