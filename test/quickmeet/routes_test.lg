@@ -4,6 +4,7 @@
             [json :as json]
             [quickmeet.db]
             [quickmeet.routes :as routes]
+            [sqlite.core :as sqlite]
             [string :as str]))
 
 ;; The handler as a plain function over a throwaway sqlite file: integrant
@@ -16,15 +17,21 @@
 
 (def ^:private anyone {:allowed-emails nil})
 
+(def ^:private nobody-anywhere
+  {:participants (constantly []) :active-rooms (constantly {})})
+
+;; `lookups` is the handler's map of SFU questions, or just the
+;; :participants function for the tests that only care about one room.
 (defn- with-handler
   ([f] (with-handler livekit f))
-  ([lk f] (with-handler lk (constantly []) f))
-  ([lk participants f] (with-handler lk participants anyone f))
-  ([lk participants auth f]
+  ([lk f] (with-handler lk nobody-anywhere f))
+  ([lk lookups f] (with-handler lk lookups anyone f))
+  ([lk lookups auth f]
    (let [path (str "/tmp/quickmeet-routes-" (rand-int 100000000) ".db")
-         system (ig/init {:quickmeet.db/conn {:path path}})]
+         system (ig/init {:quickmeet.db/conn {:path path}})
+         lookups (if (fn? lookups) (assoc nobody-anywhere :participants lookups) lookups)]
      (try
-       (f (routes/handler (:quickmeet.db/conn system) lk participants auth)
+       (f (routes/handler (:quickmeet.db/conn system) lk lookups auth)
           (:quickmeet.db/conn system))
        (finally
          (ig/halt! system)
@@ -330,3 +337,64 @@
       (finally
         (ig/halt! system)
         (os/sh "rm" "-f" path (str path "-wal") (str path "-shm"))))))
+
+(deftest my-rooms-are-the-ones-I-own-or-joined
+  (with-handler livekit (assoc nobody-anywhere :active-rooms (constantly {"000000000000" 2}))
+    (fn [handler conn]
+      (is (= 401 (:status (call handler :get "/api/rooms"))))
+      (let [alice (signup handler "alice@example.com")
+            bob (signup handler "bob@example.com")
+            first-id (:id (:json (call handler :post "/api/rooms" nil (as (:cookie alice)))))
+            second-id (:id (:json (call handler :post "/api/rooms" nil (as (:cookie alice)))))]
+        (sqlite/execute! conn ["update rooms set created_at = '2026-01-01 00:00:00' where id = ?" first-id])
+        ;; Alice owns both, newest first; nobody is in them.
+        (let [rooms (:json (call handler :get "/api/rooms" nil (as (:cookie alice))))]
+          (is (= [second-id first-id] (mapv :id rooms)))
+          (is (= [true true] (mapv :owner rooms)))
+          (is (= [0 0] (mapv :present rooms)))
+          (is (= [nil nil] (mapv :name rooms))))
+        ;; Bob has none until he joins one; a guest's token adds nobody.
+        (is (= [] (:json (call handler :get "/api/rooms" nil (as (:cookie bob))))))
+        (call handler :post (str "/api/rooms/" first-id "/token") "{}")
+        (is (= [] (:json (call handler :get "/api/rooms" nil (as (:cookie bob))))))
+        (call handler :post (str "/api/rooms/" first-id "/token") "{}" (as (:cookie bob)))
+        (let [rooms (:json (call handler :get "/api/rooms" nil (as (:cookie bob))))]
+          (is (= [first-id] (mapv :id rooms)))
+          (is (= [false] (mapv :owner rooms))))
+        ;; Presence comes from the SFU's active rooms, keyed by id.
+        (sqlite/execute! conn ["update rooms set id = '000000000000' where id = ?" second-id])
+        (sqlite/execute! conn ["update room_members set room_id = '000000000000' where room_id = ?" second-id])
+        (is (= [2 0] (mapv :present (:json (call handler :get "/api/rooms" nil (as (:cookie alice)))))))))))
+
+(deftest only-the-owner-renames-and-deletes
+  (with-handler
+    (fn [handler _]
+      (let [alice (signup handler "alice@example.com")
+            bob (signup handler "bob@example.com")
+            id (:id (:json (call handler :post "/api/rooms" nil (as (:cookie alice)))))
+            rename (fn [who name] (call handler :post (str "/api/rooms/" id)
+                                        (json/write-json {:name name}) (as (:cookie who))))]
+        ;; Bob joins, so the room is on his list, but it is not his.
+        (call handler :post (str "/api/rooms/" id "/token") "{}" (as (:cookie bob)))
+        (is (= 403 (:status (rename bob "Bob's"))))
+        (is (= 401 (:status (call handler :post (str "/api/rooms/" id) (json/write-json {:name "x"})))))
+        (is (= 415 (:status (call handler :post (str "/api/rooms/" id) "{}"
+                                  (merge (as (:cookie alice)) {:headers {"content-type" "text/plain"
+                                                                         "cookie" (str "session=" (:cookie alice))}})))))
+        (let [res (rename alice "  Mom  ")]
+          (is (= 200 (:status res)))
+          (is (= "Mom" (:name (:json res))))
+          (is (= true (:owner (:json res)))))
+        (is (= "Mom" (:name (first (:json (call handler :get "/api/rooms" nil (as (:cookie alice))))))))
+        (is (nil? (:name (:json (rename alice "")))))
+        (is (= 400 (:status (rename alice (apply str (repeat 65 "x"))))))
+        (is (= 404 (:status (call handler :post "/api/rooms/000000000000"
+                                  (json/write-json {:name "x"}) (as (:cookie alice))))))
+        ;; Delete: the room is gone for everyone, the link says so.
+        (is (= 401 (:status (call handler :delete (str "/api/rooms/" id)))))
+        (is (= 403 (:status (call handler :delete (str "/api/rooms/" id) nil (as (:cookie bob))))))
+        (is (= 200 (:status (call handler :delete (str "/api/rooms/" id) nil (as (:cookie alice))))))
+        (is (= 404 (:status (call handler :get (str "/api/rooms/" id)))))
+        (is (= [] (:json (call handler :get "/api/rooms" nil (as (:cookie alice))))))
+        (is (= [] (:json (call handler :get "/api/rooms" nil (as (:cookie bob))))))
+        (is (= 404 (:status (call handler :delete (str "/api/rooms/" id) nil (as (:cookie alice))))))))))

@@ -10,15 +10,16 @@
             [string :as str]))
 
 ;; The HTTP handler: a Ring-style function over the db connection, the
-;; LiveKit credentials, a participant lookup and the auth settings, and the
+;; LiveKit credentials, the SFU lookups and the auth settings, and the
 ;; integrant component between them and the server. Tests call `handler`
-;; directly over a throwaway database with a stubbed lookup; token minting
+;; directly over a throwaway database with stubbed lookups; token minting
 ;; needs only the key and secret, not a running SFU.
 ;;
-;; Who may do what: creating a room takes an account (a session cookie);
-;; the room page, the room lookup and the join token are open to anyone
-;; holding a link. The account logic lives in quickmeet.auth; the routes
-;; here only turn its results into responses.
+;; Who may do what: creating a room takes an account (a session cookie),
+;; and only its owner renames or deletes it; the room page, the room lookup
+;; and the join token are open to anyone holding a link. The account logic
+;; lives in quickmeet.auth; the routes here only turn its results into
+;; responses.
 
 (defn- json-response [status data]
   {:status status
@@ -118,6 +119,12 @@
 (def ^:private unauthorized
   (json-response 401 {:error "unauthorized"}))
 
+(def ^:private forbidden
+  (json-response 403 {:error "forbidden"}))
+
+(def ^:private room-not-found
+  (json-response 404 {:error "not found"}))
+
 (def ^:private error-responses
   {:not-allowed (json-response 403 {:error "not allowed"})
    :exists (json-response 409 {:error "exists"})
@@ -151,8 +158,30 @@
     {:identity (str "user:" (:id user)) :name (:display_name user)}
     {:identity (str "guest:" (subs (id/random-hex) 0 4)) :name (clean-name typed-name)}))
 
-(defn- routes [conn {:keys [api-key api-secret] :as livekit} participants auth]
-  (let [current-user (fn [req] (auth/current-user conn auth (session-id req)))]
+(defn- room-name-problem [name]
+  (when (> (count name) 64) "The name must be at most 64 characters."))
+
+(defn- public-room [room user active]
+  {:id (:id room)
+   :name (:name room)
+   :created_at (:created_at room)
+   :owner (= (:owner_id room) (:id user))
+   :present (get active (:id room) 0)})
+
+(defn- routes [conn {:keys [api-key api-secret] :as livekit}
+               {:keys [participants active-rooms]} auth]
+  (let [current-user (fn [req] (auth/current-user conn auth (session-id req)))
+        ;; An owner's action on a room: 401 without a session, 404 for no
+        ;; such room, 403 for someone else's.
+        as-owner (fn [req handle]
+                   (let [id (-> req :params :id)
+                         user (current-user req)
+                         room (and (valid-room-id? id) (db/get-room conn id))]
+                     (cond
+                       (not user) unauthorized
+                       (not room) room-not-found
+                       (not= (:owner_id room) (:id user)) forbidden
+                       :else (handle room))))]
   [{:path "/"
     :method :get
     :response (fn [_] (static-response "index.html"))}
@@ -230,6 +259,40 @@
                     (json-response 201 {:id (:id room)}))
                   unauthorized))}
 
+   ;; My rooms: the ones I own or have joined, newest first, with how many
+   ;; are in each right now (one question to the SFU for all of them; if it
+   ;; could not be asked, nobody is).
+   {:path "/api/rooms"
+    :method :get
+    :response (fn [req]
+                (if-let [user (current-user req)]
+                  (let [active (or (active-rooms) {})]
+                    (json-response 200 (mapv #(public-room % user active)
+                                             (db/rooms-of-user conn (:id user)))))
+                  unauthorized))}
+
+   ;; Rename. Body: {"name": "..."}; blank clears the name.
+   {:path "/api/rooms/:id"
+    :method :post
+    :response (json-only
+               (fn [req]
+                 (as-owner req
+                   (fn [room]
+                     (let [name (str/trim (str (:name (read-json-body req))))]
+                       (if-let [problem (room-name-problem name)]
+                         (json-response 400 {:error problem})
+                         (let [room (db/rename-room! conn (:id room)
+                                                     (when-not (str/blank? name) name))]
+                           (json-response 200 (public-room room (current-user req) {})))))))))}
+
+   {:path "/api/rooms/:id"
+    :method :delete
+    :response (fn [req]
+                (as-owner req
+                  (fn [room]
+                    (db/delete-room! conn (:id room))
+                    (json-response 200 {}))))}
+
    {:path "/api/rooms/:id"
     :method :get
     :response (fn [req]
@@ -259,8 +322,11 @@
                     (json-response 409 {:error "full"})
 
                     :else
-                    (let [{:keys [identity name]} (participant-identity (current-user req)
-                                                                        (:identity (read-json-body req)))]
+                    (let [user (current-user req)
+                          {:keys [identity name]} (participant-identity user (:identity (read-json-body req)))]
+                      ;; Joining as a signed-in person puts the room on
+                      ;; their list.
+                      (when user (db/add-member! conn id (:id user)))
                       (json-response 200
                                      {:token (lk/token api-key api-secret
                                                        {:identity identity
@@ -278,17 +344,21 @@
 (defn handler
   "A Ring-style handler: request map in, response map out. `livekit` is
    {:api-key :api-secret :port :public-url}; :public-url is optional.
-   `participants` is (fn [room-id]) -> vector of {:identity ..}, [] for a
-   room nobody is in, nil when the SFU could not be asked. `auth` is
-   {:allowed-emails #{..} | nil}: the addresses that may have an account,
-   or nil for open sign-up."
-  [conn livekit participants auth]
-  (let [table (routes conn livekit participants auth)]
+   `lookups` are the questions asked of the SFU, as functions so tests can
+   stub them: :participants, (fn [room-id]) -> vector of {:identity :name},
+   [] for a room nobody is in, nil when the SFU could not be asked;
+   :active-rooms, (fn []) -> map of room id to how many are in it, nil when
+   it could not be asked. `auth` is {:allowed-emails #{..} | nil}: the
+   addresses that may have an account, or nil for open sign-up."
+  [conn livekit lookups auth]
+  (let [table (routes conn livekit lookups auth)]
     (fn [req]
       (r/route table req))))
 
-;; The real lookup is built from the same :livekit map the routes use, so a
-;; system that moves the SFU port (the tests do) asks the right one.
+;; The real lookups are built from the same :livekit map the routes use, so
+;; a system that moves the SFU port (the tests do) asks the right one.
 (defmethod ig/init-key ::handler [_ {:keys [db livekit auth]}]
-  (handler db livekit (partial sfu/participants livekit)
+  (handler db livekit
+           {:participants (partial sfu/participants livekit)
+            :active-rooms (partial sfu/active-rooms livekit)}
            (or auth {:allowed-emails nil})))
