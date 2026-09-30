@@ -43,6 +43,9 @@ export default defineConfig({
       LIVEKIT_UDP_END: '50300',
       DB_PATH: '.tmp/quickmeet.db',
       LIVEKIT_LOG_LEVEL: 'warn',
+      // Every test signs up its own account from 127.0.0.1, far past the
+      // sign-up limit of 10 an hour per address.
+      RATE_LIMIT: 'false',
     },
   },
 });

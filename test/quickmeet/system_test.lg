@@ -226,3 +226,24 @@
               (sleep 100)
               (recur (dec tries))))
           (is (some? (:ended_at (first (calls)))) "room_finished never arrived from the SFU"))))))
+
+(deftest sign-in-is-rate-limited-over-http
+  ;; The eleventh attempt from one address within a minute is refused,
+  ;; right or wrong, through the real server and the real limiter.
+  (with-system
+    (fn [_ base]
+      (let [attempt #(post-json (str base "/api/auth/signin")
+                                {:email "nobody@example.com" :password "wrong password"})
+            statuses (mapv (fn [_] (:status (attempt))) (range 11))]
+        (is (= (repeat 10 401) (take 10 statuses)))
+        (is (= 429 (last statuses)))))))
+
+(deftest rate-limits-can-be-switched-off
+  (is (true? (get-in (system/config {}) [:quickmeet.routes/handler :rate-limit?])))
+  (is (false? (get-in (system/config {"RATE_LIMIT" "false"}) [:quickmeet.routes/handler :rate-limit?])))
+  (with-system #(assoc-in % [:quickmeet.routes/handler :rate-limit?] false)
+    (fn [_ base]
+      (is (every? #(= 401 %)
+                  (mapv (fn [_] (:status (post-json (str base "/api/auth/signin")
+                                                    {:email "nobody@example.com" :password "wrong password"})))
+                        (range 12)))))))

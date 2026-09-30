@@ -23,6 +23,10 @@
 ;;
 ;; ALLOWED_EMAILS, comma-separated, limits who may have an account (sign-up,
 ;; sign-in, and every request of a live session); unset, sign-up is open.
+;;
+;; RATE_LIMIT=false switches the rate limits off (quickmeet.ratelimit); the
+;; browser suite needs that, since it signs up dozens of accounts from one
+;; address. The limits themselves are constants, not configuration.
 
 (defn- env [lookup name default]
   (let [v (lookup name)]
@@ -91,7 +95,8 @@
                                            :api-secret api-secret
                                            :port lk-port
                                            :public-url (env lookup "LIVEKIT_PUBLIC_URL" nil)}
-                                 :auth {:allowed-emails (env-emails lookup "ALLOWED_EMAILS")}}
+                                 :auth {:allowed-emails (env-emails lookup "ALLOWED_EMAILS")}
+                                 :rate-limit? (env-bool lookup "RATE_LIMIT" true)}
 
       ;; The server refs the SFU so it never accepts a join before the SFU
       ;; can take the participant.
