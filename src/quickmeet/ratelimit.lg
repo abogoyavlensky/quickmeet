@@ -19,32 +19,37 @@
    :signup {:limit 10 :window-ms (* 60 60 1000)}
    :create-room {:limit 60 :window-ms (* 60 60 1000)}})
 
-;; Past this many entries, the next check drops the ones whose window has
-;; ended, so a flood of distinct keys cannot grow the map without bound.
+;; Past this many entries, a check drops the ones whose window has ended,
+;; so a flood of distinct keys cannot grow the map without bound. At most
+;; once a minute: when every window is still live, pruning frees nothing, and
+;; rebuilding the map on every attempt would make the limiter the bottleneck.
 (def ^:private default-max-entries 10000)
+(def ^:private prune-interval-ms (* 60 1000))
 
 (defn limiter
   "A limiter over `limits`, {bucket {:limit n :window-ms ms}}. `now-ms` is
    the clock, (fn []) -> milliseconds."
   ([limits now-ms] (limiter limits now-ms default-max-entries))
   ([limits now-ms max-entries]
-   {:limits limits :now-ms now-ms :max-entries max-entries :state (atom {})}))
+   {:limits limits :now-ms now-ms :max-entries max-entries
+    :state (atom {:entries {} :pruned-at 0})}))
 
 (defn- ended? [limits now [[bucket _] [start _]]]
   (>= now (+ start (get-in limits [bucket :window-ms]))))
 
-(defn- prune [state limits now max-entries]
-  (if (> (count state) max-entries)
-    (into {} (remove #(ended? limits now %) state))
+(defn- prune [{:keys [entries pruned-at] :as state} limits now max-entries]
+  (if (and (> (count entries) max-entries)
+           (>= now (+ pruned-at prune-interval-ms)))
+    {:entries (into {} (remove #(ended? limits now %) entries)) :pruned-at now}
     state))
 
 (defn- attempt [state limits now max-entries id limit window-ms]
   (let [state (prune state limits now max-entries)
-        [start n] (get state id)]
+        [start n] (get-in state [:entries id])]
     (if (or (nil? start) (>= now (+ start window-ms)))
-      (assoc state id [now 1])
+      (assoc-in state [:entries id] [now 1])
       ;; Past limit + 1 the count stops: refused is refused.
-      (assoc state id [start (min (inc n) (inc limit))]))))
+      (assoc-in state [:entries id] [start (min (inc n) (inc limit))]))))
 
 (defn check!
   "Count an attempt by `key` in `bucket`. nil when it is allowed; otherwise
@@ -54,11 +59,11 @@
   (when-let [{:keys [limit window-ms]} (get limits bucket)]
     (let [now (now-ms)
           id [bucket key]
-          [start n] (get (swap! state attempt limits now max-entries id limit window-ms) id)]
+          [start n] (get-in (swap! state attempt limits now max-entries id limit window-ms) [:entries id])]
       (when (> n limit)
         (max 1 (quot (+ (- (+ start window-ms) now) 999) 1000))))))
 
 (defn size
   "How many [bucket key] entries the limiter holds."
   [{:keys [state]}]
-  (count @state))
+  (count (:entries @state)))

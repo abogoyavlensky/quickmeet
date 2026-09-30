@@ -54,8 +54,15 @@
         l (ratelimit/limiter {:b {:limit 1 :window-ms 1000}} #(deref clock) 10)]
     (dotimes [i 20] (ratelimit/check! l :b i))
     (is (= 20 (ratelimit/size l)))
-    (reset! clock 5000)
+    (reset! clock 60000)
     (ratelimit/check! l :b "fresh")
+    (is (= 1 (ratelimit/size l)))
+    ;; A minute has not passed since that prune, so the map just grows.
+    (reset! clock 90000)
+    (dotimes [i 20] (ratelimit/check! l :b (str "x" i)))
+    (is (= 21 (ratelimit/size l)))
+    (reset! clock 125000)
+    (ratelimit/check! l :b "later")
     (is (= 1 (ratelimit/size l)))))
 
 (deftest the-defaults
