@@ -21,3 +21,38 @@
           (finally (sqlite/close! conn))))
       (finally
         (os/sh "rm" "-f" path (str path "-wal") (str path "-shm"))))))
+
+(defn- with-db [f]
+  (let [path (str "/tmp/quickmeet-db-" (rand-int 100000000) ".db")
+        system (ig/init {:quickmeet.db/conn {:path path}})]
+    (try
+      (f (:quickmeet.db/conn system))
+      (finally
+        (ig/halt! system)
+        (os/sh "rm" "-f" path (str path "-wal") (str path "-shm"))))))
+
+(deftest rooms-members-and-names
+  (with-db
+    (fn [conn]
+      (let [alice (db/create-user! conn "u-alice" "alice@example.com" "x" "Alice")
+            bob (db/create-user! conn "u-bob" "bob@example.com" "x" "Bob")]
+        (db/create-room! conn "aaaaaaaaaaaa" (:id alice))
+        (db/create-room! conn "bbbbbbbbbbbb" (:id alice))
+        ;; Owners are members; the list is newest first (both rooms were
+        ;; made this second, so one is aged by hand); membership is idempotent.
+        (sqlite/execute! conn ["update rooms set created_at = '2026-01-01 00:00:00' where id = 'aaaaaaaaaaaa'"])
+        (is (= ["bbbbbbbbbbbb" "aaaaaaaaaaaa"] (mapv :id (db/rooms-of-user conn (:id alice)))))
+        (is (= [] (db/rooms-of-user conn (:id bob))))
+        (db/add-member! conn "aaaaaaaaaaaa" (:id bob))
+        (db/add-member! conn "aaaaaaaaaaaa" (:id bob))
+        (is (= [{:id "aaaaaaaaaaaa" :owner_id "u-alice" :name nil}]
+               (mapv #(select-keys % [:id :owner_id :name]) (db/rooms-of-user conn (:id bob)))))
+        ;; Names are set and cleared.
+        (is (= "Mom" (:name (db/rename-room! conn "aaaaaaaaaaaa" "Mom"))))
+        (is (= "Mom" (:name (db/get-room conn "aaaaaaaaaaaa"))))
+        (is (nil? (:name (db/rename-room! conn "aaaaaaaaaaaa" nil))))
+        ;; Deleting takes the memberships with it.
+        (db/delete-room! conn "aaaaaaaaaaaa")
+        (is (nil? (db/get-room conn "aaaaaaaaaaaa")))
+        (is (= [] (db/rooms-of-user conn (:id bob))))
+        (is (= ["bbbbbbbbbbbb"] (mapv :id (db/rooms-of-user conn (:id alice)))))))))
