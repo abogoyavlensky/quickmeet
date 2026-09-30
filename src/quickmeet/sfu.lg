@@ -14,27 +14,46 @@
 ;; tell "full" from "broken". The token endpoint asks here first and
 ;; answers 409 with a message, and the lobby shows who is already there.
 
-(defn- list-participants-url [port]
+(defn- room-service-url [port method]
   ;; The SFU may bind 0.0.0.0 in a container; loopback still reaches it.
-  (str "http://127.0.0.1:" port "/twirp/livekit.RoomService/ListParticipants"))
+  (str "http://127.0.0.1:" port "/twirp/livekit.RoomService/" method))
 
-(defn participants
-  "Who the SFU has in `room-id` now: a vector of {:identity ..}, [] when the
-   SFU has no such room (it creates rooms on first join, so an app room
-   nobody joined yet is unknown to it), nil when it could not be asked.
-   `livekit` is the handler's {:api-key :api-secret :port} map."
-  [{:keys [api-key api-secret port]} room-id]
+;; One twirp call: the JSON response for a 200, `not-found` for a 404,
+;; nil for anything else including a refused connection.
+(defn- room-service [{:keys [api-key api-secret port]} method grant body]
   (try
-    (let [token (lk/token api-key api-secret
-                          {:room room-id :room-admin true :ttl-seconds 60})
-          res (http/post (list-participants-url port)
-                         (json/write-json {:room room-id})
+    (let [token (lk/token api-key api-secret (assoc grant :ttl-seconds 60))
+          res (http/post (room-service-url port method)
+                         (json/write-json body)
                          {:content-type "application/json"
                           :headers {"Authorization" (str "Bearer " token)}})]
       (case (:status res)
-        200 (->> (:participants (json/read-json (:body res) {:keywords? true}))
-                 (remove #(= "DISCONNECTED" (:state %)))
-                 (mapv #(select-keys % [:identity])))
-        404 []
+        200 (json/read-json (:body res) {:keywords? true})
+        404 :not-found
         nil))
     (catch Exception _ nil)))
+
+(defn participants
+  "Who the SFU has in `room-id` now: a vector of {:identity .. :name ..},
+   [] when the SFU has no such room (it creates rooms on first join, so an
+   app room nobody joined yet is unknown to it), nil when it could not be
+   asked. `livekit` is the handler's {:api-key :api-secret :port} map."
+  [livekit room-id]
+  (let [res (room-service livekit "ListParticipants"
+                          {:room room-id :room-admin true} {:room room-id})]
+    (cond
+      (= :not-found res) []
+      (map? res) (->> (:participants res)
+                      (remove #(= "DISCONNECTED" (:state %)))
+                      (mapv #(select-keys % [:identity :name])))
+      :else nil)))
+
+(defn active-rooms
+  "The rooms the SFU has right now, as a map of room id to how many are in
+   it: {} when none, nil when it could not be asked. Rooms the SFU does
+   not know are simply absent. protojson leaves a zero count out."
+  [livekit]
+  (let [res (room-service livekit "ListRooms" {:room-list true} {})]
+    (when (map? res)
+      (into {} (map (fn [r] [(:name r) (or (:numParticipants r) 0)])
+                    (:rooms res))))))

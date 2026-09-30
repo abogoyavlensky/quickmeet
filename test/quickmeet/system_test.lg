@@ -77,12 +77,17 @@
 (deftest participants-of-an-unknown-room
   ;; The SFU creates a room on its first join, so a room the app knows but
   ;; nobody has joined is unknown to the SFU: an empty vector, not nil.
+  ;; Likewise the SFU has no active rooms at all: an empty map, not nil.
   (with-system
     (fn [_ _]
-      (is (= [] (sfu/participants {:api-key system/dev-api-key
-                                   :api-secret system/dev-api-secret
-                                   :port lk-port}
-                                  "0123456789ab"))))))
+      (let [livekit {:api-key system/dev-api-key
+                     :api-secret system/dev-api-secret
+                     :port lk-port}]
+        (is (= [] (sfu/participants livekit "0123456789ab")))
+        (is (= {} (sfu/active-rooms livekit)))
+        ;; An SFU that is not there: nil for both.
+        (is (nil? (sfu/participants (assoc livekit :port 1) "0123456789ab")))
+        (is (nil? (sfu/active-rooms (assoc livekit :port 1))))))))
 
 (defn- config-from [m]
   (system/config (fn [name] (get m name))))
