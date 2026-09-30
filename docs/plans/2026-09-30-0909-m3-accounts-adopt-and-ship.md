@@ -1,5 +1,7 @@
 # M3: accounts, adopting the draft and shipping it — Implementation Plan
 
+> **Status: completed (2026-09-30).** Merged as PR #7 and deployed to staging with sign-up restricted to the operator's address. See "Execution summary" at the end.
+
 > **For agentic workers:** Use executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Ship M3 accounts on the `m3-accounts` branch: review the unapproved draft as a whole, fix what the review finds, make sessions last a year, finish the staging wiring and docs, and deploy with sign-up restricted to the operator's address.
@@ -106,8 +108,25 @@ Everything the draft excluded, plus: session rotation, remembering the device, a
 
 - [x] **Step 1: Full verification.** `lgx test` and `lgx e2e`, then `cd e2e && npx playwright test --repeat-each 2`. Expected: all green.
 - [ ] **Step 2: The repository variable.** `gh variable set ALLOWED_EMAILS --body "abogoyavlensky@gmail.com"`. Confirm with `gh variable list`.
-- [ ] **Step 3: PR.** Push `m3-accounts`, `gh pr create` titled `M3: accounts` with the approved decisions as the body, link it to the thread, watch `gh pr checks`, merge (squash, the repo's style) when green. The deploy follows.
-- [ ] **Step 4: Staging check.** Against `https://quickmeet.absky.dev`: `POST /api/rooms` without a cookie is 401; sign-up with an address not on the allowlist is 403; the operator signs up (or in) from a browser and starts a meeting; a guest on another device joins the link with no account. Record the outcome in this plan and mark it completed.
+- [x] **Step 3: PR.** Push `m3-accounts`, `gh pr create` titled `M3: accounts` with the approved decisions as the body, link it to the thread, watch `gh pr checks`, merge (squash, the repo's style) when green. The deploy follows.
+- [x] **Step 4: Staging check.** Against `https://quickmeet.absky.dev`: `POST /api/rooms` without a cookie is 401; sign-up with an address not on the allowlist is 403; the operator signs up (or in) from a browser and starts a meeting; a guest on another device joins the link with no account. Record the outcome in this plan and mark it completed.
 
 > Deviation: Step 2 cannot be done from this machine: the GitHub token answers 403 to `gh variable set` and `gh variable list` (no Actions-variables scope). The operator sets `ALLOWED_EMAILS` to `abogoyavlensky@gmail.com` in the repository's Settings, Secrets and variables, Actions, Variables. The PR is opened and the merge waits for that, so the first M3 deploy is already restricted.
 
+> Step 4 outcome (2026-09-30, after the deploy of `a12ff15`): `POST /api/rooms` without a cookie 401; sign-up as `stranger@example.com` 403 `not allowed`; the same body as `text/plain` 415; `GET /api/me` 401; a wrong password for the operator's address 401 with the generic message; the four pages 200; a room created before M3 (`d3ce2d50315d`) still opens for a guest and mints a token, so migration 002 ran on the staging database with its rows intact. Not done here: the operator's own sign-up and first meeting from a browser, which needs their password and is theirs to do.
+
+---
+
+## Execution summary
+
+**Implemented** (branch `m3-accounts`, squash-merged as PR #7):
+- Task 1: review of the whole branch, Codex plus a read of the diff. Two must-fix findings, both fixed and tested: a lost race for one address on sign-up returned an error instead of 409 (`241ca5e`); login CSRF through a cross-site `text/plain` form, closed by requiring `application/json` on the account endpoints (`9684d55`). A seeded migration test (`e5fa8a0`) confirmed rollback with existing rooms. Advisory and accepted: sign-in timing, no rate limits (M6).
+- Task 2: sessions last a year, one number for the cookie and the SQL window (`4755489`).
+- Task 3: README, roadmap, knowledge, both plan documents, on the wiring the draft had already added (`e5a43d4`).
+- Task 4: full suites green (31 unit tests, 205 assertions; 20 browser specs, 40 on the repeat run), CI green, merged, deployed, staging probed.
+
+**Verification:** as above, plus the staging probes listed under Task 4. Each task had a Codex checkpoint; none found regressions in the fixes.
+
+**Deviations, gathered:** master merged into the branch before the docs edits; the WIP commit's compose and workflow edits kept as they were; the sign-in timing note was already under M6; the repository variable had to be set by the operator (the token here has no Actions-variables scope), and the merge waited for it.
+
+**What the plan could have specified better:** it assumed `gh variable set` would work; a plan that needs a repository setting should check the token's scope first or name the operator as the one to do it. Otherwise it held up: the review checklist found what the draft's missing checkpoints would have found, and the order (review, then the lifetime change, then docs) kept every commit green.
