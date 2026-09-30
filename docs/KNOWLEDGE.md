@@ -127,6 +127,34 @@ Verified 2026-09-29, for the two-person rule:
   `RoomEvent.AudioPlaybackStatusChanged` plus `room.canPlaybackAudio`
   say so, and `room.startAudio()` from a click unblocks it.
 
+## Accounts, verified 2026-09-29
+
+- `golang.org/x/crypto/bcrypt` works as a `:go/interop` coord with no
+  shim. A let-go string unboxes to `[]byte` on the way in, and a `[]byte`
+  result boxes to a string (`pkg/vm/value.go:233`), so
+  `(bcrypt/GenerateFromPassword "pw" 10)` returns the hash as a string.
+  A function whose only result is `error` returns it as a *value*, not
+  an exception: `(bcrypt/CompareHashAndPassword hash "pw")` is `nil` on
+  a match and a boxed Go error otherwise, so check with `nil?`. A new
+  Go coord rebuilds the runtime once (a minute warm); CI's cache key is
+  the hash of `lgx.edn`, so it rebuilds there once too.
+- `(str (random-uuid))` is `#uuid "..."` with the tag. Stripping non-hex
+  characters keeps the `d` of `uuid`: every room id before M3 starts
+  with `d` for that reason (44 random bits, not 48). `quickmeet.id`
+  takes the 36-character uuid out first.
+- let-go's server joins repeated request headers with commas and
+  lowercases the names, so the cookie header is one string under
+  `"cookie"`. Response headers are added one by one (`Header.Add`), so a
+  map with one `Set-Cookie` is enough. Its http client lowercases
+  response header names too: read `set-cookie`, not `Set-Cookie`.
+- `hash` and `open` are `clojure.core` names in let-go; a namespace that
+  defines them warns unless it `:refer-clojure :exclude`s them.
+- The sql layer treats a bare `pragma table_info(t)` as a statement
+  without rows; `select name from pragma_table_info('t')` returns them.
+- Sign-in timing: an unknown address returns without running bcrypt
+  (about 60 ms at cost 10), which tells an attacker the account does not
+  exist. Accepted for v1, listed under M6.
+
 ## What the milestone 0 spike proved, 2026-09-27
 
 Two browser participants in one tab, publishing canvas video and
@@ -145,7 +173,10 @@ built binary, run by `lgx e2e` (2026-09-27).
 ## Dev tooling gotchas
 
 - The `lgx` on `PATH` may be older than the one a project needs. Check
-  `lgx version`; `.mise.toml` pins 0.4.2 here.
+  `lgx version`; `.mise.toml` pins 0.4.2 here. When mise cannot install
+  the pinned Go (the 1.27.1 download 404ed on 2026-09-29), the pinned
+  lgx binary at `~/.local/share/mise/installs/lgx/0.4.2/lgx` runs fine
+  with the system Go, with `CGO_ENABLED=0` exported by hand.
 - The first `lgx run` or `lgx test` after a change to the Go coord set
   builds a new runtime: a minute or more with a cold Go module cache,
   seconds when warm. Later runs are cache hits.

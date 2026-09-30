@@ -29,12 +29,13 @@ lgx e2e                 # two headless browsers in a real call (see below)
 lgx build && ./bin/quickmeet
 ```
 
-Open http://localhost:8080, click "New meeting", open the room link in a
-second window, join from both. The room page shows a lobby first: a
-preview of your camera, pickers for the camera and microphone, and who
-is already in the room. Rooms are permanent and hold two people; a third
-person is told the meeting is full. A link is created once and reused
-for every call with that person.
+Open http://localhost:8080, sign up (any email, no verification), click
+"New meeting", open the room link in a second window, join from both.
+Starting a meeting takes an account; joining one takes only the link.
+The room page shows a lobby first: a preview of your camera, pickers for
+the camera and microphone, and who is already in the room. Rooms are
+permanent and hold two people; a third person is told the meeting is
+full. A link is created once and reused for every call with that person.
 
 ## Browser tests
 
@@ -44,7 +45,8 @@ thing: `lgx e2e` builds `bin/quickmeet`, starts it on test ports (app
 opens two headless Chromiums with fake cameras and microphones on the
 same room link, and checks that each side sees and hears the other:
 the remote video plays, decoded frames and audio packets keep growing,
-nothing is lost, and leaving is noticed. Other specs cover the lobby
+nothing is lost, and leaving is noticed. Other specs cover accounts
+(sign up, sign in, sign out, settings, a guest needing none), the lobby
 (preview, device pickers, who is there, a third person refused), the
 call's states (waiting, reconnecting, a lost connection) and the layout
 on phone-sized and short viewports by bounding boxes. Playwright stops
@@ -90,14 +92,16 @@ image), smoke-tests the image, and deploys `compose.yaml` with
 - The database is `/root/quickmeet-db/quickmeet.db` on the server, bind
   mounted at `/app/db`. It is disposable for now.
 
-Repository settings the workflow needs: variables `SERVER_IP` and
-`APP_DOMAIN` (`quickmeet.absky.dev`); secrets `SSH_PRIVATE_KEY` (a key
-the server accepts for root), `LIVEKIT_API_KEY` (any short identifier)
-and `LIVEKIT_API_SECRET` (32+ random characters, e.g.
-`openssl rand -hex 32`). DNS for `APP_DOMAIN` points at the server.
+Repository settings the workflow needs: variables `SERVER_IP`,
+`APP_DOMAIN` (`quickmeet.absky.dev`) and, optionally, `ALLOWED_EMAILS`;
+secrets `SSH_PRIVATE_KEY` (a key the server accepts for root),
+`LIVEKIT_API_KEY` (any short identifier) and `LIVEKIT_API_SECRET` (32+
+random characters, e.g. `openssl rand -hex 32`). DNS for `APP_DOMAIN`
+points at the server.
 
-Rooms are permanent and hold two people; staging is public, with no rate
-limit yet.
+Starting a meeting takes an account. Until `ALLOWED_EMAILS` is set,
+anyone who finds staging can sign up; with it, only those addresses can.
+Rooms are permanent and hold two people; there is no rate limit yet.
 
 ## Configuration
 
@@ -109,6 +113,7 @@ wrong on a server.
 |---|---|---|
 | `PORT` | `8080` | the app's http port |
 | `DB_PATH` | `quickmeet.db` | the sqlite file |
+| `ALLOWED_EMAILS` | unset | comma-separated addresses that may sign up, sign in and keep a session; unset, sign-up is open |
 | `LIVEKIT_PORT` | `7880` | SFU http and signalling port |
 | `LIVEKIT_BIND` | `127.0.0.1` | SFU bind address; `0.0.0.0` when a proxy reaches it from another host or container |
 | `LIVEKIT_RTC_TCP_PORT` | `7881` | ICE over TCP |
@@ -126,11 +131,14 @@ main.lg                        starts the system, waits on the http server
 src/quickmeet/system.lg        the integrant config from the environment
 src/quickmeet/db.lg            ::conn (open + migrate), queries
 src/quickmeet/migrations.lg    the schema history (ragtime over sqlite)
-src/quickmeet/routes.lg        ::handler: pages, /api/rooms, join tokens, the two-person rule
+src/quickmeet/routes.lg        ::handler: pages, accounts, /api/rooms, join tokens, the two-person rule
+src/quickmeet/auth.lg          sign-up, sign-in, sessions, the allowlist, the session cookie
+src/quickmeet/password.lg      bcrypt (golang.org/x/crypto/bcrypt as a :go/interop coord)
+src/quickmeet/id.lg            random ids for rooms, users and sessions
 src/quickmeet/sfu.lg           asks the embedded SFU who is in a room (twirp over loopback)
 src/quickmeet/server.lg        ::http: http/start on init, http/stop on halt
-resources/public/              index.html, room.html, app.css, vendored livekit-client
-test/quickmeet/                routes over a temp db; migrations; the full system
+resources/public/              index, room, signup, signin, settings pages; app.css; vendored livekit-client
+test/quickmeet/                routes and auth over a temp db; migrations; password; the full system
 e2e/                           Playwright: two browsers in a call against bin/quickmeet
 Dockerfile                     the runtime image around bin/quickmeet
 compose.yaml                   the uncloud service: Caddy routes, media ports, secrets
@@ -144,12 +152,27 @@ so integrant starts the database and the SFU first and halts them last.
 ## API
 
 ```
-POST /api/rooms                  -> 201 {"id": "0123456789ab"}
+POST /api/auth/signup            {"email", "password"}
+                                 -> 201 {"email", "display_name"} + Set-Cookie: session=...
+                                  | 400 {"error": "<what is wrong>"} | 403 {"error": "not allowed"} | 409 {"error": "exists"}
+POST /api/auth/signin            {"email", "password"}
+                                 -> 200 {"email", "display_name"} + Set-Cookie | 401 {"error": "invalid email or password"} | 403
+POST /api/auth/signout           -> 200 {} + Set-Cookie clearing the session
+GET  /api/me                     -> 200 {"email", "display_name"} | 401
+POST /api/me                     {"display_name"} -> 200 {"email", "display_name"} | 400 | 401
+POST /api/rooms                  -> 201 {"id": "0123456789ab"} | 401 (needs a session)
 GET  /api/rooms/:id              -> 200 {"id", "created_at", "participants": [{"identity": "alice"}]} | 404
 POST /api/rooms/:id/token        {"identity": "alice"}   (identity optional)
                                  -> 200 {"token", "identity", "url"} | 404 | 409 {"error": "full"}
 GET  /room/:id                   the room page
+GET  /signup, /signin, /settings the account pages
 ```
+
+Sessions are opaque ids in sqlite, sent as an `HttpOnly` `SameSite=Lax`
+cookie (`Secure` behind TLS), valid for 30 days. Passwords are bcrypt
+hashes (8 to 72 bytes); emails are stored lower-cased and are not
+verified, so with an allowlist, whoever registers an address first owns
+it. There is no password reset: the operator deletes the row.
 
 `participants` is who the SFU has in the room right now (the lobby polls
 it); the token endpoint answers 409 once two people are in. Rooms never
