@@ -135,12 +135,21 @@
     (with-cookie (json-response status (public-user (:user result)))
       (auth/session-cookie (:session result) (secure? req)))))
 
-(defn- clean-identity [s]
+(defn- clean-name [s]
   (let [s (str/trim (str s))]
     (cond
       (str/blank? s) (str "guest-" (subs (new-room-id) 0 4))
       (> (count s) 64) (subs s 0 64)
       :else s)))
+
+;; Who a participant is to the SFU, and to history. The identity must be
+;; unique in the room (LiveKit evicts the earlier holder of a repeated
+;; one), so it is the account's id or a random tag, never the typed name;
+;; the name is what people see. history.lg reads the user id back out.
+(defn- participant-identity [user typed-name]
+  (if user
+    {:identity (str "user:" (:id user)) :name (:display_name user)}
+    {:identity (str "guest:" (subs (id/random-hex) 0 4)) :name (clean-name typed-name)}))
 
 (defn- routes [conn {:keys [api-key api-secret] :as livekit} participants auth]
   (let [current-user (fn [req] (auth/current-user conn auth (session-id req)))]
@@ -233,7 +242,8 @@
                                            (assoc :participants (or (participants id) []))))
                     (json-response 404 {:error "not found"}))))}
 
-   ;; A join token for a known room. Body: {"identity": "..."} (optional).
+   ;; A join token for a known room. Body: {"identity": "..."}, the name a
+   ;; guest typed (optional; a signed-in person's display name is used).
    ;; Two people per room: a third gets 409 and a message the page can show.
    ;; The SFU enforces the same cap itself (system.lg); this check exists
    ;; because a refusal there is not distinguishable in the browser (sfu.lg).
@@ -249,14 +259,17 @@
                     (json-response 409 {:error "full"})
 
                     :else
-                    (let [identity (clean-identity (:identity (read-json-body req)))]
+                    (let [{:keys [identity name]} (participant-identity (current-user req)
+                                                                        (:identity (read-json-body req)))]
                       (json-response 200
                                      {:token (lk/token api-key api-secret
                                                        {:identity identity
+                                                        :name name
                                                         :room id
                                                         :room-join true
                                                         :ttl-seconds 3600})
                                       :identity identity
+                                      :name name
                                       :url (signalling-url req livekit)})))))}
 
    {:path :not-found

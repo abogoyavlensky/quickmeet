@@ -88,16 +88,25 @@
         (let [tok (call handler :post (str "/api/rooms/" id "/token")
                         "{\"identity\":\"alice\"}")]
           (is (= 200 (:status tok)))
-          (is (= "alice" (:identity (:json tok))))
+          ;; A guest: a random identity, the typed name.
+          (is (re-find #"^guest:[0-9a-f]{4}$" (:identity (:json tok))))
+          (is (= "alice" (:name (:json tok))))
           ;; A JWT: three base64url segments, HS256 header.
           (is (str/starts-with? (:token (:json tok)) "eyJ"))
           (is (= 3 (count (str/split (:token (:json tok)) "."))))
           ;; The signalling URL is the host the page was served from, at
           ;; the SFU's port.
           (is (= "ws://meet.example:7880" (:url (:json tok)))))
-        ;; No identity: a guest name is invented.
+        ;; No name: a guest name is invented.
         (let [tok (call handler :post (str "/api/rooms/" id "/token") "{}")]
-          (is (str/starts-with? (:identity (:json tok)) "guest-")))))))
+          (is (str/starts-with? (:name (:json tok)) "guest-")))
+        ;; Signed in: the account is the identity, the display name the name,
+        ;; whatever was typed.
+        (let [{:keys [cookie json]} (signup handler "carol@example.com")
+              tok (call handler :post (str "/api/rooms/" id "/token")
+                        "{\"identity\":\"someone else\"}" (as cookie))]
+          (is (str/starts-with? (:identity (:json tok)) "user:"))
+          (is (= (:display_name json) (:name (:json tok)))))))))
 
 (defn- signalling-url-for
   "The :url a token response carries, for a handler over `lk` and a request
@@ -142,8 +151,8 @@
       (is (= [] (:participants room)))
       (is (= 200 (:status token))))
     ;; One person: the lookup names them, a second may join.
-    (let [{:keys [room token]} (room-and-token (constantly [{:identity "alice"}]))]
-      (is (= [{:identity "alice"}] (:participants room)))
+    (let [{:keys [room token]} (room-and-token (constantly [{:identity "guest:ab12" :name "alice"}]))]
+      (is (= [{:identity "guest:ab12" :name "alice"}] (:participants room)))
       (is (= 200 (:status token))))
     ;; Two people: full.
     (let [{:keys [room token]} (room-and-token (constantly [{:identity "alice"}
