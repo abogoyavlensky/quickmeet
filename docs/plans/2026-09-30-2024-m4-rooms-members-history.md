@@ -310,6 +310,28 @@ history, pagination, `room_started` and `track_*` events.
 
 ### Task 11: Ship
 
-- [ ] **Step 1:** `lgx test`, `lgx e2e`, `cd e2e && npx playwright test --repeat-each 2`. Expected: green.
-- [ ] **Step 2:** Push `m4-rooms-and-history`, `gh pr create` titled `M4: rooms, members and history`, link it to the thread, watch `gh pr checks`, squash-merge when green.
-- [ ] **Step 3: Staging.** Against `https://quickmeet.absky.dev`: `GET /api/rooms` signed out is 401; the operator's rooms from before M4 are listed (the migration's backfill); a call from two devices appears in history with the guest's name. Record the outcome here.
+- [x] **Step 1:** `lgx test`, `lgx e2e`, `cd e2e && npx playwright test --repeat-each 2`. Expected: green.
+- [x] **Step 2:** Push `m4-rooms-and-history`, `gh pr create` titled `M4: rooms, members and history`, link it to the thread, watch `gh pr checks`, squash-merge when green.
+- [x] **Step 3: Staging.** Against `https://quickmeet.absky.dev`: `GET /api/rooms` signed out is 401; the operator's rooms from before M4 are listed (the migration's backfill); a call from two devices appears in history with the guest's name. Record the outcome here.
+
+> Task 11 outcome (2026-09-30). PR #9 squash-merged as `ed3763b`; the deploy run succeeded. Against `https://quickmeet.absky.dev`: `GET /api/rooms` and `GET /api/calls` signed out are 401; `/history` is 200 and the landing page carries the rooms list; an unsigned post to `/api/webhooks/livekit` is 401; the pre-M4 room `d3ce2d50315d` answers with `name: null`, so migration 003 ran on the staging database with its rows intact. Not done here: the operator's own sign-in to see their backfilled rooms listed, and a call from two devices showing in history with the guest's name, which need their browser and password.
+
+---
+
+## Execution summary (2026-09-30)
+
+**Status: completed.** Every task done; 42 unit and system tests and 23 browser tests green (the browser suite also under `--repeat-each 2`); shipped as PR #9 and verified on staging as recorded above.
+
+What was built: migration 003 (room names, members with the owner backfill, calls and call participants with the SFU room sid); `quickmeet.history` recording joins, leaves and finishes from verified webhooks; `sfu/active-rooms` over `ListRooms`, plus `create-room!` and `delete-room!` for the tests; participant identities `user:<id>` and `guest:<hex>` with names shown everywhere; the rooms API (list, rename, delete, membership on token); the webhook route and the SFU config pointing at it; the rooms list on the landing page and the history page; browser tests for all of it; README, ROADMAP and KNOWLEDGE.
+
+Codex reviewed every commit. Must-fix findings, all fixed in-branch: stale open calls after a killed process (room sid on calls); `num_participants` not `numParticipants` from twirp; the five-second refresh dropping keyboard focus; the Rename prompt offering a stale name; the history browser test stopping before the leaves landed.
+
+Deviations, gathered:
+- Migration steps may be plain SQL strings, since HoneySQL under let-go misorders `INSERT ... SELECT`.
+- Older migration tests updated for the three-migration history; the db ordering test ages a room by hand.
+- `calls.sid` and the lifetime rule were not in the plan; added from review.
+- `sfu/create-room!` and `sfu/delete-room!` added for the system test; `DeleteRoom` needs the `roomCreate` grant.
+- The history browser test joins the account holder from the fixture page and a guest from a fresh context.
+- The session task-list tools were unavailable; this document was the only tracking surface.
+
+What the plan could have specified better: that a killed process never delivers `room_finished` (the lifetime rule), and the twirp field naming, both of which the review had to catch; and that `DeleteRoom` wants `roomCreate`, which cost one debugging round.
