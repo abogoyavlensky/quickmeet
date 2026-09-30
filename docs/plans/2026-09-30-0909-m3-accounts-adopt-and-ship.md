@@ -62,11 +62,17 @@ Everything the draft excluded, plus: session rotation, remembering the device, a
 
 **Files:** whatever the findings touch.
 
-- [ ] **Step 1: Codex review of the branch.** `codex exec review --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox --base master -o .tmp/codex-review-m3-branch.md > .tmp/codex-review-m3-branch.log 2>&1` in the background. If Codex is still rate-limited (its answer says so, or the log shows a usage error), say so in the summary and rely on Step 2.
-- [ ] **Step 2: Read the diff yourself** with the questions from "What the review must cover": `git diff master...m3-accounts -- src test resources e2e`. Write each finding down as must-fix or advisory before changing anything.
-- [ ] **Step 3: Fix must-fix findings**, one commit each, tests first where a test can express the finding. Run `lgx test` after each.
-- [ ] **Step 4: Record.** Under this task in the plan: every finding, its severity, and what was done. Advisory ones that are not done go to the backlog (`/backlog`, one commit each, `Backlog: ...`).
+- [x] **Step 1: Codex review of the branch.** `codex exec review --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox --base master -o .tmp/codex-review-m3-branch.md > .tmp/codex-review-m3-branch.log 2>&1` in the background. If Codex is still rate-limited (its answer says so, or the log shows a usage error), say so in the summary and rely on Step 2.
+- [x] **Step 2: Read the diff yourself** with the questions from "What the review must cover": `git diff master...m3-accounts -- src test resources e2e`. Write each finding down as must-fix or advisory before changing anything.
+- [x] **Step 3: Fix must-fix findings**, one commit each, tests first where a test can express the finding. Run `lgx test` after each.
+- [x] **Step 4: Record.** Under this task in the plan: every finding, its severity, and what was done. Advisory ones that are not done go to the backlog (`/backlog`, one commit each, `Backlog: ...`).
 - [ ] **Step 5: Codex checkpoint** on the fix commits (`review-with-codex`), if there were any.
+
+> Findings (2026-09-30). Codex on the whole branch (`.tmp/codex-review-m3-branch.md`) and my read of the diff:
+> - **Must-fix, fixed `241ca5e`:** two concurrent sign-ups of one address both passed the lookup and the second insert failed on the unique index, which surfaced as an error rather than 409. Found by both; `concurrent-sign-up-of-one-address` in `system_test.lg` reproduces it (8 racing requests: one 201, seven 409).
+> - **Must-fix, fixed `HEAD`:** login CSRF. A cross-site form with `enctype=text/plain` can post a body that parses as JSON to sign-in, and the response would set the attacker's session cookie in the victim's browser; `SameSite=Lax` does not help since no cookie is needed to mount it. Found by Codex. Sign-up, sign-in and `POST /api/me` now require `Content-Type: application/json` (415 otherwise), which a browser cannot send cross-site without a preflight the server never answers. `account-endpoints-take-json-only` in `routes_test.lg`.
+> - **Covered, no change needed:** migration 002 with existing rooms, up and down (`rooms-survive-migration-002-both-ways`, `e5fa8a0`); cookie attributes and `Secure` behind the proxy; the session window; sign-in's error ordering; gating (only `POST /api/rooms` among the room operations); `password_hash` never leaving `db`; guest pages carrying on after a 401 from `/api/me`.
+> - **Advisory, accepted for v1 (M6):** sign-in timing reveals whether an address exists; no rate limit on sign-up or sign-in.
 
 ### Task 2: Sessions last a year
 
