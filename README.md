@@ -37,6 +37,12 @@ the camera and microphone, and who is already in the room. Rooms are
 permanent and hold two people; a third person is told the meeting is
 full. A link is created once and reused for every call with that person.
 
+Signed in, the landing page lists your rooms: the ones you made and the
+ones you joined from a link, each with a name you can give it, who is in
+it right now, and its link to copy. History (`/history`) lists your
+calls with who, when and how long, recorded from the SFU's own events.
+Guests have neither: no account, no list, no history.
+
 ## Browser tests
 
 The unit tests stop at the handler. The browser tests drive the whole
@@ -132,13 +138,14 @@ main.lg                        starts the system, waits on the http server
 src/quickmeet/system.lg        the integrant config from the environment
 src/quickmeet/db.lg            ::conn (open + migrate), queries
 src/quickmeet/migrations.lg    the schema history (ragtime over sqlite)
-src/quickmeet/routes.lg        ::handler: pages, accounts, /api/rooms, join tokens, the two-person rule
+src/quickmeet/routes.lg        ::handler: pages, accounts, rooms, join tokens, the two-person rule, the webhook
+src/quickmeet/history.lg       call history from the SFU's webhook events
 src/quickmeet/auth.lg          sign-up, sign-in, sessions, the allowlist, the session cookie
 src/quickmeet/password.lg      bcrypt (golang.org/x/crypto/bcrypt as a :go/interop coord)
 src/quickmeet/id.lg            random ids for rooms, users and sessions
-src/quickmeet/sfu.lg           asks the embedded SFU who is in a room (twirp over loopback)
+src/quickmeet/sfu.lg           asks the embedded SFU who is in a room, and which rooms are live (twirp over loopback)
 src/quickmeet/server.lg        ::http: http/start on init, http/stop on halt
-resources/public/              index, room, signup, signin, settings pages; app.css; vendored livekit-client
+resources/public/              index, room, history, signup, signin, settings pages; app.css; vendored livekit-client
 test/quickmeet/                routes and auth over a temp db; migrations; password; the full system
 e2e/                           Playwright: two browsers in a call against bin/quickmeet
 Dockerfile                     the runtime image around bin/quickmeet
@@ -162,10 +169,16 @@ POST /api/auth/signout           -> 200 {} + Set-Cookie clearing the session
 GET  /api/me                     -> 200 {"email", "display_name"} | 401
 POST /api/me                     {"display_name"} -> 200 {"email", "display_name"} | 400 | 401
 POST /api/rooms                  -> 201 {"id": "0123456789ab"} | 401 (needs a session)
-GET  /api/rooms/:id              -> 200 {"id", "created_at", "participants": [{"identity": "alice"}]} | 404
-POST /api/rooms/:id/token        {"identity": "alice"}   (identity optional)
-                                 -> 200 {"token", "identity", "url"} | 404 | 409 {"error": "full"}
+GET  /api/rooms                  -> 200 [{"id", "name", "created_at", "owner": bool, "present": n}] | 401
+POST /api/rooms/:id              {"name"} (blank clears) -> 200 the room | 400 | 401 | 403 (not the owner) | 404
+DELETE /api/rooms/:id            -> 200 {} | 401 | 403 | 404
+GET  /api/rooms/:id              -> 200 {"id", "name", "created_at", "participants": [{"identity", "name"}]} | 404
+POST /api/rooms/:id/token        {"identity": "alice"}   (the name a guest typed; optional)
+                                 -> 200 {"token", "identity", "name", "url"} | 404 | 409 {"error": "full"}
+GET  /api/calls                  -> 200 [{"room_id", "started_at", "ended_at", "seconds", "with"}] | 401
+POST /api/webhooks/livekit       the embedded SFU's events, signed with the API key -> 200 | 401
 GET  /room/:id                   the room page
+GET  /history                    the history page
 GET  /signup, /signin, /settings the account pages
 ```
 
@@ -180,7 +193,17 @@ someone else.
 
 `participants` is who the SFU has in the room right now (the lobby polls
 it); the token endpoint answers 409 once two people are in. Rooms never
-expire.
+expire. `GET /api/rooms` lists the rooms the caller owns or has joined,
+newest first, with `present` from one question to the SFU; renaming and
+deleting are the owner's. Asking for a token with a session makes the
+caller a member of that room.
+
+A participant's `identity`, what the SFU keys on, is `user:<id>` for an
+account and `guest:<4 hex>` otherwise; `name` is what people see (the
+display name, or what a guest typed). History is written from the SFU's
+webhooks (`participant_joined`, `participant_left`, `room_finished`),
+which it posts to `/api/webhooks/livekit` on loopback; `ended_at` and
+`seconds` are null while a call is on, and `with` names the others.
 
 The token is a LiveKit join token for that room only, valid for an hour.
 `url` is the signalling address the browser should connect to:

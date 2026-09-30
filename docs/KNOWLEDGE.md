@@ -127,6 +127,35 @@ Verified 2026-09-29, for the two-person rule:
   `RoomEvent.AudioPlaybackStatusChanged` plus `room.canPlaybackAudio`
   say so, and `room.startAudio()` from a click unblocks it.
 
+## Rooms and history, verified 2026-09-30
+
+- The SFU's config takes `webhook: {api_key, urls: [..]}` like any other
+  key; with `http://127.0.0.1:<PORT>/...` the embedded SFU posts to the
+  app it lives in. Delivery is queued per room and in order; the log line
+  is `livekit.webhook ... sent webhook` at info level.
+- Webhook bodies are protojson without proto names: camelCase keys
+  (`joinedAt`, `createdAt`, `numParticipants`) and int64 as strings. The
+  twirp room API is the opposite: proto names (`num_participants`) and
+  zeros emitted. Read each accordingly.
+- A room made through `CreateRoom` (grant `roomCreate`) is a real rtc
+  room: the SFU sends `room_started` at once and `room_finished` on
+  `DeleteRoom`, which also wants `roomCreate`, not `roomAdmin` (401
+  `permissions denied`). `ListRooms` wants `roomList`. That is how
+  `system_test.lg` sees real delivery without a browser.
+- `room_finished` for an emptied room comes after `empty_timeout`
+  (300 s); history's end time is the last leave, so it does not wait.
+- Signing a webhook in a test: the claim is
+  `(io/encode :base64 (io/decode :hex (hash/sha256 body)))` (a let-go
+  string holds raw bytes) and the header `(lk/token key secret {:sha256
+  claim})`. Ask for `hash` with `(:require [hash :as hash])`; `io` needs
+  no require.
+- HoneySQL under let-go renders `{:insert-into .. :select ..}` with the
+  clauses out of order; `migrations.lg` accepts a SQL string for such a
+  step. `[:raw "datetime(?, 'unixepoch')"]` works, and its `?` is a
+  positional parameter like any other: pass the arguments in the order
+  of the rendered SQL, not of the map.
+- `(sleep ms)` is the pause in let-go; there is no `Thread/sleep`.
+
 ## Accounts, verified 2026-09-29
 
 - `golang.org/x/crypto/bcrypt` works as a `:go/interop` coord with no

@@ -140,19 +140,29 @@ added by email with a "call" button, duplicated the rooms list and needed
 a rule for addresses with no account yet. Sharing the link is the
 invitation.
 
-- Rooms get an optional name. Signed-in users see "my rooms": every room
-  they own or have joined, with its name, the link to share, and who is in
-  it right now (the SFU presence the lobby already polls). Deleting a room
-  is an owner action.
-- Members: when a signed-in user joins a room, the room is added to their
-  list too (a `room_members` table). Guests leave no trace beyond history.
-- History: LiveKit's webhooks (`participant_joined`, `participant_left`,
-  `room_finished`), posted by the embedded SFU to the app over loopback
-  and checked with `verify-webhook`, recorded into a `calls` table keyed
-  by room id. Signed-in users see their calls with who, when and how
-  long; guests see nothing.
-- Join tokens for signed-in users carry their account identity, so history
-  attributes calls correctly; a guest appears under the name they typed.
+- Done 2026-09-30: rooms have an optional name; signed-in users see "my
+  rooms", every room they own or have joined, with its name, the link to
+  copy, and who is in it right now (one `ListRooms` question to the SFU
+  for the whole list); the owner renames and deletes
+  (`e2e/tests/rooms.spec.js`).
+- Done 2026-09-30: members. The owner from creation, and whoever asks for
+  a join token with a session (`room_members`); every owner so far was
+  backfilled by the migration. Guests leave no trace beyond history.
+- Done 2026-09-30: history from the SFU's webhooks, posted to the app over
+  loopback and checked with `verify-webhook`: a `calls` row per stretch
+  of a room being occupied, a `call_participants` row per participant
+  session. Signed-in users see their calls with who, when and how long;
+  guests see nothing.
+- Decided 2026-09-30: a participant's identity to the SFU is `user:<id>`
+  for an account and `guest:<hex>` otherwise, with the display or typed
+  name as the token's `name`. The typed name was the identity before,
+  so two guests called "bob" evicted each other, and history could not
+  tell an account from a guest. Pages show names.
+- Decided 2026-09-30, from review: a call records the SFU's room sid. The
+  process is killed on every deploy, so a call that was on never gets its
+  `room_finished`; the next meeting's join carries a new sid, closes the
+  stale call there and opens a new one. A `room_finished` also fills in
+  any leave that never arrived.
 - Notifying the other person stays out of band in v1: the link goes over
   whatever chat you already use. The rooms list showing who is waiting is
   the in-app signal. Ringing is "After v1", see Web Push there.
