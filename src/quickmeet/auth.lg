@@ -64,6 +64,18 @@
     (db/create-session! conn session (:id user))
     {:user user :session session}))
 
+;; Two requests can race to register one address: both pass the lookup,
+;; the unique index refuses the second insert. That refusal is the same
+;; :exists as the lookup's, not a failure. Anything else is rethrown.
+(defn- create-user! [conn email password]
+  (try
+    (db/create-user! conn (id/random-hex) email (password/hash password)
+                     (default-display-name email))
+    (catch Exception e
+      (if (db/user-by-email conn email)
+        nil
+        (throw e)))))
+
 (defn sign-up!
   "Create an account and a session for it."
   [conn auth email password]
@@ -73,9 +85,9 @@
       (password-problem password) (bad-input (password-problem password))
       (not (allowed? auth email)) {:error :not-allowed}
       (db/user-by-email conn email) {:error :exists}
-      :else (new-session! conn (db/create-user! conn (id/random-hex) email
-                                                (password/hash password)
-                                                (default-display-name email))))))
+      :else (if-let [user (create-user! conn email password)]
+              (new-session! conn user)
+              {:error :exists}))))
 
 (defn sign-in!
   "A new session for an existing account. An unknown address and a wrong

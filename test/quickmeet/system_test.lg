@@ -117,6 +117,19 @@
     (is (= "wss://quickmeet.absky.dev"
            (get-in c [:quickmeet.routes/handler :livekit :public-url])))))
 
+(deftest concurrent-sign-up-of-one-address
+  ;; Two requests race to register the same address: the unique index
+  ;; refuses one of them, and that must read as 409, never a 500.
+  (with-system
+    (fn [_ base]
+      (let [body {:email "race@example.com" :password "correct horse"}
+            results (->> (range 8)
+                         (mapv (fn [_] (future (post-json (str base "/api/auth/signup") body))))
+                         (mapv deref))
+            statuses (frequencies (map :status results))]
+        (is (= {201 1 409 7} statuses)
+            (str "bodies: " (->> results (map :body) distinct (take 3) vec)))))))
+
 (deftest rooms-need-an-account-over-http
   (with-system
     (fn [_ base]
