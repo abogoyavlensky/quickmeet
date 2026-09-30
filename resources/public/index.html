@@ -20,7 +20,13 @@
 
     <section id="signed-in" hidden>
       <button id="new" class="primary">New meeting</button>
+      <!-- My rooms: the ones I made or joined, with who is in them now.
+           Each is a permanent link, reused for every call with that
+           person; naming one is how it is told from the others. -->
+      <ul id="rooms" class="rooms"></ul>
+      <p id="no-rooms" class="muted" hidden>No rooms yet. Start a meeting and share its link.</p>
       <p class="muted">Signed in as <span id="who"></span> ·
+        <a href="/history">History</a> ·
         <a href="/settings">Settings</a> ·
         <button id="signout" class="link">Sign out</button></p>
     </section>
@@ -37,21 +43,88 @@
         if (res.ok) {
           $('who').textContent = (await res.json()).display_name;
           $('signed-in').hidden = false;
+          await loadRooms();
+          // Presence changes while the page sits open; refresh it while
+          // the tab is visible.
+          setInterval(() => { if (!document.hidden) loadRooms(); }, 5000);
         } else {
           $('signed-out').hidden = false;
         }
       } catch (e) { showError(e); }
     }
 
+    // ---- rooms ----------------------------------------------------------
+
+    // The session ended (signed out elsewhere, expired, removed from the
+    // allowlist): sign in again. Any other failure is shown.
+    async function api(url, options) {
+      const res = await fetch(url, options);
+      if (res.status === 401) { location.href = '/signin'; throw new Error('signed out'); }
+      if (!res.ok) {
+        let message = 'Something went wrong (' + res.status + ').';
+        try { message = (await res.json()).error || message; } catch (e) { /* not JSON */ }
+        throw new Error(message);
+      }
+      return res.json();
+    }
+
+    const presenceOf = n => n >= 2 ? 'in a call' : n === 1 ? '1 waiting' : '';
+
+    function roomRow(room) {
+      const li = document.createElement('li');
+      li.dataset.id = room.id;
+      const title = document.createElement('a');
+      title.className = 'room-name';
+      title.href = '/room/' + room.id;
+      title.textContent = room.name || 'Room ' + room.id;
+      const presence = document.createElement('span');
+      presence.className = 'presence';
+      presence.textContent = presenceOf(room.present);
+      const actions = document.createElement('span');
+      actions.className = 'actions';
+      const button = (label, onClick) => {
+        const b = document.createElement('button');
+        b.className = 'link';
+        b.textContent = label;
+        b.addEventListener('click', () => onClick().catch(showError));
+        actions.append(b);
+      };
+      button('Copy link', async () => {
+        await navigator.clipboard.writeText(location.origin + '/room/' + room.id);
+      });
+      if (room.owner) {
+        button('Rename', async () => {
+          const name = prompt('Name this room', room.name || '');
+          if (name === null) return;
+          await api('/api/rooms/' + room.id, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name }),
+          });
+          await loadRooms();
+        });
+        button('Delete', async () => {
+          if (!confirm('Delete this room? Its link will stop working.')) return;
+          await api('/api/rooms/' + room.id, { method: 'DELETE' });
+          await loadRooms();
+        });
+      }
+      li.append(title, presence, actions);
+      return li;
+    }
+
+    async function loadRooms() {
+      try {
+        const rooms = await api('/api/rooms');
+        $('rooms').replaceChildren(...rooms.map(roomRow));
+        $('no-rooms').hidden = rooms.length > 0;
+      } catch (e) { showError(e); }
+    }
+
     $('new').addEventListener('click', async () => {
       $('new').disabled = true;
       try {
-        const res = await fetch('/api/rooms', { method: 'POST' });
-        // The session ended (signed out elsewhere, expired, removed from
-        // the allowlist): sign in again.
-        if (res.status === 401) { location.href = '/signin'; return; }
-        if (!res.ok) throw new Error('could not create a room (' + res.status + ')');
-        const { id } = await res.json();
+        const { id } = await api('/api/rooms', { method: 'POST' });
         location.href = '/room/' + id;
       } catch (e) {
         showError(e);

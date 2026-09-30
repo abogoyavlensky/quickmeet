@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>History · quickmeet</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <main>
+    <h1>History</h1>
+    <p class="lead">Your calls, newest first.</p>
+    <table id="calls" class="calls" hidden>
+      <thead><tr><th>With</th><th>When</th><th>Duration</th></tr></thead>
+      <tbody></tbody>
+    </table>
+    <p id="empty" class="muted" hidden>No calls yet.</p>
+    <p id="error" class="error" hidden></p>
+    <p class="links"><a href="/">Back to meetings</a></p>
+  </main>
+  <script>
+    const $ = id => document.getElementById(id);
+
+    // sqlite's datetime text is UTC without a marker; the browser shows
+    // it in local time once told so.
+    const when = s => new Date(s.replace(' ', 'T') + 'Z').toLocaleString();
+    const duration = seconds => {
+      if (seconds === null || seconds === undefined) return 'in progress';
+      const m = Math.floor(seconds / 60), s = seconds % 60;
+      return m + ':' + String(s).padStart(2, '0');
+    };
+
+    function row(call) {
+      const tr = document.createElement('tr');
+      for (const text of [call.with || 'nobody', when(call.started_at), duration(call.seconds)]) {
+        const td = document.createElement('td');
+        td.textContent = text;
+        tr.append(td);
+      }
+      return tr;
+    }
+
+    // History is for a signed-in person; anyone else goes to sign in.
+    async function load() {
+      try {
+        const res = await fetch('/api/calls');
+        if (res.status === 401) { location.href = '/signin'; return; }
+        if (!res.ok) throw new Error('could not load history (' + res.status + ')');
+        const calls = await res.json();
+        $('calls').querySelector('tbody').replaceChildren(...calls.map(row));
+        $('calls').hidden = calls.length === 0;
+        $('empty').hidden = calls.length > 0;
+      } catch (e) {
+        $('error').textContent = String(e.message || e);
+        $('error').hidden = false;
+      }
+    }
+
+    load();
+  </script>
+</body>
+</html>

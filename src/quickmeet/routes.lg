@@ -199,6 +199,10 @@
     :method :get
     :response (fn [_] (static-response "settings.html"))}
 
+   {:path "/history"
+    :method :get
+    :response (fn [_] (static-response "history.html"))}
+
    ;; Accounts. Body: {"email": "...", "password": "..."}.
    {:path "/api/auth/signup"
     :method :post
