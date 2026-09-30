@@ -74,6 +74,19 @@
                          "characters, for example: openssl rand -hex 32")
                     {:variable "LIVEKIT_API_SECRET"}))))
 
+;; The SFU posts its webhooks to 127.0.0.1:PORT, so the app must listen
+;; there: on every interface, or on loopback alone. A specific other
+;; address would silently stop call history, so it is refused.
+(def ^:private bind-hosts #{"" "0.0.0.0" "127.0.0.1" "localhost"})
+
+(defn- app-host [lookup]
+  (let [host (env lookup "HOST" "")]
+    (when-not (contains? bind-hosts host)
+      (throw (ex-info (str "HOST must be empty, 0.0.0.0, 127.0.0.1 or localhost, not " host
+                           ": the SFU delivers its webhooks to 127.0.0.1.")
+                      {:variable "HOST"})))
+    host))
+
 (defn- rtc-config [lookup]
   (let [udp-port (env lookup "LIVEKIT_UDP_PORT" nil)]
     (merge {:tcp_port (env-int lookup "LIVEKIT_RTC_TCP_PORT" 7881)
@@ -124,7 +137,7 @@
 
       ;; The server refs the SFU so it never accepts a join before the SFU
       ;; can take the participant.
-      :quickmeet.server/http {:addr (str (env lookup "HOST" "") ":" port)
+      :quickmeet.server/http {:addr (str (app-host lookup) ":" port)
                               :handler (ig/ref :quickmeet.routes/handler)
                               :livekit (ig/ref :livekit/server)}})))
 

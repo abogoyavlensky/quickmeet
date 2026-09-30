@@ -277,4 +277,8 @@
 (deftest host-sets-the-bind-address
   (is (= "127.0.0.1:9000" (get-in (config-from {"HOST" "127.0.0.1" "PORT" "9000"})
                                   [:quickmeet.server/http :addr])))
-  (is (= ":9000" (get-in (config-from {"PORT" "9000"}) [:quickmeet.server/http :addr]))))
+  (is (= ":9000" (get-in (config-from {"PORT" "9000"}) [:quickmeet.server/http :addr])))
+  (is (= "0.0.0.0:9000" (get-in (config-from {"HOST" "0.0.0.0" "PORT" "9000"})
+                                [:quickmeet.server/http :addr])))
+  ;; Any other address would leave the SFU's webhooks nowhere to go.
+  (is (thrown? Exception (config-from {"HOST" "10.0.0.5"}))))
