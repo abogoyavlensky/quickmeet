@@ -18,8 +18,11 @@
 
 (def cookie-name "session")
 
-;; Sessions last 30 days; db/session-user applies the same limit in SQL.
-(def ^:private max-age-seconds (* 30 24 60 60))
+;; Sessions last a year: the cookie's Max-Age here, the SQL window in
+;; db/session-user-sql, both from this number. "Indefinite" is not on
+;; offer: browsers cap a cookie's lifetime (Chrome at 400 days).
+(def session-days 365)
+(def ^:private max-age-seconds (* session-days 24 60 60))
 
 (defn normalize-email
   "Trimmed and lower-cased: the form that is stored and compared."
@@ -106,7 +109,7 @@
       :else (new-session! conn (dissoc user :password_hash)))))
 
 (defn current-user
-  "The user behind `session-id`: a session younger than 30 days whose
+  "The user behind `session-id`: a session younger than session-days whose
    address is still allowed. Anything else is nil, signed out."
   [conn auth session-id]
   (when-not (str/blank? (str session-id))

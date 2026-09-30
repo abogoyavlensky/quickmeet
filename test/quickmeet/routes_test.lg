@@ -207,7 +207,7 @@
         (is (= {:email "alice@example.com" :display_name "alice"} json))
         (is (re-find #"^[0-9a-f]{32}$" cookie))
         ;; Plain http: no Secure flag, everything else set.
-        (doseq [attr ["Path=/" "HttpOnly" "SameSite=Lax" "Max-Age=2592000"]]
+        (doseq [attr ["Path=/" "HttpOnly" "SameSite=Lax" "Max-Age=31536000"]]
           (is (str/includes? set-cookie attr) attr))
         (is (not (str/includes? set-cookie "Secure")))
         ;; The cookie is the session.

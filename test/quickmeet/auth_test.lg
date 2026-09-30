@@ -70,9 +70,12 @@
         (auth/sign-out! conn session)
         (auth/sign-out! conn session)
         (is (nil? (auth/current-user conn anyone session))))
-      ;; A session older than 30 days is no session.
+      ;; A session lasts a year: one from 364 days ago still works, one
+      ;; from 366 days ago is no session.
       (let [{:keys [session]} (auth/sign-in! conn anyone "bob@example.com" "correct horse")]
-        (sqlite/execute! conn ["update sessions set created_at = datetime('now', '-31 days') where id = ?" session])
+        (sqlite/execute! conn ["update sessions set created_at = datetime('now', '-364 days') where id = ?" session])
+        (is (some? (auth/current-user conn anyone session)))
+        (sqlite/execute! conn ["update sessions set created_at = datetime('now', '-366 days') where id = ?" session])
         (is (nil? (auth/current-user conn anyone session)))))))
 
 (deftest the-allowlist
@@ -104,8 +107,8 @@
   (is (= {"a" "1" "session" "abc"} (auth/parse-cookies "a=1; session=abc")))
   (is (= {} (auth/parse-cookies nil)))
   (is (= {} (auth/parse-cookies "")))
-  (is (= "session=abc; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000"
+  (is (= "session=abc; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000"
          (auth/session-cookie "abc" false)))
-  (is (= "session=abc; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000; Secure"
+  (is (= "session=abc; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000; Secure"
          (auth/session-cookie "abc" true)))
   (is (str/includes? (auth/clear-cookie) "Max-Age=0")))

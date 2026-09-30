@@ -92,14 +92,16 @@
            :values [{:id "id" :user_id "user"}]
            :returning [:id :user_id :created_at]}))
 
-;; A session is valid for 30 days from creation; the comparison is sqlite's,
-;; so no time handling in let-go and no clock to inject.
+;; A session is valid for a year from creation (365 days here, the same
+;; number as auth/session-days, which sets the cookie's Max-Age). The
+;; comparison is sqlite's, so no time handling in let-go and no clock to
+;; inject.
 (def ^:private session-user-sql
   (sql-of {:select (mapv #(keyword (str "u." (name %))) user-columns)
            :from [[:sessions :s]]
            :join [[:users :u] [:= :u.id :s.user_id]]
            :where [:and [:= :s.id "id"]
-                   [:> :s.created_at [:raw "datetime('now', '-30 days')"]]]}))
+                   [:> :s.created_at [:raw "datetime('now', '-365 days')"]]]}))
 
 (def ^:private delete-session-sql
   (sql-of {:delete-from :sessions

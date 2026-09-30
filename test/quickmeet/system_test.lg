@@ -139,7 +139,7 @@
       (let [res (post-json (str base "/api/auth/signup")
                            {:email "over-http@example.com" :password "correct horse"})]
         (is (= 201 (:status res)))
-        (is (re-find #"^session=[0-9a-f]{32}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000$"
+        (is (re-find #"^session=[0-9a-f]{32}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000$"
                      (str (get-in res [:headers "set-cookie"]))))))))
 
 (deftest concurrent-room-creation
