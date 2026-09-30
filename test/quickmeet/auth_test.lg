@@ -4,6 +4,7 @@
             [quickmeet.auth :as auth]
             [quickmeet.db]
             [quickmeet.id :as id]
+            [quickmeet.password :as password]
             [sqlite.core :as sqlite]
             [string :as str]))
 
@@ -112,3 +113,17 @@
   (is (= "session=abc; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000; Secure"
          (auth/session-cookie "abc" true)))
   (is (str/includes? (auth/clear-cookie) "Max-Age=0")))
+
+(deftest an-unknown-address-costs-a-bcrypt-comparison
+  ;; :invalid either way; the unknown address also runs the dummy check, so
+  ;; its response takes as long as a wrong password's.
+  (with-db
+    (fn [conn]
+      (auth/sign-up! conn anyone "known@example.com" "correct horse")
+      (let [calls (atom 0)]
+        (with-redefs [password/dummy-check (fn [_] (swap! calls inc) false)]
+          (is (= {:error :invalid} (auth/sign-in! conn anyone "nobody@example.com" "correct horse")))
+          (is (= 1 @calls))
+          (is (= {:error :invalid} (auth/sign-in! conn anyone "known@example.com" "wrong password")))
+          (is (nil? (:error (auth/sign-in! conn anyone "known@example.com" "correct horse"))))
+          (is (= 1 @calls) "a known address never runs it"))))))

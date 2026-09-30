@@ -67,6 +67,13 @@
    :do [{:task lgx:build}
         {:sh "cd e2e && npx playwright test"}]}
 
+  ;; A two-browser call against any running instance, for a check after an
+  ;; install or to see what a deploy does to a live call. Reads QM_URL,
+  ;; QM_EMAIL, QM_PASSWORD, QM_SIGNUP and QM_SECS; see e2e/smoke.mjs.
+  smoke
+  {:doc "Hold a two-browser call against QM_URL and report what happened"
+   :do {:sh "cd e2e && node smoke.mjs"}}
+
   e2e-setup
   {:doc "Install the e2e dependencies and the headless browser"
    :do {:sh "cd e2e && npm ci && npx playwright install chromium-headless-shell"}}

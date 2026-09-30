@@ -7,11 +7,51 @@
 ;; this app for pages, rooms and join tokens. Run with `lgx run`, then open
 ;; http://localhost:8080. See README.md for the environment variables.
 
+(defn- start-or-exit
+  "The running system, or exit 1 with just the message when the
+   configuration is refused (quickmeet.system names the variable)."
+  []
+  (try
+    (system/start!)
+    (catch Exception e
+      (if-let [variable (:variable (ex-data e))]
+        (do (println (str "quickmeet: " (ex-message e)))
+            (os/exit 1))
+        (throw e)))))
+
+(defn- cause-of [e]
+  (let [message (ex-message e)
+        cause (some-> (ex-cause e) ex-message)]
+    (if cause (str message ": " cause) message)))
+
 (defn -main []
-  (let [system (system/start!)]
-    ;; http/start serves in the background; wait blocks until the server
-    ;; stops, which keeps the process (and the SFU) up.
-    (http/wait (:quickmeet.server/http system))))
+  ;; Registered before anything starts, so a SIGTERM during startup is not
+  ;; lost (as PID 1 in a container, a signal without a handler is ignored).
+  (let [signals (chan)
+        _ (syscall/signal-notify signals syscall/SIGTERM syscall/SIGINT)
+        system (start-or-exit)
+        server (:quickmeet.server/http system)]
+    ;; SIGTERM (systemd, docker stop) or SIGINT (Ctrl-C) stops the http
+    ;; server, draining requests for up to 5 s; http/wait below then
+    ;; returns and the shutdown runs.
+    (go (<! signals)
+        (http/stop server))
+    ;; os/exit makes the status explicit. The SFU is not stopped; it dies
+    ;; with the process (see system/shutdown!).
+    (os/exit
+     (try
+       ;; http/start serves in the background; wait blocks until the server
+       ;; stops, which keeps the process (and the SFU) up. It throws only if
+       ;; the server failed on its own; history is closed either way.
+       (let [failure (try (http/wait server) nil (catch Exception e e))]
+         (println "quickmeet: shutting down")
+         (system/shutdown! system)
+         (if failure
+           (do (println (str "quickmeet: the http server failed: " (cause-of failure))) 1)
+           0))
+       (catch Exception e
+         (println (str "quickmeet: shutdown failed: " (cause-of e)))
+         1)))))
 
 ;; lg -b runs top-level forms at compile time, so without this guard
 ;; `lgx build` would start an SFU and open the database while bundling.

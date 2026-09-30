@@ -1,0 +1,69 @@
+(ns quickmeet.ratelimit)
+
+;; Rate limits as fixed windows in memory: each [bucket key] pair may act
+;; `limit` times per window, and the window starts at its first attempt.
+;; Every attempt counts, successful or not. State lives in one atom and is
+;; per process, so a restart forgets it; on one box that is fine.
+;;
+;; Keep this free of dynamic bindings (no `binding`, nothing that binds
+;; underneath, such as HoneySQL's format). let-go 1.13.0 runs every http
+;; handler on one shared binding stack, so a binding on the request path can
+;; be read or popped by a concurrent request. `swap!` needs none. See
+;; docs/backlog/letgo-http-handlers-share-dynamic-bindings.md.
+
+;; Sign-in and sign-up are keyed by client address, room creation by user
+;; id. Sign-in is not limited per account: that would let anyone lock the
+;; owner of an address out by guessing at it.
+(def default-limits
+  {:signin {:limit 10 :window-ms (* 60 1000)}
+   :signup {:limit 10 :window-ms (* 60 60 1000)}
+   :create-room {:limit 60 :window-ms (* 60 60 1000)}})
+
+;; Past this many entries, a check drops the ones whose window has ended,
+;; so a flood of distinct keys cannot grow the map without bound. At most
+;; once a minute: when every window is still live, pruning frees nothing, and
+;; rebuilding the map on every attempt would make the limiter the bottleneck.
+(def ^:private default-max-entries 10000)
+(def ^:private prune-interval-ms (* 60 1000))
+
+(defn limiter
+  "A limiter over `limits`, {bucket {:limit n :window-ms ms}}. `now-ms` is
+   the clock, (fn []) -> milliseconds."
+  ([limits now-ms] (limiter limits now-ms default-max-entries))
+  ([limits now-ms max-entries]
+   {:limits limits :now-ms now-ms :max-entries max-entries
+    :state (atom {:entries {} :pruned-at 0})}))
+
+(defn- ended? [limits now [[bucket _] [start _]]]
+  (>= now (+ start (get-in limits [bucket :window-ms]))))
+
+(defn- prune [{:keys [entries pruned-at] :as state} limits now max-entries]
+  (if (and (> (count entries) max-entries)
+           (>= now (+ pruned-at prune-interval-ms)))
+    {:entries (into {} (remove #(ended? limits now %) entries)) :pruned-at now}
+    state))
+
+(defn- attempt [state limits now max-entries id limit window-ms]
+  (let [state (prune state limits now max-entries)
+        [start n] (get-in state [:entries id])]
+    (if (or (nil? start) (>= now (+ start window-ms)))
+      (assoc-in state [:entries id] [now 1])
+      ;; Past limit + 1 the count stops: refused is refused.
+      (assoc-in state [:entries id] [start (min (inc n) (inc limit))]))))
+
+(defn check!
+  "Count an attempt by `key` in `bucket`. nil when it is allowed; otherwise
+   the whole seconds until the window ends, at least 1. An unknown bucket is
+   never limited."
+  [{:keys [limits now-ms max-entries state]} bucket key]
+  (when-let [{:keys [limit window-ms]} (get limits bucket)]
+    (let [now (now-ms)
+          id [bucket key]
+          [start n] (get-in (swap! state attempt limits now max-entries id limit window-ms) [:entries id])]
+      (when (> n limit)
+        (max 1 (quot (+ (- (+ start window-ms) now) 999) 1000))))))
+
+(defn size
+  "How many [bucket key] entries the limiter holds."
+  [{:keys [state]}]
+  (count (:entries @state)))

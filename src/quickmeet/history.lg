@@ -24,11 +24,14 @@
 ;; finishing key on the participant and the call, not the room row, so
 ;; they land even if the room was deleted mid-call.
 ;;
-;; The SFU dies with the process (the container is killed on every
-;; deploy), and then no room_finished ever comes for a call that was on.
-;; The SFU gives each lifetime of a room a new sid, so a join whose room
-;; sid differs from the open call's is a new meeting: the stale call is
-;; closed at that moment and a fresh one opened.
+;; The SFU dies with the process, and then no room_finished ever comes for
+;; a call that was on. A clean shutdown closes open calls on its way out
+;; (quickmeet.system/shutdown!), and the next start closes whatever a
+;; process that died left open (quickmeet.db, init-key). The room sid rule
+;; stays as the guard for anything that slips through: the SFU gives each
+;; lifetime of a room a new sid, so a join whose room sid differs from the
+;; open call's is a new meeting, and the stale call is closed at that
+;; moment and a fresh one opened.
 
 (defn- user-id-of [identity]
   (second (re-matches #"user:(.+)" (str identity))))

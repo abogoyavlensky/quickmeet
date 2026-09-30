@@ -27,6 +27,7 @@ lgx run                 # http://localhost:8080, quickmeet.db in the cwd
 lgx test                # handler, migrations and the whole system
 lgx e2e                 # two headless browsers in a real call (see below)
 lgx build && ./bin/quickmeet
+lgx smoke               # a two-browser call against a running instance (QM_URL)
 ```
 
 Open http://localhost:8080, sign up (any email, no verification), click
@@ -73,6 +74,14 @@ distributions it recognises; on Ubuntu 26.04 run the setup as
 suites on every push (`.github/workflows/test.yml`); on master they run
 as the first job of the deploy.
 
+`lgx smoke` runs the same kind of call against any running instance,
+local or deployed, and watches it for `QM_SECS` seconds, printing every
+change of state: the check after an install, and the way to see what a
+restart or deploy does to a live call. It reads `QM_URL`, `QM_EMAIL` and
+`QM_PASSWORD` (the host's account; `QM_SIGNUP=1` signs it up first) and
+exits 0 when both sides end the run in the call with media flowing
+(`e2e/smoke.mjs`).
+
 `livekit-client` is vendored into `resources/public/` and served from the
 binary, so a call page has no CDN dependency. To bump it, change the
 version in the `vendor-livekit-client` task in `lgx.edn` and run
@@ -80,7 +89,20 @@ version in the `vendor-livekit-client` task in `lgx.edn` and run
 
 ## Deployment
 
-A push to master runs the tests, then `.github/workflows/deploy.yml`:
+To run quickmeet on your own server, follow
+[`docs/INSTALL.md`](docs/INSTALL.md): the release binary under systemd,
+Caddy in front for TLS, two media ports open. Releases are built by
+`.github/workflows/release.yml` when a `v*` tag is pushed: a tarball with
+the static linux/amd64 binary, the files the guide installs (`deploy/`)
+and the guide itself, plus its SHA-256. There is no macOS build.
+
+On SIGTERM (systemd, `docker stop`) the app stops serving, closes the
+calls that were on in history and exits; it leaves the SFU to die with
+the process, so a call in progress shows "Reconnecting…" and resumes
+against the new process by itself, typically within 20 seconds. After
+about 45 seconds away the browsers give up and return to the lobby.
+
+The rest of this section is the staging deployment. A push to master runs the tests, then `.github/workflows/deploy.yml`:
 it builds `bin/quickmeet`, checks that it is statically linked, wraps it
 in the `Dockerfile` (Alpine plus the binary, nothing built inside the
 image), smoke-tests the image, and deploys `compose.yaml` with
@@ -107,18 +129,24 @@ points at the server.
 
 Starting a meeting takes an account. Staging's `ALLOWED_EMAILS` holds
 the operator's address, so nobody else can sign up or sign in there;
-unset, sign-up would be open. Rooms are permanent and hold two people;
-there is no rate limit yet.
+unset, sign-up would be open. Rooms are permanent and hold two people.
+Sign-in is limited to 10 attempts a minute and sign-up to 10 an hour per
+client address, room creation to 60 an hour per account; over a limit
+the answer is 429 with `Retry-After`.
 
 ## Configuration
 
 Every setting is an environment variable with a development default.
-The defaults bind to loopback with a well-known key: fine on a laptop,
-wrong on a server.
+The defaults bind the SFU to loopback with a well-known key: fine on a
+laptop. Once the SFU is reachable from other machines (`LIVEKIT_BIND`
+off loopback, `LIVEKIT_USE_EXTERNAL_IP=true` or `LIVEKIT_PUBLIC_URL`
+set), the app refuses to start with that key's secret and says so.
 
 | Variable | Default | |
 |---|---|---|
 | `PORT` | `8080` | the app's http port |
+| `HOST` | unset | the app's bind address: unset or `0.0.0.0` for every interface, `127.0.0.1` for loopback only (a proxy on the same box). Nothing else: the SFU posts its webhooks to `127.0.0.1` |
+| `RATE_LIMIT` | `true` | `false` switches the rate limits off (the browser tests do) |
 | `DB_PATH` | `quickmeet.db` | the sqlite file |
 | `ALLOWED_EMAILS` | unset | comma-separated addresses that may sign up, sign in and keep a session; unset, sign-up is open |
 | `LIVEKIT_PORT` | `7880` | SFU http and signalling port |
@@ -127,18 +155,19 @@ wrong on a server.
 | `LIVEKIT_UDP_START`, `LIVEKIT_UDP_END` | `50000`, `50100` | media port range |
 | `LIVEKIT_UDP_PORT` | unset | when set, all media over this one UDP port; the range is ignored |
 | `LIVEKIT_USE_EXTERNAL_IP` | `false` | advertise the public IP in ICE candidates |
-| `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` | dev values | token signing; the secret must be 32+ characters |
+| `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` | dev values | token signing; the secret must be 32+ characters, and the dev one is refused on an exposed SFU |
 | `LIVEKIT_LOG_LEVEL` | `warn` | |
 | `LIVEKIT_PUBLIC_URL` | unset | the signalling URL handed to browsers; otherwise derived from the request |
 
 ## Layout
 
 ```
-main.lg                        starts the system, waits on the http server
+main.lg                        starts the system, waits on the http server, shuts down on SIGTERM
 src/quickmeet/system.lg        the integrant config from the environment
 src/quickmeet/db.lg            ::conn (open + migrate), queries
 src/quickmeet/migrations.lg    the schema history (ragtime over sqlite)
-src/quickmeet/routes.lg        ::handler: pages, accounts, rooms, join tokens, the two-person rule, the webhook
+src/quickmeet/routes.lg        ::handler: pages, accounts, rooms, join tokens, the two-person rule, the webhook, rate limits
+src/quickmeet/ratelimit.lg     fixed-window rate limits in memory
 src/quickmeet/history.lg       call history from the SFU's webhook events
 src/quickmeet/auth.lg          sign-up, sign-in, sessions, the allowlist, the session cookie
 src/quickmeet/password.lg      bcrypt (golang.org/x/crypto/bcrypt as a :go/interop coord)
@@ -147,11 +176,12 @@ src/quickmeet/sfu.lg           asks the embedded SFU who is in a room, and which
 src/quickmeet/server.lg        ::http: http/start on init, http/stop on halt
 resources/public/              index, room, history, signup, signin, settings pages; app.css; vendored livekit-client
 test/quickmeet/                routes and auth over a temp db; migrations; password; the full system
-e2e/                           Playwright: two browsers in a call against bin/quickmeet
+e2e/                           Playwright: two browsers in a call against bin/quickmeet; smoke.mjs for a deployed one
 Dockerfile                     the runtime image around bin/quickmeet
 compose.yaml                   the uncloud service: Caddy routes, media ports, secrets
-.github/workflows/             test.yml on every push; deploy.yml on master
-docs/                          ROADMAP.md, KNOWLEDGE.md
+deploy/                        the single-box install: systemd unit, Caddyfile, environment example
+.github/workflows/             test.yml on every push; deploy.yml on master; release.yml on a v* tag
+docs/                          INSTALL.md, ROADMAP.md, KNOWLEDGE.md
 ```
 
 The components chain `server -> handler -> db` and `server -> livekit`,
@@ -162,13 +192,13 @@ so integrant starts the database and the SFU first and halts them last.
 ```
 POST /api/auth/signup            {"email", "password"}
                                  -> 201 {"email", "display_name"} + Set-Cookie: session=...
-                                  | 400 {"error": "<what is wrong>"} | 403 {"error": "not allowed"} | 409 {"error": "exists"}
+                                  | 400 {"error": "<what is wrong>"} | 403 {"error": "not allowed"} | 409 {"error": "exists"} | 429
 POST /api/auth/signin            {"email", "password"}
-                                 -> 200 {"email", "display_name"} + Set-Cookie | 401 {"error": "invalid email or password"} | 403
+                                 -> 200 {"email", "display_name"} + Set-Cookie | 401 {"error": "invalid email or password"} | 403 | 429
 POST /api/auth/signout           -> 200 {} + Set-Cookie clearing the session
 GET  /api/me                     -> 200 {"email", "display_name"} | 401
 POST /api/me                     {"display_name"} -> 200 {"email", "display_name"} | 400 | 401
-POST /api/rooms                  -> 201 {"id": "0123456789ab"} | 401 (needs a session)
+POST /api/rooms                  -> 201 {"id": "0123456789ab"} | 401 (needs a session) | 429
 GET  /api/rooms                  -> 200 [{"id", "name", "created_at", "owner": bool, "present": n}] | 401
 POST /api/rooms/:id              {"name"} (blank clears) -> 200 the room | 400 | 401 | 403 (not the owner) | 404
 DELETE /api/rooms/:id            -> 200 {} | 401 | 403 | 404
@@ -189,7 +219,11 @@ verified, so with an allowlist, whoever registers an address first owns
 it. There is no password reset: the operator deletes the row. The
 account endpoints accept only `Content-Type: application/json` (415
 otherwise), which keeps a cross-site form from signing a visitor in as
-someone else.
+someone else. A 429 carries `Retry-After` in seconds and
+`{"error": "Too many attempts. Try again later."}`; the limits are per
+client address for sign-in and sign-up (the last `X-Forwarded-For`
+entry behind a proxy) and per account for room creation. An unknown
+address and a wrong password take the same time to refuse.
 
 `participants` is who the SFU has in the room right now (the lobby polls
 it); the token endpoint answers 409 once two people are in. Rooms never

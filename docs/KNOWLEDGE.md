@@ -180,9 +180,12 @@ Verified 2026-09-29, for the two-person rule:
   defines them warns unless it `:refer-clojure :exclude`s them.
 - The sql layer treats a bare `pragma table_info(t)` as a statement
   without rows; `select name from pragma_table_info('t')` returns them.
-- Sign-in timing: an unknown address returns without running bcrypt
-  (about 60 ms at cost 10), which tells an attacker the account does not
-  exist. Accepted for v1, listed under M6.
+- Sign-in timing: until 2026-09-30 an unknown address returned without
+  running bcrypt (about 60 ms at cost 10), which told an attacker the
+  account did not exist. Now it compares against a fixed cost-10 hash
+  (`password/dummy-hash`, a literal because AOT runs top-level forms);
+  measured, both paths take 60 to 70 ms.
+- `with-redefs` works in let-go tests, over a namespace's public fns.
 
 Learned in the review before shipping, 2026-09-30:
 
@@ -269,8 +272,11 @@ built binary, run by `lgx e2e` (2026-09-27).
   HMAC, no bcrypt and no `time` namespace. Sessions should be opaque ids in
   the database rather than signed cookies; password hashing needs a Go
   package.
-- The `lg` process did not stop on SIGINT or SIGTERM while `http/wait`
-  was blocking during the spike; it needed SIGKILL. Not yet investigated.
+- During the M0 spike, `lg` under `lgx run` did not stop on SIGINT or
+  SIGTERM while `http/wait` blocked. The built binary does: with no
+  handler registered it takes Go's default action and dies (checked
+  2026-09-30), and since then `main.lg` registers one. See "Restarts and
+  shutdown".
 - The T3 Code preview tab runs on another network and cannot reach this
   machine's ports, so browser tests use a local headless Chromium.
   Playwright refuses Ubuntu 26.04 by default;
@@ -284,10 +290,52 @@ built binary, run by `lgx e2e` (2026-09-27).
   gets a synthetic camera and microphone unchanged. Two browser contexts
   are two independent participants; the SFU sees a real call.
 - Playwright's `webServer` kills the app's whole process group with
-  SIGKILL on teardown (`processLauncher.js`), so the open question of `lg`
-  ignoring SIGTERM does not affect the tests: no listener survives a run.
+  SIGKILL on teardown (`processLauncher.js`), so no listener survives a
+  run whatever the app does with SIGTERM.
 - Pinned together: `@playwright/test` 1.56.0 and `chromium_headless_shell-1194`.
   A Playwright bump changes the browser build, so `lgx e2e-setup` again.
+
+## Restarts and shutdown, verified 2026-09-30
+
+- A call survives the server process being killed. Two headless
+  Chromiums in a call against the local binary, the server killed with
+  SIGKILL and started again after a delay: for a 5 s outage media was
+  back 18 s after the kill, for 30 s it was back after 40 s, and for 60 s
+  both clients gave up 48 s after the kill and returned to the lobby
+  ("Connection lost. Join again."). Nobody clicks anything in between:
+  `livekit-client` first tries to resume its old session, which the new
+  SFU has never heard of and refuses (it logs `could not restart
+  participant` once per client; expected), then does a full reconnect
+  that joins the room afresh.
+- The same with the app's own shutdown, SIGTERM and a restart 5 s later:
+  media moved again 11 s after the stop (`lgx smoke` run locally).
+  History closed the first call at the moment of the stop and opened a
+  second one on the rejoin.
+- `ig/halt!` on `:livekit/server` would hang a shutdown during a call:
+  `livekit.integrant`'s halt calls `(lk/stop! server false)`, and
+  `LivekitServer.Stop(false)` loops every 5 s until nobody is in a room
+  (`livekit-server@v1.13.7/pkg/service/server.go:358`). `Stop(true)`
+  closes every room with `RoomCloseReasonServerShutdown`
+  (`pkg/service/roommanager.go:242`), which tells the clients to leave
+  rather than reconnect. Hence `system/shutdown!` never halts the SFU; it
+  dies with the process.
+- Signals: `(syscall/signal-notify ch syscall/SIGTERM syscall/SIGINT)`
+  forwards each signal as an Int onto `ch` from a Go goroutine with an
+  8-signal buffer (`pkg/rt/syscall_linux.go:599`; on other platforms it
+  is an "unsupported" stub). Core `chan` takes no arguments; the
+  buffered `(chan n)` lives in the async namespace. `(http/stop server)`
+  drains in-flight requests for up to 5 s, falls back to closing them,
+  and is idempotent; `http/wait` returns once it has finished. After
+  `-main` returns, `os/exit` makes the status explicit.
+- At startup the embedded SFU has no rooms, so a call still open in the
+  database was left by a process that died; `quickmeet.db`'s `init-key`
+  closes it at that moment. This assumes one process per database file.
+- The rate limiter keeps its state in an atom updated with `swap!`: no
+  dynamic bindings on the request path, which matters while
+  `docs/backlog/letgo-http-handlers-share-dynamic-bindings.md` is open.
+- Sandboxes: on the dev machine the agent user cannot reach the docker
+  socket and cannot create user namespaces (`unshare -U` fails), so the
+  PID 1 case cannot be reproduced locally; staging is where it is seen.
 
 ## Deployment facts that shape v1
 
@@ -335,8 +383,12 @@ Learned while setting up staging on uncloud, 2026-09-28:
   peak. The container's `mem_limit: 256m` fits about five or six calls.
   Real cameras send more than Chrome's fake device; memory should hold
   (it is mostly per-participant buffers), CPU scales with packet rate.
-- `lg` ignores SIGTERM (see "Dev tooling gotchas"), so the service sets
-  `stop_grace_period: 2s`; waiting Docker's default 10 s buys nothing.
+- Until 2026-09-30 the service set `stop_grace_period: 2s` on the belief
+  that `lg` ignores SIGTERM. In the container the app is PID 1, and the
+  kernel drops signals PID 1 has no handler for, which fits what was seen.
+  The app now registers a handler and the grace period is back to 10 s.
+  Whether the container stops on SIGTERM within it was checked on staging
+  (see "Restarts and shutdown").
 
 The first deploy, 2026-09-28 to 2026-09-29:
 
@@ -370,4 +422,6 @@ The first deploy, 2026-09-28 to 2026-09-29:
 > `docs/knowledge-base/lgx-go-runtimes.md`; in letgo-packages,
 > `livekit/shim/shim.go`, `livekit/src/livekit/core.lg`,
 > `livekit/README.md`; in let-go 1.13.0, `pkg/rt/http.go`,
-> `pkg/rt/hash_sha.go`, `pkg/rt/os.go`.
+> `pkg/rt/hash_sha.go`, `pkg/rt/os.go`, `pkg/rt/syscall_linux.go`,
+> `pkg/rt/async.go`; in livekit-server v1.13.7,
+> `pkg/service/server.go` and `pkg/service/roommanager.go`.

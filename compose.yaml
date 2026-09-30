@@ -33,8 +33,10 @@ services:
     # unison's JVM, Postgres and MinIO.
     mem_limit: 256m
     mem_reservation: 128m
-    # lg ignores SIGTERM, so waiting the default 10 s buys nothing.
-    stop_grace_period: 2s
+    # On SIGTERM the app stops serving, closes open calls in history and
+    # exits, in well under a second; the SFU is left to die with it so
+    # browsers reconnect to the next container. This is only the ceiling.
+    stop_grace_period: 10s
     environment:
       PORT: "8080"
       LIVEKIT_PORT: "7880"

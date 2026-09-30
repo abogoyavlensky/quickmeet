@@ -60,8 +60,11 @@ jobs:
       - name: Smoke-test the image
         run: |
           docker build -t quickmeet:ci .
+          # Bound off loopback, the app refuses the development secret;
+          # this one never leaves the runner.
           docker run -d --name qm -p 8080:8080 \
             -e PORT=8080 -e LIVEKIT_BIND=0.0.0.0 -e LIVEKIT_UDP_PORT=7882 \
+            -e LIVEKIT_API_SECRET=ci-smoke-test-secret-0123456789abcdef \
             -e DB_PATH=/tmp/quickmeet.db quickmeet:ci
           status=0
           curl -fsS --retry 15 --retry-all-errors --retry-delay 1 \

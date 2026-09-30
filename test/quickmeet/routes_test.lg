@@ -444,3 +444,62 @@
           (is (= id (:room_id call)))
           (is (= "bob" (:with call)))
           (is (nil? (:ended_at call))))))))
+
+;; ---- rate limits --------------------------------------------------------
+
+(defn- refusing
+  "A stub :limit that refuses `bucket` with a 42 s wait and records every
+   question it was asked in `seen`."
+  [seen bucket]
+  (fn [b key]
+    (swap! seen conj [b key])
+    (when (= b bucket) 42)))
+
+(defn- limited [seen bucket]
+  (assoc anyone :limit (refusing seen bucket)))
+
+(def ^:private credentials
+  (json/write-json {:email "someone@example.com" :password "correct horse"}))
+
+(deftest sign-in-and-sign-up-are-limited-by-address
+  (doseq [[bucket uri] [[:signin "/api/auth/signin"] [:signup "/api/auth/signup"]]]
+    (let [seen (atom [])]
+      (with-handler livekit nobody-anywhere (limited seen bucket)
+        (fn [handler _]
+          (let [res (call handler :post uri credentials {:remote-addr "10.0.0.5:4312"})]
+            (is (= 429 (:status res)))
+            (is (= "42" (str (get-in res [:headers "Retry-After"]))))
+            (is (= "Too many attempts. Try again later." (:error (:json res))))
+            (is (= [[bucket "10.0.0.5"]] @seen))))))))
+
+(deftest creating-rooms-is-limited-by-user
+  (let [seen (atom [])]
+    (with-handler livekit nobody-anywhere (limited seen :create-room)
+      (fn [handler conn]
+        ;; Without a session it is 401 and the limiter is not asked.
+        (is (= 401 (:status (call handler :post "/api/rooms"))))
+        (is (not-any? #(= :create-room (first %)) @seen))
+        (let [{:keys [cookie]} (signup handler "limited@example.com")
+              user-id (:id (sqlite/execute-one! conn ["select id from users where email = ?" "limited@example.com"]))
+              res (call handler :post "/api/rooms" nil (as cookie))]
+          (is (= 429 (:status res)))
+          (is (= "42" (str (get-in res [:headers "Retry-After"]))))
+          (is (= [:create-room user-id] (last @seen))))))))
+
+(deftest the-address-a-limit-is-keyed-by
+  (doseq [[extra expected] [[{:headers {"x-forwarded-for" "1.1.1.1, 2.2.2.2"} :remote-addr "10.0.0.5:4312"} "2.2.2.2"]
+                            [{:headers {"x-forwarded-for" "3.3.3.3"}} "3.3.3.3"]
+                            [{:remote-addr "10.0.0.5:4312"} "10.0.0.5"]
+                            [{:remote-addr "[::1]:4312"} "::1"]]]
+    (let [seen (atom [])]
+      (with-handler livekit nobody-anywhere (limited seen :signin)
+        (fn [handler _]
+          (call handler :post "/api/auth/signin" credentials extra)
+          (is (= [[:signin expected]] @seen) (pr-str extra)))))))
+
+(deftest an-allowed-attempt-goes-through
+  (let [seen (atom [])]
+    (with-handler livekit nobody-anywhere (limited seen :nothing)
+      (fn [handler _]
+        (is (= 201 (:status (signup handler))))
+        (is (= 401 (:status (call handler :post "/api/auth/signin" credentials))))))))

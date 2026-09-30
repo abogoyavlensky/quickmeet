@@ -1,7 +1,7 @@
 (ns quickmeet.system
   (:require [integrant.core :as ig]
             [livekit.integrant]
-            [quickmeet.db]
+            [quickmeet.db :as db]
             [quickmeet.routes]
             [quickmeet.server]
             [string :as str]))
@@ -12,8 +12,12 @@
 ;; requests before the SFU and the database go away.
 ;;
 ;; Everything a deployment changes is an environment variable with a
-;; development default. The defaults bind everything to loopback with a
-;; well-known dev key, which is fine on a laptop and wrong on a server.
+;; development default. The defaults bind the SFU to loopback with a
+;; well-known dev key, which is fine on a laptop and wrong on a server; so
+;; the one dangerous combination, that key on an SFU other machines can
+;; reach, refuses to start (`check-secret!`). HOST binds the app's own
+;; port; empty is every interface (a container behind a proxy needs that),
+;; and a single box with its proxy on it sets 127.0.0.1.
 ;; `config` takes the lookup function so tests can pass a map instead of
 ;; touching the process environment.
 ;;
@@ -23,6 +27,10 @@
 ;;
 ;; ALLOWED_EMAILS, comma-separated, limits who may have an account (sign-up,
 ;; sign-in, and every request of a live session); unset, sign-up is open.
+;;
+;; RATE_LIMIT=false switches the rate limits off (quickmeet.ratelimit); the
+;; browser suite needs that, since it signs up dozens of accounts from one
+;; address. The limits themselves are constants, not configuration.
 
 (defn- env [lookup name default]
   (let [v (lookup name)]
@@ -47,6 +55,39 @@
 (def dev-api-key "devkey")
 (def dev-api-secret "quickmeet-dev-secret-change-me-in-production!")
 
+(defn- exposed?
+  "Whether the SFU is set up for other machines to reach: bound off
+   loopback, advertising a public address, or given a public URL."
+  [lookup]
+  (or (not (contains? #{"127.0.0.1" "localhost"} (env lookup "LIVEKIT_BIND" "127.0.0.1")))
+      (env-bool lookup "LIVEKIT_USE_EXTERNAL_IP" false)
+      (some? (env lookup "LIVEKIT_PUBLIC_URL" nil))))
+
+(defn- check-secret!
+  "Refuse the development secret on an exposed SFU: with a secret everyone
+   knows, anyone can mint join tokens and admin tokens for it."
+  [lookup api-secret]
+  (when (and (= api-secret dev-api-secret) (exposed? lookup))
+    (throw (ex-info (str "LIVEKIT_API_SECRET is the development secret, but the SFU is "
+                         "reachable from other machines (LIVEKIT_BIND, LIVEKIT_USE_EXTERNAL_IP "
+                         "or LIVEKIT_PUBLIC_URL). Set LIVEKIT_API_SECRET to 32 or more random "
+                         "characters, for example: openssl rand -hex 32")
+                    {:variable "LIVEKIT_API_SECRET"}))))
+
+;; The SFU posts its webhooks to 127.0.0.1:PORT, so the app must listen
+;; there: on every interface, or on IPv4 loopback alone. A specific other
+;; address would silently stop call history, so it is refused. "localhost"
+;; is refused too: a host that maps it only to ::1 would do the same.
+(def ^:private bind-hosts #{"" "0.0.0.0" "127.0.0.1"})
+
+(defn- app-host [lookup]
+  (let [host (env lookup "HOST" "")]
+    (when-not (contains? bind-hosts host)
+      (throw (ex-info (str "HOST must be empty, 0.0.0.0 or 127.0.0.1, not " host
+                           ": the SFU delivers its webhooks to 127.0.0.1.")
+                      {:variable "HOST"})))
+    host))
+
 (defn- rtc-config [lookup]
   (let [udp-port (env lookup "LIVEKIT_UDP_PORT" nil)]
     (merge {:tcp_port (env-int lookup "LIVEKIT_RTC_TCP_PORT" 7881)
@@ -65,6 +106,7 @@
          api-secret (env lookup "LIVEKIT_API_SECRET" dev-api-secret)
          lk-port (env-int lookup "LIVEKIT_PORT" 7880)
          port (env lookup "PORT" "8080")]
+     (check-secret! lookup api-secret)
      {:quickmeet.db/conn {:path (env lookup "DB_PATH" "quickmeet.db")}
 
       :livekit/server
@@ -91,11 +133,12 @@
                                            :api-secret api-secret
                                            :port lk-port
                                            :public-url (env lookup "LIVEKIT_PUBLIC_URL" nil)}
-                                 :auth {:allowed-emails (env-emails lookup "ALLOWED_EMAILS")}}
+                                 :auth {:allowed-emails (env-emails lookup "ALLOWED_EMAILS")}
+                                 :rate-limit? (env-bool lookup "RATE_LIMIT" true)}
 
       ;; The server refs the SFU so it never accepts a join before the SFU
       ;; can take the participant.
-      :quickmeet.server/http {:addr (str ":" port)
+      :quickmeet.server/http {:addr (str (app-host lookup) ":" port)
                               :handler (ig/ref :quickmeet.routes/handler)
                               :livekit (ig/ref :livekit/server)}})))
 
@@ -104,3 +147,22 @@
   ([config] (ig/init config)))
 
 (defn stop! [system] (ig/halt! system))
+
+;; What SIGTERM does (main.lg). The SFU is deliberately left running until
+;; the process exits: halting it gracefully waits for every participant to
+;; leave, which never happens during a call, and halting it with force
+;; tells every participant to leave, which ends the call. Left alone, it
+;; dies with the process, the browsers see a dropped connection and
+;; reconnect to the next process by themselves (docs/KNOWLEDGE.md,
+;; "Restarts and shutdown"). Signalling is on the SFU's own port, so
+;; stopping the app's server does not touch a call.
+(defn shutdown!
+  "Stop serving and close the database, leaving the SFU up until the
+   process exits. Open calls are closed first, at the time of the stop."
+  [system]
+  ;; http/stop drains in-flight requests for up to 5 s.
+  (ig/halt! system [:quickmeet.server/http])
+  (db/close-open-calls! (:quickmeet.db/conn system))
+  ;; Halting the db also halts its dependents: the handler (nothing to do)
+  ;; and the server again, which http/stop allows.
+  (ig/halt! system [:quickmeet.db/conn]))

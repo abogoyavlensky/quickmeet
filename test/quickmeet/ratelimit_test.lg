@@ -1,0 +1,71 @@
+(ns quickmeet.ratelimit-test
+  (:require [clojure.test :refer [deftest is]]
+            [quickmeet.ratelimit :as ratelimit]))
+
+;; The limiter with a clock held in an atom, so windows pass on demand.
+
+(def ^:private limits {:a {:limit 3 :window-ms 60000}
+                       :b {:limit 1 :window-ms 1000}})
+
+(defn- limiter-at [clock]
+  (ratelimit/limiter limits #(deref clock)))
+
+(deftest the-limit-then-a-refusal
+  (let [clock (atom 1000)
+        l (limiter-at clock)]
+    (is (= [nil nil nil] (mapv (fn [_] (ratelimit/check! l :a "k")) (range 3))))
+    (let [retry (ratelimit/check! l :a "k")]
+      (is (number? retry))
+      (is (= 60 retry)))
+    (reset! clock 31000)
+    (is (= 30 (ratelimit/check! l :a "k")) "the wait shrinks as the window runs out")
+    (reset! clock 60999)
+    (is (= 1 (ratelimit/check! l :a "k")) "never less than a second")))
+
+(deftest keys-and-buckets-are-separate
+  (let [l (limiter-at (atom 0))]
+    (dotimes [_ 3] (ratelimit/check! l :a "k"))
+    (is (some? (ratelimit/check! l :a "k")))
+    (is (nil? (ratelimit/check! l :a "other")))
+    (is (nil? (ratelimit/check! l :b "k")))))
+
+(deftest a-new-window-allows-again
+  (let [clock (atom 0)
+        l (limiter-at clock)]
+    (is (nil? (ratelimit/check! l :b "k")))
+    (is (some? (ratelimit/check! l :b "k")))
+    (reset! clock 1000)
+    (is (nil? (ratelimit/check! l :b "k")))
+    (is (some? (ratelimit/check! l :b "k")))))
+
+(deftest an-unknown-bucket-is-never-limited
+  (let [l (limiter-at (atom 0))]
+    (is (every? nil? (mapv (fn [_] (ratelimit/check! l :nope "k")) (range 50))))))
+
+(deftest concurrent-checks-allow-exactly-the-limit
+  (let [l (ratelimit/limiter {:c {:limit 25 :window-ms 60000}} (constantly 0))
+        results (->> (range 200)
+                     (mapv (fn [_] (future (ratelimit/check! l :c "k"))))
+                     (mapv deref))]
+    (is (= 25 (count (filter nil? results))))))
+
+(deftest expired-entries-are-dropped-when-the-map-is-large
+  (let [clock (atom 0)
+        l (ratelimit/limiter {:b {:limit 1 :window-ms 1000}} #(deref clock) 10)]
+    (dotimes [i 20] (ratelimit/check! l :b i))
+    (is (= 20 (ratelimit/size l)))
+    (reset! clock 60000)
+    (ratelimit/check! l :b "fresh")
+    (is (= 1 (ratelimit/size l)))
+    ;; A minute has not passed since that prune, so the map just grows.
+    (reset! clock 90000)
+    (dotimes [i 20] (ratelimit/check! l :b (str "x" i)))
+    (is (= 21 (ratelimit/size l)))
+    (reset! clock 125000)
+    (ratelimit/check! l :b "later")
+    (is (= 1 (ratelimit/size l)))))
+
+(deftest the-defaults
+  (is (= {:limit 10 :window-ms 60000} (:signin ratelimit/default-limits)))
+  (is (= {:limit 10 :window-ms 3600000} (:signup ratelimit/default-limits)))
+  (is (= {:limit 60 :window-ms 3600000} (:create-room ratelimit/default-limits))))
