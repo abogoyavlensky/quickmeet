@@ -33,7 +33,9 @@
 ;; killer. It is closed now rather than at the next join in its room, which
 ;; could be days away. The cost: after a long outage its end time is
 ;; overstated by the outage. A clean shutdown closes calls itself, on time
-;; (quickmeet.system/shutdown!).
+;; (quickmeet.system/shutdown!). This assumes one process per database
+;; file: a second instance started on the same DB_PATH would close the
+;; first one's live calls.
 (defmethod ig/init-key ::conn [_ {:keys [path]}]
   (let [conn (sqlite/open (dsn path))]
     (migrations/migrate! conn)

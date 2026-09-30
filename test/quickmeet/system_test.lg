@@ -284,7 +284,10 @@
   (is (= "0.0.0.0:9000" (get-in (config-from {"HOST" "0.0.0.0" "PORT" "9000"})
                                 [:quickmeet.server/http :addr])))
   ;; Any other address would leave the SFU's webhooks nowhere to go.
-  (is (thrown? Exception (config-from {"HOST" "10.0.0.5"}))))
+  (doseq [host ["10.0.0.5" "localhost" "::1"]]
+    (is (= "HOST" (try (config-from {"HOST" host}) nil
+                       (catch Exception e (:variable (ex-data e)))))
+        host)))
 
 (deftest shutdown-stops-serving-closes-history-and-keeps-the-sfu
   ;; Not through with-system: this test owns the teardown, since shutdown!

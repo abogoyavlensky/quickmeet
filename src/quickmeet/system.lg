@@ -75,14 +75,15 @@
                     {:variable "LIVEKIT_API_SECRET"}))))
 
 ;; The SFU posts its webhooks to 127.0.0.1:PORT, so the app must listen
-;; there: on every interface, or on loopback alone. A specific other
-;; address would silently stop call history, so it is refused.
-(def ^:private bind-hosts #{"" "0.0.0.0" "127.0.0.1" "localhost"})
+;; there: on every interface, or on IPv4 loopback alone. A specific other
+;; address would silently stop call history, so it is refused. "localhost"
+;; is refused too: a host that maps it only to ::1 would do the same.
+(def ^:private bind-hosts #{"" "0.0.0.0" "127.0.0.1"})
 
 (defn- app-host [lookup]
   (let [host (env lookup "HOST" "")]
     (when-not (contains? bind-hosts host)
-      (throw (ex-info (str "HOST must be empty, 0.0.0.0, 127.0.0.1 or localhost, not " host
+      (throw (ex-info (str "HOST must be empty, 0.0.0.0 or 127.0.0.1, not " host
                            ": the SFU delivers its webhooks to 127.0.0.1.")
                       {:variable "HOST"})))
     host))
