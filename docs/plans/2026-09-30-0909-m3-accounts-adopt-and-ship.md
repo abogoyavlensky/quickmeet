@@ -104,8 +104,10 @@ Everything the draft excluded, plus: session rotation, remembering the device, a
 
 **Files:** none
 
-- [ ] **Step 1: Full verification.** `lgx test` and `lgx e2e`, then `cd e2e && npx playwright test --repeat-each 2`. Expected: all green.
+- [x] **Step 1: Full verification.** `lgx test` and `lgx e2e`, then `cd e2e && npx playwright test --repeat-each 2`. Expected: all green.
 - [ ] **Step 2: The repository variable.** `gh variable set ALLOWED_EMAILS --body "abogoyavlensky@gmail.com"`. Confirm with `gh variable list`.
 - [ ] **Step 3: PR.** Push `m3-accounts`, `gh pr create` titled `M3: accounts` with the approved decisions as the body, link it to the thread, watch `gh pr checks`, merge (squash, the repo's style) when green. The deploy follows.
 - [ ] **Step 4: Staging check.** Against `https://quickmeet.absky.dev`: `POST /api/rooms` without a cookie is 401; sign-up with an address not on the allowlist is 403; the operator signs up (or in) from a browser and starts a meeting; a guest on another device joins the link with no account. Record the outcome in this plan and mark it completed.
+
+> Deviation: Step 2 cannot be done from this machine: the GitHub token answers 403 to `gh variable set` and `gh variable list` (no Actions-variables scope). The operator sets `ALLOWED_EMAILS` to `abogoyavlensky@gmail.com` in the repository's Settings, Secrets and variables, Actions, Variables. The PR is opened and the merge waits for that, so the first M3 deploy is already restricted.
 
