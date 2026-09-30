@@ -22,9 +22,21 @@ if (!BASE || !EMAIL || !PASSWORD) {
   console.error('smoke: QM_URL, QM_EMAIL and QM_PASSWORD are required');
   process.exit(2);
 }
+// The verdict needs the last 4 samples, one a second.
+if (!(SECS >= 5)) {
+  console.error('smoke: QM_SECS must be a number, at least 5');
+  process.exit(2);
+}
 
 const log = (...a) => console.log(new Date().toISOString().slice(11, 23), ...a);
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+// A page call that gives up after `ms`: a stuck stats call or a blackholed
+// server must not stall the run past QM_SECS.
+const within = (ms, promise) => Promise.race([
+  promise,
+  sleep(ms).then(() => { throw new Error(`no answer within ${ms} ms`); }),
+]);
 
 // The same synthetic camera and microphone as the browser suite.
 const browser = await chromium.launch({
@@ -42,16 +54,19 @@ async function person(name) {
 
 // Join from the lobby. The staging box drops some new TCP connections, and a
 // dropped signalling connection fails the join, so try a few times.
+// A join still in progress keeps the button disabled, so each attempt waits
+// for it to be clickable again, and a join that lands late counts.
 async function join(page, name) {
   if (name) await page.fill('#identity', name);
   for (let attempt = 1; ; attempt++) {
-    await page.click('#join');
     try {
+      if (await page.evaluate(() => window.call.joined === true)) return;
+      await page.click('#join', { timeout: 30_000 });
       await page.waitForFunction(() => window.call.joined === true, null, { timeout: 20_000 });
       return;
     } catch (e) {
-      const notice = await page.locator('#notice').textContent().catch(() => '');
-      log(`[${name || 'host'}] join attempt ${attempt} failed: ${notice}`);
+      const error = await page.locator('#error').textContent().catch(() => '');
+      log(`[${name || 'host'}] join attempt ${attempt} failed: ${error || e.message.split('\n')[0]}`);
       if (attempt >= 4) throw e;
     }
   }
@@ -59,7 +74,7 @@ async function join(page, name) {
 
 // What one page shows: joined, who is on the other side, the banner and the
 // notice, and the inbound media counters.
-const stateOf = page => page.evaluate(async () => {
+const stateOf = page => within(5_000, page.evaluate(async () => {
   const s = await window.call.stats().catch(() => null);
   return {
     joined: window.call.joined,
@@ -69,7 +84,7 @@ const stateOf = page => page.evaluate(async () => {
     frames: s?.video?.framesDecoded ?? null,
     packets: s?.audio?.packetsReceived ?? null,
   };
-}).catch(e => ({ error: e.message.split('\n')[0] }));
+})).catch(e => ({ error: e.message.split('\n')[0] }));
 
 const httpStatus = () => fetch(BASE + '/', { signal: AbortSignal.timeout(900) })
   .then(r => r.status).catch(() => 'down');
@@ -87,10 +102,17 @@ try {
   await host.fill('#email', EMAIL);
   await host.fill('#password', PASSWORD);
   await host.click('#submit');
-  await host.waitForURL(BASE + '/', { timeout: 15_000 });
+  await host.waitForURL(BASE + '/', { timeout: 15_000 }).catch(async e => {
+    const error = await host.locator('#error').textContent().catch(() => '');
+    throw new Error(error ? `could not ${SIGNUP ? 'sign up' : 'sign in'}: ${error}` : e.message);
+  });
   log(SIGNUP ? 'signed up' : 'signed in');
 
+  // Remember the room as soon as it exists, so a failure after this still
+  // deletes it.
+  const created = host.waitForResponse(r => r.url().endsWith('/api/rooms') && r.request().method() === 'POST');
   await host.getByRole('button', { name: 'New meeting' }).click();
+  roomId = (await (await created).json().catch(() => ({}))).id;
   await host.waitForURL(/\/room\/[0-9a-f]{12}$/);
   await host.waitForLoadState();
   const roomUrl = host.url();
@@ -109,6 +131,7 @@ try {
   let last = null;
   let stalledSince = null;
   let longestStall = 0;
+  let flowing = false;
   const started = Date.now();
   while (Date.now() - started < SECS * 1000) {
     const sample = { http: await httpStatus(), host: await stateOf(host), guest: await stateOf(guest) };
@@ -121,10 +144,15 @@ try {
     if (shape !== last) { log(shape); last = shape; }
 
     const prev = history[history.length - 2];
+    const advanced = (a, b) => a != null && b != null && a > b;
     const moving = prev && ['host', 'guest'].every(p =>
-      sample[p].frames > prev[p].frames && sample[p].packets > prev[p].packets);
-    if (prev && !moving) {
-      stalledSince ??= Date.now();
+      advanced(sample[p].frames, prev[p].frames) && advanced(sample[p].packets, prev[p].packets));
+    // Stalls count from the first time media is seen moving; the seconds
+    // before the first frames are the join, not an outage.
+    if (moving) flowing = true;
+    if (flowing && prev && !moving) {
+      // From the last sample that still showed progress.
+      stalledSince ??= Date.now() - 1000;
     } else if (stalledSince) {
       longestStall = Math.max(longestStall, Date.now() - stalledSince);
       log(`media moving again after ${((Date.now() - stalledSince) / 1000).toFixed(1)} s`);
@@ -138,6 +166,7 @@ try {
   const tail = history.slice(-4);
   ok = tail.length === 4 && ['host', 'guest'].every(p =>
     tail[3][p].joined === true &&
+    tail.every(s => s[p].frames != null && s[p].packets != null) &&
     tail.every((s, i) => i === 0 || (s[p].frames > tail[i - 1][p].frames &&
                                      s[p].packets > tail[i - 1][p].packets)));
   log(`longest stretch without media: ${(longestStall / 1000).toFixed(1)} s`);
@@ -145,9 +174,10 @@ try {
   log('smoke failed:', e.message.split('\n')[0]);
 } finally {
   if (host && roomId) {
-    const status = await host.evaluate(id => fetch('/api/rooms/' + id, { method: 'DELETE' }).then(r => r.status), roomId)
-      .catch(e => e.message.split('\n')[0]);
-    log('deleted room', roomId, status);
+    const status = await within(15_000, host.evaluate(
+      id => fetch('/api/rooms/' + id, { method: 'DELETE', signal: AbortSignal.timeout(10_000) }).then(r => r.status),
+      roomId)).catch(e => e.message.split('\n')[0]);
+    log(status === 200 ? `deleted room ${roomId}` : `could not delete room ${roomId}: ${status}`);
   }
   await browser.close();
 }
