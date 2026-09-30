@@ -1,7 +1,7 @@
 (ns quickmeet.system
   (:require [integrant.core :as ig]
             [livekit.integrant]
-            [quickmeet.db]
+            [quickmeet.db :as db]
             [quickmeet.routes]
             [quickmeet.server]
             [string :as str]))
@@ -146,3 +146,22 @@
   ([config] (ig/init config)))
 
 (defn stop! [system] (ig/halt! system))
+
+;; What SIGTERM does (main.lg). The SFU is deliberately left running until
+;; the process exits: halting it gracefully waits for every participant to
+;; leave, which never happens during a call, and halting it with force
+;; tells every participant to leave, which ends the call. Left alone, it
+;; dies with the process, the browsers see a dropped connection and
+;; reconnect to the next process by themselves (docs/KNOWLEDGE.md,
+;; "Restarts and shutdown"). Signalling is on the SFU's own port, so
+;; stopping the app's server does not touch a call.
+(defn shutdown!
+  "Stop serving and close the database, leaving the SFU up until the
+   process exits. Open calls are closed first, at the time of the stop."
+  [system]
+  ;; http/stop drains in-flight requests for up to 5 s.
+  (ig/halt! system [:quickmeet.server/http])
+  (db/close-open-calls! (:quickmeet.db/conn system))
+  ;; Halting the db also halts its dependents: the handler (nothing to do)
+  ;; and the server again, which http/stop allows.
+  (ig/halt! system [:quickmeet.db/conn]))

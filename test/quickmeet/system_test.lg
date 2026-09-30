@@ -4,7 +4,10 @@
             [http :as http]
             [json :as json]
             [livekit.core :as lk]
+            [integrant.core :as ig]
+            [quickmeet.db :as db]
             [quickmeet.sfu :as sfu]
+            [sqlite.core :as sqlite]
             [quickmeet.system :as system]
             [string :as str]))
 
@@ -282,3 +285,34 @@
                                 [:quickmeet.server/http :addr])))
   ;; Any other address would leave the SFU's webhooks nowhere to go.
   (is (thrown? Exception (config-from {"HOST" "10.0.0.5"}))))
+
+(deftest shutdown-stops-serving-closes-history-and-keeps-the-sfu
+  ;; Not through with-system: this test owns the teardown, since shutdown!
+  ;; leaves the SFU for the process exit to take down.
+  (let [path (str "/tmp/quickmeet-system-" (rand-int 100000000) ".db")
+        system (system/start! (-> (system/config)
+                                  (assoc-in [:quickmeet.db/conn :path] path)
+                                  (assoc-in [:quickmeet.server/http :addr] "127.0.0.1:0")
+                                  (assoc-in [:livekit/server :config :port] lk-port)
+                                  (assoc-in [:livekit/server :config :rtc :tcp_port] 7891)
+                                  (assoc-in [:quickmeet.routes/handler :livekit :port] lk-port)))
+        base (str "http://" (:addr (:quickmeet.server/http system)))
+        livekit (get-in (system/config) [:quickmeet.routes/handler :livekit])
+        livekit (assoc livekit :port lk-port)
+        conn (:quickmeet.db/conn system)]
+    (try
+      (db/create-user! conn "u-1" "one@example.com" "x" "One")
+      (db/create-room! conn "0123456789ab" "u-1")
+      (db/create-call! conn "c-1" "0123456789ab" "RM_1")
+      (is (= 200 (:status (http/get (str base "/")))))
+      (system/shutdown! system)
+      (is (= :refused (try (http/get (str base "/")) (catch Exception _ :refused)))
+          "the app no longer serves")
+      (is (map? (sfu/active-rooms livekit)) "the SFU is still up")
+      (let [c (sqlite/open path)]
+        (try
+          (is (some? (:ended_at (sqlite/execute-one! c ["select ended_at from calls where id = ?" "c-1"]))))
+          (finally (sqlite/close! c))))
+      (finally
+        (ig/halt! system [:livekit/server])
+        (os/sh "rm" "-f" path (str path "-wal") (str path "-shm"))))))
