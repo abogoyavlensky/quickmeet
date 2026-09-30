@@ -1,0 +1,61 @@
+(ns quickmeet.history
+  (:require [quickmeet.db :as db]
+            [quickmeet.id :as id]))
+
+;; Call history from the SFU's webhooks. The embedded LiveKit posts every
+;; event to the app (system.lg wires the URL); routes.lg verifies the
+;; signature and hands the parsed body here. What is read from an event:
+;;
+;;   event                 participant_joined | participant_left | room_finished
+;;   room.name             the app's room id
+;;   participant.sid       unique per participant session ("PA_..")
+;;   participant.identity  "user:<id>" for an account, "guest:<hex>" otherwise
+;;   participant.name      the display or typed name
+;;   participant.joinedAt  unix seconds, a string (protojson renders int64 so)
+;;   createdAt             unix seconds, a string: when the event happened
+;;
+;; A call is one stretch of a room being occupied: the room's open call is
+;; the one without ended_at. LiveKit delivers a room's events in order,
+;; and every write below is idempotent, so a redelivery changes nothing.
+;; room_finished (sent once the room has been empty for its timeout) also
+;; stands in for a participant_left that never arrived. Leaving and
+;; finishing key on the participant and the call, not the room row, so
+;; they land even if the room was deleted mid-call.
+
+(defn- user-id-of [identity]
+  (second (re-matches #"user:(.+)" (str identity))))
+
+(defn- joined! [conn {:keys [room participant joinedAt]}]
+  (let [room-id (:name room)
+        sid (:sid participant)]
+    (when (and (db/get-room conn room-id)
+               (not (db/call-participant conn sid)))
+      (let [call (or (db/open-call conn room-id)
+                     (db/create-call! conn (id/random-hex) room-id))]
+        (db/add-call-participant! conn sid (:id call)
+                                  (user-id-of (:identity participant))
+                                  (str (:name participant))
+                                  (:joinedAt participant))))))
+
+(defn- left! [conn {:keys [participant createdAt]}]
+  (db/set-left-at! conn (:sid participant) createdAt))
+
+(defn- finished! [conn {:keys [room createdAt]}]
+  (when-let [call (db/open-call conn (:name room))]
+    (db/close-call! conn (:id call) createdAt)))
+
+(defn record!
+  "Apply one verified webhook event (the parsed JSON, keyword keys) to the
+   history tables. Other event types are ignored. Returns nil."
+  [conn event]
+  (case (:event event)
+    "participant_joined" (joined! conn event)
+    "participant_left" (left! conn event)
+    "room_finished" (finished! conn event)
+    nil)
+  nil)
+
+(defn calls-of-user
+  "A signed-in user's history, newest first."
+  [conn user-id]
+  (db/calls-of-user conn user-id))
