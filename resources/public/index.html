@@ -113,10 +113,22 @@
       return li;
     }
 
+    // Rows are rebuilt only when the set of rooms changed; a refresh of
+    // the same rooms updates them in place, so a focused link or button
+    // (keyboard navigation) survives the five-second poll.
     async function loadRooms() {
       try {
         const rooms = await api('/api/rooms');
-        $('rooms').replaceChildren(...rooms.map(roomRow));
+        const rows = [...$('rooms').children];
+        const same = rows.length === rooms.length && rows.every((li, i) => li.dataset.id === rooms[i].id);
+        if (same) {
+          rooms.forEach((room, i) => {
+            rows[i].querySelector('.room-name').textContent = room.name || 'Room ' + room.id;
+            rows[i].querySelector('.presence').textContent = presenceOf(room.present);
+          });
+        } else {
+          $('rooms').replaceChildren(...rooms.map(roomRow));
+        }
         $('no-rooms').hidden = rooms.length > 0;
       } catch (e) { showError(e); }
     }
