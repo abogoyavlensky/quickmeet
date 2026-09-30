@@ -79,14 +79,12 @@ test.describe('my rooms', () => {
     await expect(page.locator('#lobby')).toBeVisible();
 
     // The webhooks are asynchronous and the page fetches once on load, so
-    // poll by reloading.
+    // poll by reloading until the call is there and finished (the leaves
+    // may land after the join did).
     await page.goto('/history');
     await expect.poll(async () => {
       await page.reload();
-      return page.locator('#calls tbody tr').count();
-    }, { timeout: 15_000 }).toBe(1);
-    const cells = page.locator('#calls tbody tr td');
-    await expect(cells.nth(0)).toHaveText('host');
-    await expect(cells.nth(2)).toHaveText(/^\d+:\d\d$/);
+      return page.locator('#calls tbody tr td').allTextContents();
+    }, { timeout: 15_000 }).toEqual(['host', expect.any(String), expect.stringMatching(/^\d+:\d\d$/)]);
   });
 });
