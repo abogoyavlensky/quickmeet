@@ -1,7 +1,9 @@
 (ns quickmeet.routes-test
   (:require [clojure.test :refer [deftest is]]
             [integrant.core :as ig]
+            [hash :as hash]
             [json :as json]
+            [livekit.core :as lk]
             [quickmeet.db]
             [quickmeet.routes :as routes]
             [sqlite.core :as sqlite]
@@ -17,8 +19,21 @@
 
 (def ^:private anyone {:allowed-emails nil})
 
+(defn- verify [header body]
+  (lk/verify-webhook header body (:api-key livekit) (:api-secret livekit)))
+
 (def ^:private nobody-anywhere
-  {:participants (constantly []) :active-rooms (constantly {})})
+  {:participants (constantly []) :active-rooms (constantly {}) :verify verify})
+
+;; A webhook as the SFU signs it: a JWT from the app's key whose sha256
+;; claim is the base64 SHA-256 of the raw body. hash/sha256 gives hex, and
+;; a let-go string holds raw bytes, so the claim is a decode and an encode.
+(defn- signed-webhook
+  ([body] (signed-webhook body (:api-secret livekit)))
+  ([body secret]
+   {:headers {"authorization" (lk/token (:api-key livekit) secret
+                                        {:sha256 (io/encode :base64 (io/decode :hex (hash/sha256 body)))})
+              "content-type" "application/json"}}))
 
 ;; `lookups` is the handler's map of SFU questions, or just the
 ;; :participants function for the tests that only care about one room.
@@ -398,3 +413,34 @@
         (is (= [] (:json (call handler :get "/api/rooms" nil (as (:cookie alice))))))
         (is (= [] (:json (call handler :get "/api/rooms" nil (as (:cookie bob))))))
         (is (= 404 (:status (call handler :delete (str "/api/rooms/" id) nil (as (:cookie alice))))))))))
+
+(deftest webhooks-are-verified-and-recorded
+  (with-handler
+    (fn [handler _]
+      (let [alice (signup handler "alice@example.com")
+            id (:id (:json (call handler :post "/api/rooms" nil (as (:cookie alice)))))
+            user-id (:identity (:json (call handler :post (str "/api/rooms/" id "/token") "{}" (as (:cookie alice)))))
+            event (fn [m] (json/write-json (merge {:room {:name id :sid "RM_1"} :createdAt "1000"} m)))
+            joined (event {:event "participant_joined"
+                           :participant {:sid "PA_1" :identity user-id :name "Alice" :joinedAt "1000"}})
+            guest (event {:event "participant_joined"
+                          :participant {:sid "PA_2" :identity "guest:ab12" :name "bob" :joinedAt "1010"}})
+            left (event {:event "participant_left" :createdAt "1100"
+                         :participant {:sid "PA_2" :identity "guest:ab12" :name "bob"}})
+            post (fn [body extra] (call handler :post "/api/webhooks/livekit" body extra))]
+        (is (= 401 (:status (call handler :get "/api/calls"))))
+        ;; Unsigned, or signed with another secret: refused, nothing kept.
+        (is (= 401 (:status (post joined nil))))
+        (is (= 401 (:status (post joined (signed-webhook joined "another-secret-another-secret-another!")))))
+        ;; The header must match this body, not some other.
+        (is (= 401 (:status (post joined (signed-webhook guest)))))
+        (is (= [] (:json (call handler :get "/api/calls" nil (as (:cookie alice))))))
+        ;; Genuine: recorded, and the call shows up in Alice's history.
+        (is (= 200 (:status (post joined (signed-webhook joined)))))
+        (is (= 200 (:status (post guest (signed-webhook guest)))))
+        (is (= 200 (:status (post left (signed-webhook left)))))
+        (let [[call :as calls] (:json (call handler :get "/api/calls" nil (as (:cookie alice))))]
+          (is (= 1 (count calls)))
+          (is (= id (:room_id call)))
+          (is (= "bob" (:with call)))
+          (is (nil? (:ended_at call))))))))

@@ -64,3 +64,10 @@
    it to see a room from the SFU's side; the app never needs to."
   [livekit room-id]
   (room-service livekit "CreateRoom" {:room-create true} {:name room-id}))
+
+(defn delete-room!
+  "Ask the SFU to close `room-id` now. Tests use it to make the SFU send
+   room_finished; the app never needs to."
+  [livekit room-id]
+  ;; DeleteRoom wants the roomCreate grant, like CreateRoom.
+  (room-service livekit "DeleteRoom" {:room-create true} {:room room-id}))
