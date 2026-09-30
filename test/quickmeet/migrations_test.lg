@@ -33,13 +33,14 @@
     (fn [conn]
       (is (= [] (applied conn)))
       (migrations/migrate! conn)
-      (is (= ["001-create-rooms" "002-create-users"] (applied conn)))
-      (is (= ["ragtime_migrations" "rooms" "sessions" "users"] (tables conn)))
-      (is (= ["id" "created_at" "owner_id"] (columns conn "rooms")))
+      (is (= ["001-create-rooms" "002-create-users" "003-rooms-members-calls"] (applied conn)))
+      (is (= ["call_participants" "calls" "ragtime_migrations" "room_members" "rooms" "sessions" "users"]
+             (tables conn)))
+      (is (= ["id" "created_at" "owner_id" "name"] (columns conn "rooms")))
       (migrations/migrate! conn)
-      (is (= ["001-create-rooms" "002-create-users"] (applied conn)))
-      ;; One step back: the accounts go, the rooms stay, without their owner.
-      (migrations/rollback! conn)
+      (is (= 3 (count (applied conn))))
+      ;; Two steps back: the accounts go, the rooms stay, without their owner.
+      (migrations/rollback! conn 2)
       (is (= ["001-create-rooms"] (applied conn)))
       (is (= ["ragtime_migrations" "rooms"] (tables conn)))
       (is (= ["id" "created_at"] (columns conn "rooms")))
@@ -56,7 +57,8 @@
       (rt/migrate {:datastore (migrations/store conn)
                    :migrations [(first migrations/migrations)]})
       (sqlite/execute! conn ["insert into rooms (id) values ('aaaaaaaaaaaa'), ('bbbbbbbbbbbb')"])
-      (migrations/migrate! conn)
+      (rt/migrate {:datastore (migrations/store conn)
+                   :migrations (vec (take 2 migrations/migrations))})
       (is (= ["id" "created_at" "owner_id"] (columns conn "rooms")))
       (is (= [{:id "aaaaaaaaaaaa" :owner_id nil} {:id "bbbbbbbbbbbb" :owner_id nil}]
              (sqlite/query conn ["select id, owner_id from rooms order by id"])))
@@ -64,3 +66,35 @@
       (is (= ["id" "created_at"] (columns conn "rooms")))
       (is (= [{:id "aaaaaaaaaaaa"} {:id "bbbbbbbbbbbb"}]
              (sqlite/query conn ["select id from rooms order by id"]))))))
+
+(deftest migration-003-both-ways
+  ;; A database from M3 holds a user and their room. Migration 003 names
+  ;; rooms, records members (backfilling every owner as one) and adds the
+  ;; history tables; rolling it back drops all of that and keeps the rooms.
+  (with-conn
+    (fn [conn]
+      (rt/migrate {:datastore (migrations/store conn)
+                   :migrations (vec (take 2 migrations/migrations))})
+      (sqlite/execute! conn ["insert into users (id, email, password_hash, display_name)
+                              values ('u1', 'a@b.c', 'x', 'a')"])
+      (sqlite/execute! conn ["insert into rooms (id, owner_id) values ('aaaaaaaaaaaa', 'u1'), ('bbbbbbbbbbbb', null)"])
+      (migrations/migrate! conn)
+      (is (= ["001-create-rooms" "002-create-users" "003-rooms-members-calls"] (applied conn)))
+      (is (= ["call_participants" "calls" "ragtime_migrations" "room_members" "rooms" "sessions" "users"]
+             (tables conn)))
+      (is (= ["id" "created_at" "owner_id" "name"] (columns conn "rooms")))
+      ;; The owner is a member; the ownerless room has none.
+      (is (= [{:room_id "aaaaaaaaaaaa" :user_id "u1"}]
+             (sqlite/query conn ["select room_id, user_id from room_members"])))
+      (sqlite/execute! conn ["update rooms set name = 'Mom' where id = 'aaaaaaaaaaaa'"])
+      (sqlite/execute! conn ["insert into calls (id, room_id) values ('c1', 'aaaaaaaaaaaa')"])
+      (sqlite/execute! conn ["insert into call_participants (sid, call_id, user_id, name, joined_at)
+                              values ('PA_1', 'c1', 'u1', 'a', '2026-09-30 10:00:00')"])
+      (migrations/rollback! conn)
+      (is (= ["001-create-rooms" "002-create-users"] (applied conn)))
+      (is (= ["ragtime_migrations" "rooms" "sessions" "users"] (tables conn)))
+      (is (= ["id" "created_at" "owner_id"] (columns conn "rooms")))
+      (is (= [{:id "aaaaaaaaaaaa" :owner_id "u1"} {:id "bbbbbbbbbbbb" :owner_id nil}]
+             (sqlite/query conn ["select id, owner_id from rooms order by id"])))
+      (migrations/migrate! conn)
+      (is (= 3 (count (applied conn)))))))
