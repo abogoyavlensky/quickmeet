@@ -99,9 +99,10 @@ secrets `SSH_PRIVATE_KEY` (a key the server accepts for root),
 random characters, e.g. `openssl rand -hex 32`). DNS for `APP_DOMAIN`
 points at the server.
 
-Starting a meeting takes an account. Until `ALLOWED_EMAILS` is set,
-anyone who finds staging can sign up; with it, only those addresses can.
-Rooms are permanent and hold two people; there is no rate limit yet.
+Starting a meeting takes an account. Staging's `ALLOWED_EMAILS` holds
+the operator's address, so nobody else can sign up or sign in there;
+unset, sign-up would be open. Rooms are permanent and hold two people;
+there is no rate limit yet.
 
 ## Configuration
 
@@ -169,10 +170,13 @@ GET  /signup, /signin, /settings the account pages
 ```
 
 Sessions are opaque ids in sqlite, sent as an `HttpOnly` `SameSite=Lax`
-cookie (`Secure` behind TLS), valid for 30 days. Passwords are bcrypt
+cookie (`Secure` behind TLS), valid for a year. Passwords are bcrypt
 hashes (8 to 72 bytes); emails are stored lower-cased and are not
 verified, so with an allowlist, whoever registers an address first owns
-it. There is no password reset: the operator deletes the row.
+it. There is no password reset: the operator deletes the row. The
+account endpoints accept only `Content-Type: application/json` (415
+otherwise), which keeps a cross-site form from signing a visitor in as
+someone else.
 
 `participants` is who the SFU has in the room right now (the lobby polls
 it); the token endpoint answers 409 once two people are in. Rooms never

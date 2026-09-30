@@ -155,6 +155,23 @@ Verified 2026-09-29, for the two-person rule:
   (about 60 ms at cost 10), which tells an attacker the account does not
   exist. Accepted for v1, listed under M6.
 
+Learned in the review before shipping, 2026-09-30:
+
+- Login CSRF: an html form with `enctype="text/plain"` can post a body
+  that parses as JSON, and `SameSite=Lax` does not stop it because the
+  attack needs no existing cookie; the sign-in response would set the
+  attacker's session in the victim's browser. Requiring
+  `Content-Type: application/json` closes it: a form cannot send that
+  type, and a cross-site `fetch` with it needs a CORS preflight the
+  server never answers. let-go lowercases the header name.
+- A lookup-then-insert on a unique column races under concurrent
+  requests (every handler runs on its own goroutine): catch the
+  `UNIQUE constraint failed` error at the insert and re-check, rather
+  than trust the lookup. `system_test.lg` has the pattern with futures.
+- Browsers cap a cookie's lifetime (Chrome: 400 days), so "indefinite"
+  sessions are not available; one number in `auth.lg` sets both the
+  cookie's `Max-Age` and the SQL window, and a test pins the two.
+
 ## What the milestone 0 spike proved, 2026-09-27
 
 Two browser participants in one tab, publishing canvas video and

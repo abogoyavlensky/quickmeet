@@ -103,7 +103,8 @@ history.
 
 - Done 2026-09-29: email plus password. Sessions are opaque random ids
   in sqlite, sent as an `HttpOnly` `SameSite=Lax` cookie (`Secure`
-  behind TLS), valid 30 days; nothing is signed. Hashing is
+  behind TLS), valid a year (browsers cap a cookie's lifetime, so
+  "indefinite" is not available); nothing is signed. Hashing is
   `golang.org/x/crypto/bcrypt` as a `:go/interop` coord, no shim
   (`src/quickmeet/password.lg`).
 - Done 2026-09-29: sign up, sign in, sign out, and a settings page with
@@ -113,9 +114,11 @@ history.
   its owner for M4.
 - Done 2026-09-29: `ALLOWED_EMAILS`, checked on sign-up, sign-in and on
   every request of a live session, so a removed address is out at its
-  next request. Staging reads it from a repository variable; until it is
-  set, sign-up there is open.
-- Decided 2026-09-29: passwords, not magic links. A magic link needs
+  next request. Staging reads it from a repository variable, set to the
+  operator's address when M3 shipped.
+- Decided 2026-09-30, on a draft written 2026-09-29 without approval
+  and approved after review (`docs/plans/2026-09-30-0909-m3-accounts-adopt-and-ship.md`):
+  passwords, not magic links. A magic link needs
   SMTP, a second service the "one binary" rule exists to avoid; bcrypt
   is one line. The allowlist race stands and is documented: with no
   proof of address, whoever registers an allowed address first owns it.
@@ -123,6 +126,9 @@ history.
   person to sign up. No password reset either (same reason); the
   operator deletes the row. If either bites, a verification email is an
   addition, not a change to the data model.
+- Reviewed 2026-09-30 before shipping: two fixes. A lost race for one
+  address on sign-up is 409, not an error; the account endpoints take
+  JSON only, which closes login CSRF from a cross-site form.
 
 ### M4: contacts and history
 
@@ -154,7 +160,7 @@ other boxes, release builds and tagging, macOS.
 
 ### M6: hardening
 
-- Rate limits on room and account creation.
+- Rate limits on room and account creation, and on sign-in.
 - Sign-in timing: an unknown address skips bcrypt, so response time says
   whether an account exists. A dummy comparison closes it.
 - Room ids that are not enumerable and a check that a room link cannot be
@@ -175,7 +181,7 @@ other boxes, release builds and tagging, macOS.
 
 ## Open questions
 
-- Resolved 2026-09-29: passwords for M3, the allowlist without proof of
+- Resolved 2026-09-30: passwords for M3, the allowlist without proof of
   address (see M3).
 - Resolved 2026-09-28: who may start a call. Signed-in users only;
   anyone with a link may join. The M2 and M6 limits (two-person cap,
