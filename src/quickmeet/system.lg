@@ -12,8 +12,12 @@
 ;; requests before the SFU and the database go away.
 ;;
 ;; Everything a deployment changes is an environment variable with a
-;; development default. The defaults bind everything to loopback with a
-;; well-known dev key, which is fine on a laptop and wrong on a server.
+;; development default. The defaults bind the SFU to loopback with a
+;; well-known dev key, which is fine on a laptop and wrong on a server; so
+;; the one dangerous combination, that key on an SFU other machines can
+;; reach, refuses to start (`check-secret!`). HOST binds the app's own
+;; port; empty is every interface (a container behind a proxy needs that),
+;; and a single box with its proxy on it sets 127.0.0.1.
 ;; `config` takes the lookup function so tests can pass a map instead of
 ;; touching the process environment.
 ;;
@@ -51,6 +55,25 @@
 (def dev-api-key "devkey")
 (def dev-api-secret "quickmeet-dev-secret-change-me-in-production!")
 
+(defn- exposed?
+  "Whether the SFU is set up for other machines to reach: bound off
+   loopback, advertising a public address, or given a public URL."
+  [lookup]
+  (or (not (contains? #{"127.0.0.1" "localhost"} (env lookup "LIVEKIT_BIND" "127.0.0.1")))
+      (env-bool lookup "LIVEKIT_USE_EXTERNAL_IP" false)
+      (some? (env lookup "LIVEKIT_PUBLIC_URL" nil))))
+
+(defn- check-secret!
+  "Refuse the development secret on an exposed SFU: with a secret everyone
+   knows, anyone can mint join tokens and admin tokens for it."
+  [lookup api-secret]
+  (when (and (= api-secret dev-api-secret) (exposed? lookup))
+    (throw (ex-info (str "LIVEKIT_API_SECRET is the development secret, but the SFU is "
+                         "reachable from other machines (LIVEKIT_BIND, LIVEKIT_USE_EXTERNAL_IP "
+                         "or LIVEKIT_PUBLIC_URL). Set LIVEKIT_API_SECRET to 32 or more random "
+                         "characters, for example: openssl rand -hex 32")
+                    {:variable "LIVEKIT_API_SECRET"}))))
+
 (defn- rtc-config [lookup]
   (let [udp-port (env lookup "LIVEKIT_UDP_PORT" nil)]
     (merge {:tcp_port (env-int lookup "LIVEKIT_RTC_TCP_PORT" 7881)
@@ -69,6 +92,7 @@
          api-secret (env lookup "LIVEKIT_API_SECRET" dev-api-secret)
          lk-port (env-int lookup "LIVEKIT_PORT" 7880)
          port (env lookup "PORT" "8080")]
+     (check-secret! lookup api-secret)
      {:quickmeet.db/conn {:path (env lookup "DB_PATH" "quickmeet.db")}
 
       :livekit/server
@@ -100,7 +124,7 @@
 
       ;; The server refs the SFU so it never accepts a join before the SFU
       ;; can take the participant.
-      :quickmeet.server/http {:addr (str ":" port)
+      :quickmeet.server/http {:addr (str (env lookup "HOST" "") ":" port)
                               :handler (ig/ref :quickmeet.routes/handler)
                               :livekit (ig/ref :livekit/server)}})))
 

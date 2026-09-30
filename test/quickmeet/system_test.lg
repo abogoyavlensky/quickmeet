@@ -99,8 +99,16 @@
         (is (nil? (sfu/participants (assoc livekit :port 1) "0123456789ab")))
         (is (nil? (sfu/active-rooms (assoc livekit :port 1))))))))
 
+(def ^:private real-secret "a-real-secret-a-real-secret-a-real-secret")
+
 (defn- config-from [m]
   (system/config (fn [name] (get m name))))
+
+(defn- refused?
+  "Whether config refuses `m`, naming the variable to set."
+  [m]
+  (try (config-from m) false
+       (catch Exception e (str/includes? (str (ex-message e)) "LIVEKIT_API_SECRET"))))
 
 (deftest config-from-the-environment
   ;; Nothing set: the media port range, and the URL derived per request.
@@ -128,7 +136,8 @@
   ;; A container: one multiplexed UDP port, reachable from the proxy.
   (let [c (config-from {"LIVEKIT_UDP_PORT" "7882"
                         "LIVEKIT_PUBLIC_URL" "wss://quickmeet.absky.dev"
-                        "LIVEKIT_BIND" "0.0.0.0"})
+                        "LIVEKIT_BIND" "0.0.0.0"
+                        "LIVEKIT_API_SECRET" real-secret})
         rtc (get-in c [:livekit/server :config :rtc])]
     (is (= 7882 (:udp_port rtc)))
     (is (not (contains? rtc :port_range_start)))
@@ -247,3 +256,25 @@
                   (mapv (fn [_] (:status (post-json (str base "/api/auth/signin")
                                                     {:email "nobody@example.com" :password "wrong password"})))
                         (range 12)))))))
+
+(deftest the-development-secret-is-refused-once-exposed
+  ;; A laptop: nothing set, or loopback spelled either way.
+  (is (not (refused? {})))
+  (is (not (refused? {"LIVEKIT_BIND" "localhost"})))
+  (is (not (refused? {"LIVEKIT_BIND" "127.0.0.1"})))
+  ;; Anything that means other machines can reach the SFU, with the
+  ;; well-known secret: refused, whether unset or set to it explicitly.
+  (is (refused? {"LIVEKIT_BIND" "0.0.0.0"}))
+  (is (refused? {"LIVEKIT_USE_EXTERNAL_IP" "true"}))
+  (is (refused? {"LIVEKIT_PUBLIC_URL" "wss://meet.example"}))
+  (is (refused? {"LIVEKIT_BIND" "0.0.0.0" "LIVEKIT_API_SECRET" system/dev-api-secret}))
+  ;; The same with a secret of the operator's own.
+  (doseq [m [{"LIVEKIT_BIND" "0.0.0.0"}
+             {"LIVEKIT_USE_EXTERNAL_IP" "true"}
+             {"LIVEKIT_PUBLIC_URL" "wss://meet.example"}]]
+    (is (map? (config-from (assoc m "LIVEKIT_API_SECRET" real-secret))))))
+
+(deftest host-sets-the-bind-address
+  (is (= "127.0.0.1:9000" (get-in (config-from {"HOST" "127.0.0.1" "PORT" "9000"})
+                                  [:quickmeet.server/http :addr])))
+  (is (= ":9000" (get-in (config-from {"PORT" "9000"}) [:quickmeet.server/http :addr]))))
