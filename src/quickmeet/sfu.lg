@@ -51,9 +51,16 @@
 (defn active-rooms
   "The rooms the SFU has right now, as a map of room id to how many are in
    it: {} when none, nil when it could not be asked. Rooms the SFU does
-   not know are simply absent. protojson leaves a zero count out."
+   not know are simply absent. The twirp API keeps protobuf field names
+   (num_participants), unlike the webhooks, which are camelCase."
   [livekit]
   (let [res (room-service livekit "ListRooms" {:room-list true} {})]
     (when (map? res)
-      (into {} (map (fn [r] [(:name r) (or (:numParticipants r) 0)])
+      (into {} (map (fn [r] [(:name r) (or (:num_participants r) 0)])
                     (:rooms res))))))
+
+(defn create-room!
+  "Ask the SFU to create `room-id` now rather than on first join. Tests use
+   it to see a room from the SFU's side; the app never needs to."
+  [livekit room-id]
+  (room-service livekit "CreateRoom" {:room-create true} {:name room-id}))

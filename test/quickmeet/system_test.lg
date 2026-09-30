@@ -85,6 +85,12 @@
                      :port lk-port}]
         (is (= [] (sfu/participants livekit "0123456789ab")))
         (is (= {} (sfu/active-rooms livekit)))
+        ;; A room the SFU has (created here by the room API) is listed with
+        ;; its count; the field is num_participants, and twirp emits it
+        ;; even at zero.
+        (sfu/create-room! livekit "0123456789ab")
+        (is (= {"0123456789ab" 0} (sfu/active-rooms livekit)))
+        (is (= [] (sfu/participants livekit "0123456789ab")))
         ;; An SFU that is not there: nil for both.
         (is (nil? (sfu/participants (assoc livekit :port 1) "0123456789ab")))
         (is (nil? (sfu/active-rooms (assoc livekit :port 1))))))))
