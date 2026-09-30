@@ -100,7 +100,12 @@
   (let [email (normalize-email email)
         user (db/user-by-email conn email)]
     (cond
-      (not (and user (password/check (:password_hash user) (str password))))
+      ;; An unknown address still pays for one bcrypt comparison, so the
+      ;; time taken does not tell it apart from a wrong password.
+      (nil? user)
+      (do (password/dummy-check password) {:error :invalid})
+
+      (not (password/check (:password_hash user) (str password)))
       {:error :invalid}
 
       (not (allowed? auth email))
