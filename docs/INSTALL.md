@@ -75,10 +75,31 @@ Edit `/etc/quickmeet/env`:
   comma-separated. Left empty, anyone who finds the site can sign up and
   start calls on your bandwidth.
 
-The file explains every other variable, and the README's "Configuration"
-table lists them all. The defaults in the file are right for this setup.
+The file explains every other variable; the defaults in it are right
+for this setup. The full list is the "Configuration" table in the
+[README](https://github.com/abogoyavlensky/quickmeet#configuration).
 
-## 4. Install Caddy
+## 4. Open the firewall
+
+Before Caddy, so its first certificate request can reach the box. With
+`ufw`, for example:
+
+```bash
+ufw allow OpenSSH
+ufw allow 80/tcp
+ufw allow 443/tcp
+ufw allow 7881/tcp
+ufw allow 7882/udp
+ufw enable
+```
+
+Keep SSH open or you lock yourself out. Open nothing else: 8080 and 7880
+already listen on loopback only (`HOST=127.0.0.1`, and the SFU's default
+bind), and a closed firewall is the second layer. That matters for more
+than tidiness: the rate limits trust the client address Caddy forwards,
+and a client that could reach the app directly could claim any address.
+
+## 5. Install Caddy
 
 Install Caddy from your distribution or from
 [caddyserver.com](https://caddyserver.com/docs/install), then:
@@ -91,21 +112,6 @@ systemctl reload caddy
 Caddy gets a certificate for the name on its own. It sends `/rtc*` to the
 SFU's signalling and everything else to the app; the WebSocket upgrade
 needs no extra configuration.
-
-## 5. Open the firewall
-
-With `ufw`, for example:
-
-```bash
-ufw allow 80/tcp
-ufw allow 443/tcp
-ufw allow 7881/tcp
-ufw allow 7882/udp
-```
-
-Open only these. Keeping 8080 closed matters beyond tidiness: the rate
-limits trust the client address Caddy forwards, and a client that could
-reach the app directly could claim any address.
 
 ## 6. Start it
 
@@ -161,20 +167,31 @@ lobby, and the people join again.
 
 Everything quickmeet remembers is in `/var/lib/quickmeet/quickmeet.db`:
 accounts, rooms and call history. Nothing backs it up for you yet
-(`docs/backlog/sqlite-backups.md`). A copy that is safe to take while the
-app runs:
+([backlog entry](https://github.com/abogoyavlensky/quickmeet/blob/master/docs/backlog/sqlite-backups.md)).
+A copy that is safe to take while the app runs, as the `quickmeet` user so
+no file in its directory ends up owned by root (install the `sqlite3`
+package first):
 
 ```bash
-sqlite3 /var/lib/quickmeet/quickmeet.db ".backup /var/backups/quickmeet.db"
+install -d -o quickmeet -m 700 /var/backups/quickmeet
+runuser -u quickmeet -- sqlite3 /var/lib/quickmeet/quickmeet.db ".backup /var/backups/quickmeet/quickmeet.db"
 ```
 
 Put that in a daily cron job and copy the result off the box.
 
 ## What is not there
 
-- **Password reset.** There is no email. To reset someone's password, stop
-  the app and delete their row from the `users` table; they sign up again
-  and keep nothing from the old account.
+- **Password reset.** There is no email. To reset someone's password,
+  delete their sessions and their account, then they sign up again and
+  keep nothing from the old account:
+
+  ```bash
+  systemctl stop quickmeet
+  runuser -u quickmeet -- sqlite3 /var/lib/quickmeet/quickmeet.db \
+    "delete from sessions where user_id = (select id from users where email = 'them@example.com');
+     delete from users where email = 'them@example.com';"
+  systemctl start quickmeet
+  ```
 - **TURN.** A network that blocks both UDP 7882 and TCP 7881 cannot join a
   call. Most networks allow one of the two.
 - **More than one box.** State is one sqlite file and the SFU runs inside
