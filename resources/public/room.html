@@ -412,9 +412,12 @@
 
     // How strong the blur is, in pixels of a frame whose short side is 720
     // (the vendored library scales it to the frame; see
-    // scripts/vendor-blur.patch). Strong enough that a patterned wall becomes
-    // an even wash, which is also what keeps it from shimmering.
-    const BLUR_RADIUS = 80;
+    // scripts/vendor-blur.patch). Soft shapes of the room stay, like a
+    // camera's shallow focus, and nothing in it can be read. Stronger, the
+    // room turns into a flat wash and the person looks cut out: a sharp bit
+    // of background the segmenter took for hair stands out against it. The
+    // patch, not the strength, is what keeps it from shimmering.
+    const BLUR_RADIUS = 60;
     async function switchBlur(track, on) {
       if (!on) return track.stopProcessor();
       const base = location.origin + LivekitTrackProcessors.assetBase;
