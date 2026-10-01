@@ -1,7 +1,12 @@
 // The remote video keeps its own shape: tall or wide, it is shown whole.
 // A tall sender is the fake camera replaced by a canvas (tallCamera).
 import { test, expect } from '@playwright/test';
-import { newRoom, joinAs, tallCamera } from './helpers.js';
+import { newRoom, joinAs, tallCamera, box, inside, overlaps } from './helpers.js';
+
+const desktop = { viewport: { width: 1280, height: 800 } };
+const ratioOf = b => b.width / b.height;
+const tileOf = page => page.locator('.tile:not(.self)');
+const remoteRatio = async page => { const d = await dims(page, 'remote'); return d.w / d.h; };
 
 const dims = (page, id) => page.evaluate(id => {
   const v = document.getElementById(id);
@@ -22,5 +27,43 @@ test.describe('a camera held upright', () => {
     expect(remote.h, JSON.stringify(remote)).toBeGreaterThan(remote.w);
     const local = await dims(bob.page, 'local');
     expect(local.h, JSON.stringify(local)).toBeGreaterThan(local.w);
+  });
+});
+
+test.describe('on a desktop', () => {
+  let contexts;
+  test.beforeEach(() => { contexts = []; });
+  test.afterEach(async () => { await Promise.all(contexts.map(c => c.close())); });
+
+  // The tile has the video's shape (within 2%), fits the window and stops
+  // above the controls.
+  const expectFitted = async page => {
+    const tile = await box(tileOf(page));
+    const want = await remoteRatio(page);
+    expect(Math.abs(ratioOf(tile) / want - 1), `tile ${JSON.stringify(tile)}, video ratio ${want}`).toBeLessThan(0.02);
+    expect(inside(tile, 1280, 800), `tile inside the viewport: ${JSON.stringify(tile)}`).toBe(true);
+    expect(overlaps(tile, await box(page.locator('#leave'))), 'the tile stops above the controls').toBe(false);
+  };
+
+  test('a tall video gets a tall tile, and 16:9 again when the other side leaves', async ({ browser, page }) => {
+    const roomUrl = await newRoom(page);
+    const alice = await joinAs(browser, contexts, roomUrl, 'alice', desktop);
+    const bob = await joinAs(browser, contexts, roomUrl, 'bob', { init: tallCamera });
+    await expect.poll(async () => { const b = await box(tileOf(alice.page)); return b.height > b.width; }).toBe(true);
+    await expectFitted(alice.page);
+
+    await bob.page.click('#leave');
+    await expect(alice.page.locator('#remote-name')).toHaveText('the other side left', { timeout: 10_000 });
+    await expect.poll(async () => ratioOf(await box(tileOf(alice.page)))).toBeCloseTo(16 / 9, 1);
+  });
+
+  test('a wide video gets a wide tile of its own shape', async ({ browser, page }) => {
+    const roomUrl = await newRoom(page);
+    const alice = await joinAs(browser, contexts, roomUrl, 'alice', desktop);
+    await joinAs(browser, contexts, roomUrl, 'bob');
+    await expect.poll(async () => (await dims(alice.page, 'remote')).w).toBeGreaterThan(0);
+    const tile = await box(tileOf(alice.page));
+    expect(tile.width).toBeGreaterThan(tile.height);
+    await expectFitted(alice.page);
   });
 });

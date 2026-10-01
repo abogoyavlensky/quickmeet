@@ -99,6 +99,28 @@
       return { video: await inbound(call.tracks.video, true), audio: await inbound(call.tracks.audio, false) };
     };
 
+    // The remote tile takes the shape of the video it shows: `--ratio`
+    // (width over height, a number so CSS can multiply it) and `wide` or
+    // `tall`. The shape comes from the <video> element, not from LiveKit's
+    // track dimensions: the element reports what is actually shown, after
+    // the sender rotates their phone or the SFU switches layer, and fires
+    // `resize` for both. An empty tile goes back to the default shape.
+    function resetRemote() {
+      const tile = $('remote').parentElement;
+      tile.style.removeProperty('--ratio');
+      tile.classList.remove('wide', 'tall');
+    }
+    function fitRemote() {
+      const { videoWidth: w, videoHeight: h } = $('remote');
+      if (!w || !h) { resetRemote(); return; }
+      const tile = $('remote').parentElement;
+      tile.style.setProperty('--ratio', w / h);
+      tile.classList.toggle('wide', w >= h);
+      tile.classList.toggle('tall', w < h);
+    }
+    $('remote').addEventListener('resize', fitRemote);
+    $('remote').addEventListener('loadedmetadata', fitRemote);
+
     // ---- lobby ----------------------------------------------------------
 
     // tracks: the local tracks acquired for the preview, published on join.
@@ -139,6 +161,7 @@
 
     function startLobby(notice) {
       stopTracks();
+      resetRemote();
       lobby.joining = false;
       showNotice(notice);
       $('error').hidden = true;
@@ -265,6 +288,9 @@
         room.on(RoomEvent.ParticipantConnected, () => setStatus(null));
         room.on(RoomEvent.ParticipantDisconnected, () => {
           $('remote-name').textContent = 'the other side left';
+          // The element can keep the last frame's size after the track
+          // ends, so the reset does not ask it.
+          resetRemote();
           window.call.remote = null;
           window.call.tracks = { video: null, audio: null };
           setStatus('Waiting for the other person.');
