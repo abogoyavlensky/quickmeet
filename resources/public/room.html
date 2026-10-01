@@ -395,12 +395,15 @@
     let blurBusy = null;
 
     // Both buttons show the same state; on is the solid one. With the camera
-    // off there is nothing to blur, so the button waits.
+    // off there is nothing to blur, so the button waits; so it does from the
+    // Join click until the call is up, when the camera is being published
+    // and a switch started then could reach the other side half done.
     function drawBlur() {
       const track = camTrack(), on = blurOn();
+      const publishing = lobby.joining && !window.call.joined;
       for (const button of blurButtons) {
         button.hidden = !track || !blurSupported();
-        button.disabled = !!blurBusy || !!(track && track.isMuted);
+        button.disabled = !!blurBusy || publishing || !!(track && track.isMuted);
         setIcon(button, 'blur', on ? 'Stop blurring' : 'Blur background');
         button.setAttribute('aria-pressed', String(on));
         button.toggleAttribute('data-on', on);
@@ -418,22 +421,27 @@
 
     // Turns blur on or off; resolves to whether it is now as asked. When it
     // cannot start (the wasm did not load, WebGL refused), the camera goes
-    // on unblurred, the choice is forgotten and the person is told.
+    // on unblurred, the choice is forgotten and the person is told. If the
+    // lobby started over meanwhile, the camera this was for is gone: the
+    // client attaches a processor only once it is ready, so stopping the
+    // track did not stop it, and it is taken off here.
     async function setBlur(on) {
       const track = camTrack();
       if (!track || !blurSupported() || blurBusy) return false;
       if (on === blurOn()) return true;
-      blurBusy = switchBlur(track, on).then(() => true, async () => {
+      blurBusy = (async () => {
+        let ok = true;
+        try { await switchBlur(track, on); } catch (e) { ok = false; }
+        if (ok && track === camTrack()) return 'done';
         await track.stopProcessor().catch(() => {});
-        remember(false);
-        blurFailed();
-        return false;
-      });
+        return track === camTrack() ? 'failed' : 'gone';
+      })();
       drawBlur();
-      const ok = await blurBusy;
+      const result = await blurBusy;
       blurBusy = null;
+      if (result === 'failed') { remember(false); blurFailed(); }
       drawBlur();
-      return ok;
+      return result === 'done';
     }
     function blurFailed() {
       if (!window.call.joined) { showNotice(BLUR_FAILED); return; }
@@ -443,7 +451,9 @@
       }, 4000);
     }
 
+    // A switch still running for the previous lobby's camera ends first.
     async function restoreBlur() {
+      while (blurBusy) await blurBusy;
       drawBlur();
       if (remembered()) await setBlur(true);
     }
@@ -497,6 +507,7 @@
       stopPolling();
       $('join').disabled = true;
       $('error').hidden = true;
+      drawBlur();
       try {
         await lobby.ready;
         await blurBusy;
