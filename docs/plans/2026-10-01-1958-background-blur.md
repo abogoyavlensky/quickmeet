@@ -2,6 +2,8 @@
 
 > **For agentic workers:** Use executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+**Status: completed 2026-10-01** (summary at the end)
+
 **Goal:** A person can blur what is behind them with one button, in the lobby and in the call; one fixed look, nothing to configure.
 
 **Tech Stack:** `@livekit/track-processors` 0.8.1 (MediaPipe `tasks-vision` 0.10.14 and its selfie segmenter model), bundled with esbuild and vendored into `resources/public/`; plain DOM and CSS in `room.html`, `app.css`, `ui.js`; one route in `src/quickmeet/routes.lg`; Playwright via `lgx e2e`.
@@ -513,11 +515,48 @@ frame assertions poll for growth and never count on a rate.
 
 ### Task 6: Review and pull request
 
-- [ ] **Step 1:** Run `lgx test && lgx e2e` once more on the final tree.
+- [x] **Step 1:** Run `lgx test && lgx e2e` once more on the final tree.
   Expected: PASS.
-- [ ] **Step 2:** Push the branch and open a pull request against
+- [x] **Step 2:** Push the branch and open a pull request against
   `master`. The description says what was verified (the two suites,
   the screenshots) and what was not: blur on a real iPhone and on a
   real Android phone, to be tried on staging after the merge deploy.
   When it has been tried, update the "not tried" line in
   `docs/KNOWLEDGE.md` with what was seen.
+
+---
+
+## Completion summary
+
+Implemented as designed: a blur toggle on the lobby preview and first in
+the call's controls, one look, remembered per device; LiveKit's
+`@livekit/track-processors` 0.8.1 bundled by `lgx vendor-blur`, with
+MediaPipe's wasm and the model served from the binary under a versioned,
+year-cached path (the binary is 93 MB). Final run: `lgx test` 63 tests,
+0 failures; `lgx e2e` 39 passed; `blur.spec.js --repeat-each 3 --workers 1`
+15 passed; screenshots at 390x844, 667x375 and 1280x800, blur off and on.
+
+Issues met, and the deviations recorded under their tasks:
+
+- `lgx` on `PATH` is 0.2.0; the pinned 0.4.2 binary ran everything.
+- The path is `/static/blur/<tag>/<file>`: ruuter refuses
+  `/static/:tag/:file` beside `/static/:file`.
+- The icon's dots are filled circles; the preview button's glass is dark.
+- Codex found two races in the page (a blur click during joining could
+  publish the raw camera; a switch for a replaced camera leaked its
+  processor and blocked the new lobby's restore); fixed in `6de83e1`.
+- On a blurring page in the headless shell, animation frames are rare:
+  clicks are forced and `waitForFunction` polls on a timer. The long
+  call test is split in two (five tests, not four), and the repeat
+  check runs on one worker, since three blurring pages starve each other.
+- `LocalTrack.stop()` already destroys a processor, so `stopTracks` was
+  left as it was.
+
+Not verified: blur on a real iPhone and a real Android phone; to be
+tried on staging after the merge.
+
+What the plan could have specified better: check the router's rules
+before naming a route (ruuter's param-name conflict), and expect a
+CPU-heavy page to change how the browser tests must wait and how many
+can run at once.
+
