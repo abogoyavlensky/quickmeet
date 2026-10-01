@@ -266,6 +266,19 @@ built binary, run by `lgx e2e` (2026-09-27).
   `min-height: 0`) keeps controls above a phone's address bar;
   `viewport-fit=cover` plus `env(safe-area-inset-bottom)` clears the
   home indicator.
+- Video shape, verified 2026-10-01: a `<video>` element fires `resize`
+  when the first frame arrives and whenever the frame size changes, and
+  `videoWidth`/`videoHeight` give the shape actually shown; the room page
+  sizes the remote tile from them. `container-type: size` on the call
+  area makes `100cqh` its content-box height (padding excluded), so
+  `width: min(100%, calc(100cqh * var(--ratio)))` with
+  `aspect-ratio: var(--ratio)` is the largest tile of that shape that fits.
+  `--ratio` is a plain number so `calc()` can multiply it. LiveKit's
+  `createLocalTracks` asks for 720p, so the headless fake camera arrives
+  16:9, not its native 4:3. A tall sender in tests is a `getUserMedia`
+  wrapper that swaps in a `canvas.captureStream()` track, repainted on a
+  timer (`tallCamera` in `e2e/tests/helpers.js`). Whether a real phone
+  held upright sends tall frames is checked on devices, not here.
 - `(str (random-uuid))` renders as `#uuid "..."`, tag included, not the
   bare hex. Strip everything but hex before using it in an id.
 - let-go has `hash/sha256`, `base64url-encode`, `random-uuid`, JSON, but no

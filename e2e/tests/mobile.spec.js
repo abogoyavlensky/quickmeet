@@ -2,18 +2,10 @@
 // boxes. The fixture page gets these settings from test.use; a participant
 // the helper creates gets them through its context options.
 import { test, expect } from '@playwright/test';
-import { newRoom, joinAs, remoteOf } from './helpers.js';
+import { newRoom, joinAs, remoteOf, box, inside, overlaps } from './helpers.js';
 
 const phone = { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true };
 test.use(phone);
-
-const box = async locator => {
-  const b = await locator.boundingBox();
-  expect(b, `${locator} has a box`).not.toBeNull();
-  return b;
-};
-const inside = (b, w, h) => b.x >= 0 && b.y >= 0 && b.x + b.width <= w + 0.5 && b.y + b.height <= h + 0.5;
-const overlaps = (a, b) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
 
 test.describe('on a phone', () => {
   let contexts;

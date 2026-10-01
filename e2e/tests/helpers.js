@@ -33,10 +33,13 @@ export async function newRoom(page) {
 // browser.newContext: test.use() configures only the fixture page, not the
 // contexts a helper creates, so a phone-sized participant passes its
 // viewport here.
-export async function openLobby(browser, contexts, roomUrl, name, contextOptions = {}) {
+// `init`, if given, is not a Playwright option: it is awaited with the new
+// context before the page opens (for example `tallCamera`).
+export async function openLobby(browser, contexts, roomUrl, name, { init, ...contextOptions } = {}) {
   const context = await browser.newContext(contextOptions);
   contexts.push(context);
   await context.grantPermissions(['camera', 'microphone']);
+  if (init) await init(context);
   const page = await context.newPage();
   page.on('pageerror', e => console.log(`[${name}] pageerror: ${e.message}`));
   // A guest's /api/me answers 401 by design; the browser logs that as a
@@ -49,6 +52,31 @@ export async function openLobby(browser, contexts, roomUrl, name, contextOptions
   return { context, page };
 }
 
+// A camera held upright. The fake device is 640x480; this replaces the
+// video track getUserMedia returns with a 360x640 canvas, repainted on a
+// timer (a canvas that is never repainted sends no frames). The page under
+// test is unchanged: createLocalTracks gets the stream the normal way.
+export async function tallCamera(context) {
+  await context.addInitScript(() => {
+    const real = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+    navigator.mediaDevices.getUserMedia = async constraints => {
+      const stream = await real(constraints);
+      if (!constraints || !constraints.video) return stream;
+      const canvas = Object.assign(document.createElement('canvas'), { width: 360, height: 640 });
+      const g = canvas.getContext('2d');
+      let n = 0;
+      setInterval(() => {
+        g.fillStyle = `hsl(${(n++ * 7) % 360} 60% 50%)`;
+        g.fillRect(0, 0, 360, 640);
+      }, 66);
+      const [tall] = canvas.captureStream(15).getVideoTracks();
+      for (const t of stream.getVideoTracks()) { stream.removeTrack(t); t.stop(); }
+      stream.addTrack(tall);
+      return stream;
+    };
+  });
+}
+
 // A participant joined to the room under `name`.
 export async function joinAs(browser, contexts, roomUrl, name, contextOptions = {}) {
   const person = await openLobby(browser, contexts, roomUrl, name, contextOptions);
@@ -59,3 +87,12 @@ export async function joinAs(browser, contexts, roomUrl, name, contextOptions = 
 
 export const remoteOf = page => page.evaluate(() => window.call.remote);
 export const statsOf = page => page.evaluate(() => window.call.stats());
+
+// Bounding-box checks shared by the layout specs.
+export const box = async locator => {
+  const b = await locator.boundingBox();
+  expect(b, `${locator} has a box`).not.toBeNull();
+  return b;
+};
+export const inside = (b, w, h) => b.x >= 0 && b.y >= 0 && b.x + b.width <= w + 0.5 && b.y + b.height <= h + 0.5;
+export const overlaps = (a, b) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;

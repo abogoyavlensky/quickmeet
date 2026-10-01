@@ -64,11 +64,12 @@ header .muted { flex: 1; font-family: ui-monospace, monospace; font-size: 14px; 
 /* min-height: 0 and minmax(0, 1fr): a <video> has an intrinsic height, and
    without these the call area grows to it and pushes the controls off
    screen on a short viewport. */
-.call { flex: 1; min-height: 0; position: relative; display: grid; grid-template-rows: minmax(0, 1fr); place-items: center; padding: 16px 16px 78px; overflow: hidden; }
-/* max-height: in a short window the tile gives up 16:9 rather than reach
-   under the controls (the call area's bottom padding is their band); the
-   video covers whatever shape is left. */
-.tile { position: relative; width: 100%; max-width: 960px; max-height: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: 14px; overflow: hidden; }
+.call { flex: 1; min-height: 0; position: relative; display: grid; grid-template-rows: minmax(0, 1fr); place-items: center; padding: 16px 16px 78px; overflow: hidden; container-type: size; }
+/* The tile takes the remote video's shape (--ratio, set by the page; 16:9
+   until a video arrives) and the largest size that fits: at most 960px
+   wide, and no taller than the call area (100cqh, its content box, so the
+   bottom padding stays the controls' band). So nothing is cropped. */
+.tile { position: relative; width: min(100%, 960px, calc(100cqh * var(--ratio, 1.7778))); max-height: 100%; aspect-ratio: var(--ratio, 1.7778); background: #000; border-radius: 14px; overflow: hidden; }
 .tile video { width: 100%; height: 100%; object-fit: cover; }
 .tile.self { position: absolute; right: 28px; bottom: 84px; width: 200px; max-width: 30vw; border: 2px solid var(--line); }
 .tag { position: absolute; left: 10px; bottom: 8px; padding: 2px 8px; border-radius: 8px; background: rgba(0,0,0,.55); color: #fff; font-size: 13px; }
@@ -77,17 +78,21 @@ footer { position: absolute; bottom: 16px; left: 0; right: 0; display: flex; jus
 .overlay button { pointer-events: auto; }
 .status { margin: 0; padding: 6px 14px; border-radius: 999px; background: rgba(0,0,0,.55); color: #fff; font-size: 14px; }
 
-/* Phones, portrait (narrow) or landscape (short): the remote video fills
-   the call area edge to edge, the self view is a portrait thumbnail top
-   right sized by the smaller viewport dimension so it never reaches the
-   controls, and the controls sit above the home indicator (safe-area
-   inset). */
+/* Phones, portrait (narrow) or landscape (short): the remote tile is the
+   whole call area; its video fills it when it has the screen's orientation
+   and is letterboxed, shown whole, when it does not. The self view is a
+   portrait thumbnail top right sized by the smaller viewport dimension so
+   it never reaches the controls, and the controls sit above the home
+   indicator (safe-area inset). */
 @media (max-width: 700px), (max-height: 500px) {
   header #room-id { display: none; }
   .lobby { margin-top: 16px; }
   .preview { aspect-ratio: 3 / 4; max-height: 45dvh; }
   .call { padding: 0; }
-  .tile { max-width: none; aspect-ratio: auto; height: 100%; min-height: 0; border-radius: 0; }
+  .tile { width: 100%; aspect-ratio: auto; height: 100%; min-height: 0; border-radius: 0; }
+  /* `wide` and `tall` are only ever set on the remote tile. */
+  @media (orientation: portrait) { .tile.wide video { object-fit: contain; } }
+  @media (orientation: landscape) { .tile.tall video { object-fit: contain; } }
   /* height: auto, or the rule above makes it a full-height strip. */
   .tile.self { top: 12px; right: 12px; bottom: auto; width: min(28vw, 22vh); height: auto; aspect-ratio: 3 / 4; border-radius: 10px; }
   /* Beside the thumbnail, under the remote name tag, never below either:
@@ -98,6 +103,7 @@ footer { position: absolute; bottom: 16px; left: 0; right: 0; display: flex; jus
   .tile:not(.self) .tag { top: 12px; bottom: auto; }
   footer { bottom: calc(12px + env(safe-area-inset-bottom)); }
   footer button { min-height: 44px; padding: 10px 16px; }
-  /* Over video, not over the page background. */
-  footer button.ghost { background: rgba(0,0,0,.55); color: #fff; border-color: transparent; }
+  /* Over video, not over the page background; the light edge keeps them
+     buttons over a letterbox's black bars too. */
+  footer button.ghost { background: rgba(0,0,0,.55); color: #fff; border-color: rgba(255,255,255,.35); }
 }
