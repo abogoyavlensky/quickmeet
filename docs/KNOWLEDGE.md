@@ -342,6 +342,13 @@ built binary, run by `lgx e2e` (2026-09-27).
   The local restart is faster (11 s) because the browsers back off
   between reconnect attempts, so a longer outage costs more than its own
   length.
+- The next deploy (PR #12, 2026-10-01) was the first to stop the new
+  build: uncloud's stop took 0.73 s (00:19:02.9 to 03.6), so the SIGTERM
+  handler works as PID 1, and history closed the call at 00:19:02, the
+  moment of the stop, not at the next start. That call took 59.9 s to
+  get media back: both browsers were back in the room within 16 s, then
+  each showed "Waiting for the other person" for 40 s before they saw
+  each other (`docs/backlog/reconnect-after-deploy-can-leave-both-waiting.md`).
 - A join can fail once on staging with "could not establish signal
   connection" when the box drops the new connection; trying again works.
   `lgx smoke` retries up to four times.
