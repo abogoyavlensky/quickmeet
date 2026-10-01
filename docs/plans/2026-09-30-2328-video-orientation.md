@@ -287,22 +287,22 @@ Work on a branch (`video-orientation`), one PR, as earlier milestones did.
 - Modify: `docs/ROADMAP.md`
 - Modify: this plan (deviation notes, checkboxes)
 
-- [ ] **Step 1: Knowledge.** Add to the browser layout notes in
+- [x] **Step 1: Knowledge.** Add to the browser layout notes in
   `docs/KNOWLEDGE.md`: the `<video>` element's `resize` event and
   `videoWidth`/`videoHeight` as the source of the remote shape; container
   units (`cqh`) for sizing by the call area's height, and whether they
   measure the content box; how the tests make a tall camera. Only what was
   verified while doing the work.
 
-- [ ] **Step 2: Roadmap.** Under M2's list in `docs/ROADMAP.md`, a "Done
+- [x] **Step 2: Roadmap.** Under M2's list in `docs/ROADMAP.md`, a "Done
   <date>" line in the style of its neighbours: the remote video keeps its
   shape, a tall tile on desktop and letterboxing on phones
   (`e2e/tests/orientation.spec.js`).
 
-- [ ] **Step 3: Review.** Run /review-with-codex on the branch; fix what is
+- [x] **Step 3: Review.** Run /review-with-codex on the branch; fix what is
   real, note it under the task it belongs to.
 
-- [ ] **Step 4: Commit and open the PR.** `docs: video orientation`
+- [x] **Step 4: Commit and open the PR.** `docs: video orientation`
 
 - [ ] **Step 5: Real-device checklist (the user, after the PR is merged and
   staging has deployed to `https://quickmeet.absky.dev`).**
@@ -317,3 +317,32 @@ Work on a branch (`video-orientation`), one PR, as earlier milestones did.
     phone's view switches between letterboxed and filling.
   - Two upright phones: each fills the other's screen, as before.
   Record the result in this plan and in `docs/ROADMAP.md`.
+
+> Codex review of the whole branch: no findings.
+
+---
+
+## Completion
+
+**Status: implemented 2026-10-01; the real-device checklist (Task 4, Step 5) is open.**
+
+The remote tile takes the shape of the video it shows, read from the
+`<video>` element (`fitRemote` and `resetRemote` in `room.html`). On a
+desktop the tile becomes tall for a tall video, sized by container units so
+it never reaches the controls. On a phone the tile stays full screen and
+the video is letterboxed when its orientation differs from the screen's.
+`e2e/tests/orientation.spec.js` adds 8 browser tests, using a tall canvas
+camera (`tallCamera`); the suite is 31 tests, all passing. Codex reviewed
+every task and the branch: no must-fix findings.
+
+**Deviations:**
+- `box`, `inside` and `overlaps` moved to `helpers.js` in Task 1, not Task 2.
+- The reset lives in `startLobby` and `ParticipantDisconnected`, not the `Disconnected` handler.
+- The fake camera arrives 16:9 (LiveKit asks for 720p), so the wide test checks the tile matches the video's ratio rather than 4:3; it is a regression guard, not a failing-first test.
+- The reset test leaves with `#leave`; closing a context left the SFU waiting on its timeout.
+- Phone ghost buttons gained a light edge so they still read as buttons over black bars.
+
+**What the plan could have specified better:** the fake camera's real
+resolution under LiveKit (16:9, not the device's 4:3), and how a test
+ends a call (`#leave`, not closing the context); both were knowable from
+the existing specs.
