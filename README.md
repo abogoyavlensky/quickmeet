@@ -31,11 +31,11 @@ lgx smoke               # a two-browser call against a running instance (QM_URL)
 ```
 
 Open http://localhost:8080, sign up (any email, no verification), click
-"New meeting", open the room link in a second window, join from both.
-Starting a meeting takes an account; joining one takes only the link.
+"New call", open the room link in a second window, join from both.
+Starting a call takes an account; joining one takes only the link.
 The room page shows a lobby first: a preview of your camera, pickers for
 the camera and microphone, and who is already in the room. Rooms are
-permanent and hold two people; a third person is told the meeting is
+permanent and hold two people; a third person is told the call is
 full. A link is created once and reused for every call with that person.
 
 Signed in, the landing page lists your rooms: the ones you made and the
@@ -85,7 +85,9 @@ exits 0 when both sides end the run in the call with media flowing
 `livekit-client` is vendored into `resources/public/` and served from the
 binary, so a call page has no CDN dependency. To bump it, change the
 version in the `vendor-livekit-client` task in `lgx.edn` and run
-`lgx vendor-livekit-client`.
+`lgx vendor-livekit-client`. The typeface (Onest, OFL) is vendored the
+same way, as base64 inside `fonts.css`: `lgx vendor-fonts`, version in
+`scripts/vendor-fonts.mjs`.
 
 ## Deployment
 
@@ -174,7 +176,8 @@ src/quickmeet/password.lg      bcrypt (golang.org/x/crypto/bcrypt as a :go/inter
 src/quickmeet/id.lg            random ids for rooms, users and sessions
 src/quickmeet/sfu.lg           asks the embedded SFU who is in a room, and which rooms are live (twirp over loopback)
 src/quickmeet/server.lg        ::http: http/start on init, http/stop on halt
-resources/public/              index, room, history, signup, signin, settings pages; app.css; vendored livekit-client
+resources/public/              index, room, history, signup, signin, settings pages; app.css; ui.js (icons, avatars); vendored livekit-client and font
+scripts/vendor-fonts.mjs       writes resources/public/fonts.css from the pinned Onest release
 test/quickmeet/                routes and auth over a temp db; migrations; password; the full system
 e2e/                           Playwright: two browsers in a call against bin/quickmeet; smoke.mjs for a deployed one
 Dockerfile                     the runtime image around bin/quickmeet

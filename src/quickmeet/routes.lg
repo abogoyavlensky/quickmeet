@@ -34,6 +34,10 @@
    "css"  "text/css; charset=utf-8"
    "svg"  "image/svg+xml"})
 
+;; The font is 120 kB of base64 that changes only when the pinned version
+;; does, and every page links it: browsers keep it for a week.
+(def ^:private long-lived #{"fonts.css"})
+
 (defn- static-response
   "Serve `name` from resources/public. Only the text types above are served:
    io/slurp reads a string, so binaries would not survive. io/resource
@@ -44,7 +48,8 @@
         res (when ct (io/resource (str "public/" name)))]
     (if res
       {:status 200
-       :headers {"Content-Type" ct}
+       :headers (cond-> {"Content-Type" ct}
+                  (long-lived name) (assoc "Cache-Control" "public, max-age=604800"))
        :body (io/slurp res)}
       (json-response 404 {:error "not found"}))))
 

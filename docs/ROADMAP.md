@@ -81,7 +81,17 @@ follow with a real device to test them on.
   the tile becomes tall for a phone held upright; on a phone the video is
   letterboxed when its orientation differs from the screen's
   (`e2e/tests/orientation.spec.js`). An upright phone sending tall frames
-  is still to be confirmed on devices.
+  was confirmed on devices 2026-10-01.
+- Done 2026-10-01: the redesign, on the direction in
+  `docs/plans/2026-10-01-1830-redesign.md`. Every feature kept; the pages
+  say "call" where they said "meeting" ("New call"). In a call the page is
+  the stage: the other person's name and a clock in the bar, round icon
+  controls, and on a phone or in full screen the video edge to edge with
+  the bar and controls fading while nothing is touched. Two complaints
+  from real devices went with it: on a desktop the tile had a 960 px cap
+  and now takes the window; on a phone the video fills the screen only
+  when that crops at most a fifth of it, and is shown whole otherwise (a
+  sideways phone in a browser leaves a strip about 3:1).
 - Done 2026-09-29: two-person rule. The SFU caps rooms at two
   (`room.max_participants`); the app asks the SFU who is in the room so
   the token endpoint can say 409 "full" and the lobby can show who is

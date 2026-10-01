@@ -111,7 +111,7 @@ try {
   // Remember the room as soon as it exists, so a failure after this still
   // deletes it.
   const created = host.waitForResponse(r => r.url().endsWith('/api/rooms') && r.request().method() === 'POST');
-  await host.getByRole('button', { name: 'New meeting' }).click();
+  await host.getByRole('button', { name: 'New call' }).click();
   roomId = (await (await created).json().catch(() => ({}))).id;
   await host.waitForURL(/\/room\/[0-9a-f]{12}$/);
   await host.waitForLoadState();

@@ -3,48 +3,64 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#111312">
   <title>quickmeet</title>
+  <link rel="icon" href="/static/icon.svg">
+  <link rel="stylesheet" href="/static/fonts.css">
   <link rel="stylesheet" href="/static/app.css">
   <script src="/static/livekit-client.umd.min.js"></script>
+  <script src="/static/ui.js"></script>
 </head>
 <body class="room">
-  <header>
-    <span class="brand">quickmeet</span>
-    <span id="room-id" class="muted"></span>
-    <button id="copy" class="ghost">Copy link</button>
+  <!-- Before the call: the brand and the link to send. In the call: the
+       other person, how long it has been, and the same link as an icon. -->
+  <header class="bar">
+    <a class="brand" href="/">quickmeet</a>
+    <span class="who"><span class="dot"></span><span id="remote-name">waiting for the other side…</span><span id="timer"></span></span>
+    <span class="end">
+      <button id="full" hidden></button>
+      <button id="copy" class="ghost" title="Copy link"></button>
+    </span>
   </header>
 
   <!-- The link points at no room: nothing is asked of the camera. -->
   <section id="gone" class="lobby" hidden>
-    <p>This meeting link does not exist.</p>
-    <p><a href="/">Start a new meeting</a></p>
+    <h1>This link does not exist.</h1>
+    <p class="lead">The call it led to was deleted, or the address is mistyped.</p>
+    <p><a class="button" href="/">Start a new call</a></p>
   </section>
 
-  <!-- Before joining: a preview, the devices, who is already there. -->
+  <!-- Before joining: a preview, who is already there, the devices. -->
   <section id="lobby" class="lobby" hidden>
     <div class="preview"><video id="preview" autoplay playsinline muted></video></div>
-    <p id="presence" class="muted"></p>
+    <p id="presence"></p>
     <p id="notice" class="notice" hidden></p>
-    <label>Camera <select id="cam-select"></select></label>
-    <label>Microphone <select id="mic-select"></select></label>
-    <label>Your name <input id="identity" maxlength="64" placeholder="optional"></label>
-    <button id="join" class="primary">Join</button>
+    <div class="join-row">
+      <input id="identity" maxlength="64" placeholder="Your name" aria-label="Your name" autocomplete="name">
+      <button id="join" class="primary">Join call</button>
+    </div>
     <p id="error" class="error" hidden></p>
+    <div class="devices">
+      <label>Camera <select id="cam-select"></select></label>
+      <label>Microphone <select id="mic-select"></select></label>
+    </div>
   </section>
 
   <section id="call" class="call" hidden>
-    <div class="tile"><video id="remote" autoplay playsinline></video><span id="remote-name" class="tag">waiting for the other side…</span></div>
-    <div class="tile self"><video id="local" autoplay playsinline muted></video><span id="local-name" class="tag">you</span></div>
-    <!-- One banner for the call's state; the sound button for browsers
-         that block remote audio until a tap (iOS Safari). -->
+    <div class="tile empty"><video id="remote" autoplay playsinline></video></div>
+    <div class="tile self"><video id="local" autoplay playsinline muted></video></div>
+    <!-- One line for the call's state, shown only when something needs
+         attention; the link again while alone; the sound button for
+         browsers that block remote audio until a tap (iOS Safari). -->
     <div class="overlay">
       <p id="status" class="status" hidden></p>
+      <button id="invite" class="primary"></button>
       <button id="sound" class="primary" hidden>Tap to enable sound</button>
     </div>
-    <footer>
-      <button id="mic" class="ghost">Mute</button>
-      <button id="cam" class="ghost">Stop video</button>
-      <button id="leave" class="danger">Leave</button>
+    <footer class="controls">
+      <button id="mic"></button>
+      <button id="cam"></button>
+      <button id="leave" class="danger"></button>
     </footer>
   </section>
 
@@ -58,20 +74,31 @@
     const { Room, RoomEvent, Track, DisconnectReason, createLocalTracks } = LivekitClient;
     const $ = id => document.getElementById(id);
     const roomId = location.pathname.split('/').pop();
-    const FULL = 'This meeting already has two people in it.';
-    const WAITING = 'Waiting for the other person. Share the link.';
+    const FULL = 'This call already has two people in it.';
+    const WAITING = 'Waiting for the other person.';
 
-    $('room-id').textContent = roomId;
-    $('copy').addEventListener('click', async () => {
-      await navigator.clipboard.writeText(location.href);
-      $('copy').textContent = 'Copied';
-    });
+    for (const id of ['copy', 'invite']) {
+      $(id).innerHTML = icon('link') + '<span>Copy link</span>';
+      $(id).addEventListener('click', () => copyLink($(id), location.href));
+    }
+    setIcon($('leave'), 'hang', 'Leave');
 
     const showError = e => { $('error').textContent = String(e.message || e); $('error').hidden = false; };
     const showNotice = text => { $('notice').textContent = text || ''; $('notice').hidden = !text; };
     const nameOf = p => p.name || p.identity;
-    const show = section => { for (const id of ['gone', 'lobby', 'call']) $(id).hidden = id !== section; };
-    const setStatus = text => { $('status').textContent = text || ''; $('status').hidden = !text; };
+    const show = section => {
+      for (const id of ['gone', 'lobby', 'call']) $(id).hidden = id !== section;
+      document.body.classList.toggle('in-call', section === 'call');
+      if (section !== 'call' && fullScreen()) exitFull.call(document);
+    };
+    // The one line of status, and whether we are alone: alone, the stage is
+    // empty and the line sits in its middle with the link to send.
+    function setStatus(text, alone) {
+      $('status').textContent = text || '';
+      $('status').hidden = !text;
+      document.body.classList.toggle('waiting', !!alone);
+      wake();
+    }
 
     // The whole call state, exposed for tests and for poking at from devtools.
     // `joined` flips once the local tracks are published; `remote` is the
@@ -105,21 +132,104 @@
     // track dimensions: the element reports what is actually shown, after
     // the sender rotates their phone or the SFU switches layer, and fires
     // `resize` for both. An empty tile goes back to the default shape.
+    //
+    // Where the tile is the whole stage instead (immersive, below), `fill`
+    // decides between filling it and showing the video whole: filling crops,
+    // and is worth it only while it crops little. A phone lying sideways in
+    // a browser leaves a strip three times as wide as it is high; filling
+    // that with a 4:3 picture would cut half of it away.
+    const CROP_LIMIT = 0.2;
+    const remoteTile = $('remote').parentElement;
     function resetRemote() {
-      const tile = $('remote').parentElement;
-      tile.style.removeProperty('--ratio');
-      tile.classList.remove('wide', 'tall');
+      remoteTile.style.removeProperty('--ratio');
+      remoteTile.classList.remove('wide', 'tall', 'fill');
+      remoteTile.classList.add('empty');
     }
     function fitRemote() {
       const { videoWidth: w, videoHeight: h } = $('remote');
       if (!w || !h) { resetRemote(); return; }
-      const tile = $('remote').parentElement;
-      tile.style.setProperty('--ratio', w / h);
-      tile.classList.toggle('wide', w >= h);
-      tile.classList.toggle('tall', w < h);
+      remoteTile.style.setProperty('--ratio', w / h);
+      remoteTile.classList.remove('empty');
+      remoteTile.classList.toggle('wide', w >= h);
+      remoteTile.classList.toggle('tall', w < h);
+      const box = remoteTile.getBoundingClientRect();
+      if (!box.width || !box.height) return;
+      const video = w / h, tile = box.width / box.height;
+      remoteTile.classList.toggle('fill', 1 - Math.min(video / tile, tile / video) <= CROP_LIMIT);
     }
     $('remote').addEventListener('resize', fitRemote);
     $('remote').addEventListener('loadedmetadata', fitRemote);
+    // The tile changes size when the window does or the phone is turned.
+    new ResizeObserver(fitRemote).observe(remoteTile);
+
+    // ---- stage ----------------------------------------------------------
+
+    // Immersive: the video is the whole stage and the bar and controls lie
+    // over it. That is every phone, and any screen in full screen. iPhones
+    // have no full screen for pages, so the button is absent there.
+    const small = matchMedia('(max-width: 700px), (max-height: 500px)');
+    const root = document.documentElement;
+    const enterFull = root.requestFullscreen || root.webkitRequestFullscreen;
+    const exitFull = document.exitFullscreen || document.webkitExitFullscreen;
+    const fullScreen = () => !!(document.fullscreenElement || document.webkitFullscreenElement);
+    function layout() {
+      document.body.classList.toggle('immersive', small.matches || fullScreen());
+      setIcon($('full'), fullScreen() ? 'shrink' : 'expand', fullScreen() ? 'Leave full screen' : 'Full screen');
+      fitRemote();
+    }
+    small.addEventListener('change', layout);
+    for (const ev of ['fullscreenchange', 'webkitfullscreenchange']) document.addEventListener(ev, layout);
+    $('full').hidden = !enterFull;
+    $('full').addEventListener('click', () => (fullScreen() ? exitFull.call(document) : enterFull.call(root)));
+
+    // Over the video, the bar and the controls fade after a few quiet
+    // seconds and come back on any movement, tap or key. They stay while
+    // there is something to read (the status line) or we are alone.
+    let idleTimer = null;
+    function wake() {
+      document.body.classList.remove('idle');
+      clearTimeout(idleTimer);
+      idleTimer = setTimeout(() => {
+        const busy = !$('status').hidden || !$('sound').hidden || document.querySelector('.bar :focus-visible, .controls :focus-visible');
+        if (!busy) document.body.classList.add('idle');
+      }, 4000);
+    }
+    // The tap that brings them back is only that: on a touch screen its
+    // click lands on whatever is under the finger when it lifts, which by
+    // then is a button again. So a press that began on faded controls has
+    // its click swallowed.
+    let wakingTap = false;
+    document.addEventListener('pointerdown', () => {
+      wakingTap = document.body.matches('.immersive.idle');
+    }, true);
+    document.addEventListener('click', event => {
+      if (!wakingTap) return;
+      wakingTap = false;
+      event.stopPropagation();
+      event.preventDefault();
+    }, true);
+    for (const ev of ['pointermove', 'pointerdown', 'keydown']) document.addEventListener(ev, wake);
+    layout();
+
+    // How long the other person has been here, next to their name.
+    const clock = { since: null, tick: null };
+    function drawClock() {
+      const s = Math.floor((Date.now() - clock.since) / 1000);
+      const pad = n => String(n).padStart(2, '0');
+      const h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60;
+      $('timer').textContent = (h ? h + ':' + pad(m) : m) + ':' + pad(s % 60);
+    }
+    function startClock() {
+      if (clock.since) return;
+      clock.since = Date.now();
+      drawClock();
+      clock.tick = setInterval(drawClock, 1000);
+    }
+    function stopClock() {
+      clearInterval(clock.tick);
+      clock.since = null;
+      $('timer').textContent = '';
+    }
 
     // ---- lobby ----------------------------------------------------------
 
@@ -247,7 +357,26 @@
 
     // Presence drives the banner, not media: a receive-only participant
     // publishes nothing, and is still someone to talk to.
-    const refreshStatus = room => setStatus(room.remoteParticipants.size > 0 ? null : WAITING);
+    function refreshStatus(room) {
+      const alone = room.remoteParticipants.size === 0;
+      setStatus(alone ? WAITING : null, alone);
+    }
+    // The other person is here: their name goes in the bar, the clock runs.
+    function arrived(participant) {
+      $('remote-name').textContent = nameOf(participant);
+      startClock();
+    }
+    // The buttons show what the microphone and camera are doing now; off is
+    // the solid one. With the camera off there is no self view to show.
+    function showMic(on) {
+      setIcon($('mic'), on ? 'mic' : 'mic-off', on ? 'Mute' : 'Unmute');
+      $('mic').toggleAttribute('data-off', !on);
+    }
+    function showCam(on) {
+      setIcon($('cam'), on ? 'video' : 'video-off', on ? 'Stop video' : 'Start video');
+      $('cam').toggleAttribute('data-off', !on);
+      $('local').parentElement.hidden = !on;
+    }
 
     // Two people can both get tokens before the room fills; the SFU then
     // refuses one with an error the browser cannot tell from a broken
@@ -275,31 +404,33 @@
         });
         if (res.status === 409) throw new Error(FULL);
         if (!res.ok) throw new Error('could not get a token (' + res.status + ')');
-        const { token, url, name } = await res.json();
+        const { token, url } = await res.json();
 
         const room = new Room({ adaptiveStream: true, dynacast: true });
         window.call.room = room;
         room.on(RoomEvent.TrackSubscribed, (track, pub, participant) => {
           if (track.kind === Track.Kind.Video) { track.attach($('remote')); window.call.tracks.video = track; }
           if (track.kind === Track.Kind.Audio) { track.attach(); window.call.tracks.audio = track; }
-          $('remote-name').textContent = nameOf(participant);
+          arrived(participant);
           window.call.remote = nameOf(participant);
         });
-        room.on(RoomEvent.ParticipantConnected, () => setStatus(null));
+        room.on(RoomEvent.ParticipantConnected, participant => { arrived(participant); setStatus(null); });
         room.on(RoomEvent.ParticipantDisconnected, () => {
           $('remote-name').textContent = 'the other side left';
           // The element can keep the last frame's size after the track
           // ends, so the reset does not ask it.
           resetRemote();
+          stopClock();
           window.call.remote = null;
           window.call.tracks = { video: null, audio: null };
-          setStatus('Waiting for the other person.');
+          setStatus(WAITING, true);
         });
         // A dropped signalling socket raises SignalReconnecting first and
         // Reconnecting only if a full reconnect follows; both are one state.
-        room.on(RoomEvent.SignalReconnecting, () => setStatus('Reconnecting…'));
-        room.on(RoomEvent.Reconnecting, () => setStatus('Reconnecting…'));
-        room.on(RoomEvent.Reconnected, () => refreshStatus(room));
+        const reconnecting = () => { document.body.classList.add('reconnecting'); setStatus('Reconnecting…'); };
+        room.on(RoomEvent.SignalReconnecting, reconnecting);
+        room.on(RoomEvent.Reconnecting, reconnecting);
+        room.on(RoomEvent.Reconnected, () => { document.body.classList.remove('reconnecting'); refreshStatus(room); });
         room.on(RoomEvent.AudioPlaybackStatusChanged, () => { $('sound').hidden = room.canPlaybackAudio; });
         room.on(RoomEvent.Disconnected, reason => {
           // A failed join tears itself down in join()'s catch; only a call
@@ -307,6 +438,8 @@
           if (!window.call.joined) return;
           window.call.joined = false;
           window.call.tracks = { video: null, audio: null };
+          stopClock();
+          document.body.classList.remove('reconnecting');
           show('lobby');
           startLobby(reason === DisconnectReason.CLIENT_INITIATED ? null : 'Connection lost. Join again.');
         });
@@ -321,9 +454,10 @@
           if (t.kind === Track.Kind.Video) t.attach($('local'));
         }
         window.call.joined = true;
-        $('local-name').textContent = name;
-        $('mic').textContent = 'Mute';
-        $('cam').textContent = 'Stop video';
+        showMic(room.localParticipant.isMicrophoneEnabled);
+        showCam(room.localParticipant.isCameraEnabled);
+        // Someone who was here first raises no ParticipantConnected.
+        for (const p of room.remoteParticipants.values()) arrived(p);
         refreshStatus(room);
         $('sound').hidden = room.canPlaybackAudio;
         $('sound').onclick = async () => {
@@ -335,12 +469,12 @@
         $('mic').onclick = async () => {
           const on = !room.localParticipant.isMicrophoneEnabled;
           await room.localParticipant.setMicrophoneEnabled(on);
-          $('mic').textContent = on ? 'Mute' : 'Unmute';
+          showMic(on);
         };
         $('cam').onclick = async () => {
           const on = !room.localParticipant.isCameraEnabled;
           await room.localParticipant.setCameraEnabled(on);
-          $('cam').textContent = on ? 'Stop video' : 'Start video';
+          showCam(on);
         };
         $('leave').onclick = () => room.disconnect();
       } catch (e) {

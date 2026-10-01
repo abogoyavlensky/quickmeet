@@ -4,19 +4,25 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>History · quickmeet</title>
+  <link rel="icon" href="/static/icon.svg">
+  <link rel="stylesheet" href="/static/fonts.css">
   <link rel="stylesheet" href="/static/app.css">
+  <script src="/static/ui.js"></script>
 </head>
 <body>
-  <main>
+  <header class="bar">
+    <a class="brand" href="/">quickmeet</a>
+    <nav><a href="/history" aria-current="page">History</a> <a href="/settings">Settings</a></nav>
+  </header>
+  <main class="page">
     <h1>History</h1>
     <p class="lead">Your calls, newest first.</p>
     <table id="calls" class="calls" hidden>
       <thead><tr><th>With</th><th>When</th><th>Duration</th></tr></thead>
       <tbody></tbody>
     </table>
-    <p id="empty" class="muted" hidden>No calls yet.</p>
+    <p id="empty" class="muted" hidden>No calls yet. They appear here once you have talked to someone.</p>
     <p id="error" class="error" hidden></p>
-    <p class="links"><a href="/">Back to meetings</a></p>
   </main>
   <script>
     const $ = id => document.getElementById(id);
@@ -36,6 +42,13 @@
         const td = document.createElement('td');
         td.textContent = text;
         tr.append(td);
+      }
+      // The disc's initial is drawn by CSS, so the cell's text is the name.
+      if (call.with) {
+        const disc = document.createElement('span');
+        disc.className = 'avatar';
+        setAvatar(disc, call.with);
+        tr.firstChild.prepend(disc);
       }
       return tr;
     }

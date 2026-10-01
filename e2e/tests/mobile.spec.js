@@ -41,6 +41,27 @@ test.describe('on a phone', () => {
     }
     await expect(alice.page.locator('#copy')).toBeVisible();
   });
+
+  // Over the video the bar and the controls fade after a few quiet seconds.
+  // The tap that brings them back lands where "leave" is, and must not leave.
+  test('the controls fade when nothing is touched and a tap brings them back', async ({ browser, page }) => {
+    const roomUrl = await newRoom(page);
+    const alice = await joinAs(browser, contexts, roomUrl, 'alice', phone);
+    await joinAs(browser, contexts, roomUrl, 'bob');
+    await expect.poll(() => remoteOf(alice.page)).toBe('bob');
+    const opacity = () => alice.page.evaluate(() => getComputedStyle(document.querySelector('.controls')).opacity);
+    await expect.poll(opacity, { timeout: 10_000 }).toBe('0');
+
+    const leave = await box(alice.page.locator('#leave'));
+    await alice.page.touchscreen.tap(leave.x + leave.width / 2, leave.y + leave.height / 2);
+    await expect.poll(opacity).toBe('1');
+    expect(await alice.page.evaluate(() => window.call.joined)).toBe(true);
+
+    // Alone, there is something to read and a link to send: they stay.
+    await alice.page.evaluate(() => call.room.emit(LivekitClient.RoomEvent.Reconnecting));
+    await alice.page.waitForTimeout(5000);
+    expect(await opacity()).toBe('1');
+  });
 });
 
 // Landscape is short: the thumbnail, the banner and the sound button must
