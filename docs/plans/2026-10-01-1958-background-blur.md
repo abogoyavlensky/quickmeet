@@ -226,7 +226,7 @@ frame assertions poll for growth and never count on a rate.
 
 ### Task 0: Branch
 
-- [ ] **Step 1:** `git checkout -b background-blur` from an up-to-date
+- [x] **Step 1:** `git checkout -b background-blur` from an up-to-date
   `master`, and commit this plan there:
   `git add docs/plans/2026-10-01-1958-background-blur.md && git commit -m "Plan: background blur"`.
 
@@ -237,7 +237,7 @@ frame assertions poll for growth and never count on a rate.
 - Modify: `lgx.edn`
 - Create (generated): the four files in `resources/public/`
 
-- [ ] **Step 1: Write `scripts/vendor-blur.mjs`**, in the manner of
+- [x] **Step 1: Write `scripts/vendor-blur.mjs`**, in the manner of
   `scripts/vendor-fonts.mjs` (header comment saying what and why,
   versions pinned at the top, run from the repository root). It:
   1. makes a temporary directory (`fs.mkdtemp` under `os.tmpdir()`),
@@ -267,12 +267,12 @@ frame assertions poll for growth and never count on a rate.
      `resources/public/selfie_segmenter.tflite`;
   7. removes the temporary directory and prints what it wrote.
 
-- [ ] **Step 2: Add the task to `lgx.edn`** after `vendor-fonts`:
+- [x] **Step 2: Add the task to `lgx.edn`** after `vendor-fonts`:
   `vendor-blur`, doc "Write the pinned background blur library, wasm and
   model into resources/public", `{:sh "node scripts/vendor-blur.mjs"}`,
   with a comment in the style of its neighbours.
 
-- [ ] **Step 3: Run it**
+- [x] **Step 3: Run it**
   Run: `lgx vendor-blur` (if the `lgx` on `PATH` is too old, see "Dev
   tooling gotchas" in `docs/KNOWLEDGE.md`; `node scripts/vendor-blur.mjs`
   does the same).
@@ -283,8 +283,10 @@ frame assertions poll for growth and never count on a rate.
   (the library's unused default); that is expected and the page
   overrides it.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
   `git add scripts/vendor-blur.mjs lgx.edn resources/public && git commit -m "Vendor the background blur library, wasm and model"`
+
+> Deviation: `lgx` on `PATH` here is 0.2.0, which rejects this `lgx.edn`; the task ran with the pinned 0.4.2 binary (`~/.local/share/mise/installs/lgx/0.4.2/lgx`), as KNOWLEDGE.md describes. Two runs gave a byte-identical bundle.
 
 ### Task 2: Serve the binaries, with a versioned and cached path
 
@@ -292,7 +294,7 @@ frame assertions poll for growth and never count on a rate.
 - Modify: `src/quickmeet/routes.lg`
 - Test: `test/quickmeet/routes_test.lg`
 
-- [ ] **Step 1: Write the tests** in `pages-and-static` (or a new
+- [x] **Step 1: Write the tests** in `pages-and-static` (or a new
   `deftest` beside it, `the-blur-assets`):
   - `GET /static/track-processors.js` is 200, JavaScript, and its body
     includes `/static/tp0.8.1-tv0.10.14` (the bundle and the route's
@@ -310,11 +312,11 @@ frame assertions poll for growth and never count on a rate.
   - `GET /static/tp0.8.1-tv0.10.14/app.css` and
     `GET /static/tp0.8.1-tv0.10.14/nope.wasm` are 404.
 
-- [ ] **Step 2: Run them and see them fail**
+- [x] **Step 2: Run them and see them fail**
   Run: `lgx test`
   Expected: the new assertions fail (404s), everything else passes.
 
-- [ ] **Step 3: Implement** in `routes.lg`:
+- [x] **Step 3: Implement** in `routes.lg`:
   - add `"wasm" "application/wasm"` and
     `"tflite" "application/octet-stream"` to `content-types`;
   - a private constant for the current tag, `"tp0.8.1-tv0.10.14"`, with
@@ -334,12 +336,14 @@ frame assertions poll for growth and never count on a rate.
     let-go string, which holds raw bytes, so binaries are served intact;
     only the listed types are served.
 
-- [ ] **Step 4: Run the tests**
+- [x] **Step 4: Run the tests**
   Run: `lgx test`
   Expected: PASS, no failures.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git commit -am "Serve the blur assets: wasm and model, cached under a versioned path"`
+
+> Deviation: the versioned path is `/static/blur/<tag>/<file>`, not `/static/<tag>/<file>`. ruuter refuses `/static/:tag/:file` beside `/static/:file` ("conflicting param parameter names at same position"); a literal segment is matched separately. `assetBase` in the vendor script and the bundle changed to match. Everywhere below, read `/static/<tag>` as `/static/blur/<tag>`.
 
 ### Task 3: The toggle in the lobby and in the call
 
