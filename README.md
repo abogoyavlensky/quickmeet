@@ -96,7 +96,10 @@ processors bundled into `track-processors.js`, MediaPipe's wasm (9.4 MB)
 and the segmentation model, `lgx vendor-blur`, versions in
 `scripts/vendor-blur.mjs`. The wasm and the model are served under
 `/static/blur/<versions>/` with a year's cache; a bump changes the tag in
-the script and in `src/quickmeet/routes.lg` together.
+the script and in `src/quickmeet/routes.lg` together. The library is
+bundled from its source with `scripts/vendor-blur.patch` applied, which
+keeps the blurred background from rippling; a version bump must carry the
+patch forward (it fails to apply otherwise).
 
 ## Deployment
 

@@ -370,9 +370,41 @@ built binary, run by `lgx e2e` (2026-09-27).
   on a timer (`polling: 500`); its default polls on animation frames.
   Three blurring pages at once starve each other past a two-minute test
   timeout: repeat `blur.spec.js` with `--workers 1`.
-- Not tried on a real iPhone or Android phone yet. 0.8.1 has iOS
-  handling in its `canvas.captureStream()` fallback, so iPhones should
-  pass `supportsBackgroundProcessors()`; frame rate and heat are unknown.
+- On a real iPhone (2026-10-01, staging): the button shows and
+  blur works in the lobby; the stock blur rippled (see below). Frame
+  rate and heat not measured; Android not tried.
+
+Why the stock blur ripples, and the patch, 2026-10-01:
+
+- On a phone in front of a patterned wall the stock blur looked like a
+  river: streaks that never held still. Three causes, all in the
+  library's WebGL (`src/webgl/`). The background is shrunk to a quarter
+  by a single bilinear fetch per output pixel, so a fine pattern aliases
+  and the aliasing moves with every bit of noise. The Gaussian loop runs
+  to `ceil(radius)` with sigma equal to the radius, so the kernel is cut
+  at one sigma and acts as a box blur, which leaves a lattice. And the
+  default radius 10 becomes 2 texels at quarter size. The person's mask
+  is binary and new every frame.
+- `scripts/vendor-blur.patch` fixes them: a 4x4 average for the shrink,
+  sigma a third of the radius (up to 32 taps a side), the radius scaled
+  to the frame's short side over 720, the mask blended with the previous
+  one (keeping `exp(-elapsed / 50 ms)` of it), and `highp` in every
+  shader. On iPhones `mediump` is a 16-bit float, about 0.6 of a texel
+  across a 720-pixel texture, so samples snap; headless Chromium computes
+  in 32 bits and cannot show it. The page asks for radius 80.
+- Measured with a synthetic camera (a fine leaf pattern at 1280x720,
+  moved by a seeded random walk, with sensor noise; per-pixel standard
+  deviation over 10 output frames): the stock blur kept 27% of the
+  camera's frame-to-frame change, the patched one at radius 80 kept 2.8%.
+  In the headless shell the patched pipeline renders about 30% slower
+  (1.3 against 1.9 frames a second on software WebGL).
+- The mask's time smoothing cannot be judged headless: at 2 to 3
+  processed frames a second the camera moves between frames, and a fixed
+  share of the previous mask only adds lag (it measured worse). Hence a
+  time constant, which smooths at 30 frames a second and does nothing
+  at 3. Whether edges look steadier is for a phone to show.
+- MediaPipe's own mask helpers keep `mediump`; the patch touches only
+  the library's shaders.
 
 ## Restarts and shutdown, verified 2026-09-30
 
