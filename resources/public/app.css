@@ -78,17 +78,21 @@ footer { position: absolute; bottom: 16px; left: 0; right: 0; display: flex; jus
 .overlay button { pointer-events: auto; }
 .status { margin: 0; padding: 6px 14px; border-radius: 999px; background: rgba(0,0,0,.55); color: #fff; font-size: 14px; }
 
-/* Phones, portrait (narrow) or landscape (short): the remote video fills
-   the call area edge to edge, the self view is a portrait thumbnail top
-   right sized by the smaller viewport dimension so it never reaches the
-   controls, and the controls sit above the home indicator (safe-area
-   inset). */
+/* Phones, portrait (narrow) or landscape (short): the remote tile is the
+   whole call area; its video fills it when it has the screen's orientation
+   and is letterboxed, shown whole, when it does not. The self view is a
+   portrait thumbnail top right sized by the smaller viewport dimension so
+   it never reaches the controls, and the controls sit above the home
+   indicator (safe-area inset). */
 @media (max-width: 700px), (max-height: 500px) {
   header #room-id { display: none; }
   .lobby { margin-top: 16px; }
   .preview { aspect-ratio: 3 / 4; max-height: 45dvh; }
   .call { padding: 0; }
   .tile { width: 100%; aspect-ratio: auto; height: 100%; min-height: 0; border-radius: 0; }
+  /* `wide` and `tall` are only ever set on the remote tile. */
+  @media (orientation: portrait) { .tile.wide video { object-fit: contain; } }
+  @media (orientation: landscape) { .tile.tall video { object-fit: contain; } }
   /* height: auto, or the rule above makes it a full-height strip. */
   .tile.self { top: 12px; right: 12px; bottom: auto; width: min(28vw, 22vh); height: auto; aspect-ratio: 3 / 4; border-radius: 10px; }
   /* Beside the thumbnail, under the remote name tag, never below either:
@@ -99,6 +103,7 @@ footer { position: absolute; bottom: 16px; left: 0; right: 0; display: flex; jus
   .tile:not(.self) .tag { top: 12px; bottom: auto; }
   footer { bottom: calc(12px + env(safe-area-inset-bottom)); }
   footer button { min-height: 44px; padding: 10px 16px; }
-  /* Over video, not over the page background. */
-  footer button.ghost { background: rgba(0,0,0,.55); color: #fff; border-color: transparent; }
+  /* Over video, not over the page background; the light edge keeps them
+     buttons over a letterbox's black bars too. */
+  footer button.ghost { background: rgba(0,0,0,.55); color: #fff; border-color: rgba(255,255,255,.35); }
 }

@@ -67,3 +67,46 @@ test.describe('on a desktop', () => {
     await expectFitted(alice.page);
   });
 });
+
+// A phone's remote tile is the whole screen: the video fills it when it has
+// the screen's orientation and is letterboxed (contain) when it does not.
+const phone = { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true };
+const sideways = { ...phone, viewport: { width: 667, height: 375 } };
+const fitOf = page => page.evaluate(() => getComputedStyle(document.getElementById('remote')).objectFit);
+
+for (const [screen, options] of [['upright', phone], ['sideways', sideways]]) {
+  for (const video of ['wide', 'tall']) {
+    const letterboxed = (screen === 'upright') === (video === 'wide');
+    test.describe(`on a phone held ${screen}`, () => {
+      test.use(options);
+      let contexts;
+      test.beforeEach(() => { contexts = []; });
+      test.afterEach(async () => { await Promise.all(contexts.map(c => c.close())); });
+
+      test(`a ${video} video is ${letterboxed ? 'letterboxed' : 'filling the screen'}`, async ({ browser, page }) => {
+        const roomUrl = await newRoom(page);
+        const alice = await joinAs(browser, contexts, roomUrl, 'alice', options);
+        await joinAs(browser, contexts, roomUrl, 'bob', video === 'tall' ? { init: tallCamera } : {});
+        await expect.poll(async () => alice.page.locator('.tile:not(.self)').getAttribute('class')).toContain(video);
+        await expect.poll(() => fitOf(alice.page)).toBe(letterboxed ? 'contain' : 'cover');
+        expect((await box(tileOf(alice.page))).width).toBe(options.viewport.width);
+      });
+    });
+  }
+}
+
+test.describe('on a phone turned during a call', () => {
+  test.use(phone);
+  let contexts;
+  test.beforeEach(() => { contexts = []; });
+  test.afterEach(async () => { await Promise.all(contexts.map(c => c.close())); });
+
+  test('a wide video goes from letterboxed to filling the screen', async ({ browser, page }) => {
+    const roomUrl = await newRoom(page);
+    const alice = await joinAs(browser, contexts, roomUrl, 'alice', phone);
+    await joinAs(browser, contexts, roomUrl, 'bob');
+    await expect.poll(() => fitOf(alice.page)).toBe('contain');
+    await alice.page.setViewportSize(sideways.viewport);
+    await expect.poll(() => fitOf(alice.page)).toBe('cover');
+  });
+});
