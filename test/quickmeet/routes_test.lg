@@ -207,7 +207,7 @@
       (let [index (call handler :get "/")]
         (is (= 200 (:status index)))
         (is (= "text/html; charset=utf-8" (get-in index [:headers "Content-Type"])))
-        (is (str/includes? (:body index) "New meeting")))
+        (is (str/includes? (:body index) "New call")))
       (let [id (new-room handler)
             page (call handler :get (str "/room/" id))]
         (is (= 200 (:status page)))

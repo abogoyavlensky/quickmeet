@@ -308,6 +308,27 @@ built binary, run by `lgx e2e` (2026-09-27).
 - Pinned together: `@playwright/test` 1.56.0 and `chromium_headless_shell-1194`.
   A Playwright bump changes the browser build, so `lgx e2e-setup` again.
 
+## The pages, verified 2026-10-01
+
+- The app serves only text from `resources/public` (`static-response`
+  reads resources as strings), so a `.woff2` cannot be a file. The font
+  is base64 inside `fonts.css` (120 kB, `lgx vendor-fonts`), the one
+  static file sent with `Cache-Control`. Icons are inline SVG from
+  `ui.js`, the favicon is an `.svg`.
+- Chromium's fake camera reaches the other side as 16:9, not the 640x480
+  the device advertises: LiveKit asks for 720p. A 4:3 or a tall sender in
+  a test is a canvas (`canvasCamera` in `e2e/tests/helpers.js`).
+- On a touch screen a click lands on whatever is under the finger when it
+  lifts, not where it went down. Controls that come back on `pointerdown`
+  are buttons again by then, so the tap that reveals them would press one
+  (it hung up, in the first version). The room page swallows the click of
+  a press that began on faded controls; `mobile.spec.js` holds it.
+- iPhone Safari has no Fullscreen API for pages (no
+  `webkitRequestFullscreen` on elements), so the full-screen button is
+  absent there; Android and desktop browsers have it. On an iPhone the
+  way to lose Safari's bars is "Add to Home Screen". Not tried on a
+  device yet.
+
 ## Restarts and shutdown, verified 2026-09-30
 
 - A call survives the server process being killed. Two headless

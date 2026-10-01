@@ -4,31 +4,38 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>quickmeet</title>
+  <link rel="icon" href="/static/icon.svg">
+  <link rel="stylesheet" href="/static/fonts.css">
   <link rel="stylesheet" href="/static/app.css">
+  <script src="/static/ui.js"></script>
 </head>
 <body>
-  <main>
-    <h1>quickmeet</h1>
-    <p class="lead">A video call in one click. Start a meeting, share the link, talk.</p>
-
-    <!-- Starting a meeting takes an account; both sections stay hidden
-         until /api/me says which one applies. -->
-    <section id="signed-out" hidden>
-      <p class="links"><a href="/signin">Sign in</a> · <a href="/signup">Sign up</a></p>
-      <p class="muted">Starting a meeting takes an account. Joining one takes only the link.</p>
+  <header class="bar">
+    <a class="brand" href="/">quickmeet</a>
+    <nav id="nav" hidden>
+      <a href="/history">History</a>
+      <a href="/settings">Settings</a>
+      <button id="signout" class="link">Sign out</button>
+    </nav>
+  </header>
+  <main class="page">
+    <!-- Starting a call takes an account; both sections stay hidden until
+         /api/me says which one applies. -->
+    <section id="signed-out" class="hero" hidden>
+      <h1>Talk to people without the meeting.</h1>
+      <p class="lead">A video call between two people. Start one, send the link, talk.</p>
+      <p class="row"><a class="button primary" href="/signup">Sign up</a> <a href="/signin">Sign in</a></p>
+      <p class="account">Starting a call takes an account. Joining one takes only the link.</p>
     </section>
 
     <section id="signed-in" hidden>
-      <button id="new" class="primary">New meeting</button>
+      <button id="new" class="primary">New call</button>
       <!-- My rooms: the ones I made or joined, with who is in them now.
            Each is a permanent link, reused for every call with that
-           person; naming one is how it is told from the others. -->
+           person; naming one after them is how it is told from the others. -->
       <ul id="rooms" class="rooms"></ul>
-      <p id="no-rooms" class="muted" hidden>No rooms yet. Start a meeting and share its link.</p>
-      <p class="muted">Signed in as <span id="who"></span> ·
-        <a href="/history">History</a> ·
-        <a href="/settings">Settings</a> ·
-        <button id="signout" class="link">Sign out</button></p>
+      <p id="no-rooms" class="empty" hidden>Nobody to call yet. Start a call and send its link; the link stays here for next time.</p>
+      <p class="account">Signed in as <span id="who"></span></p>
     </section>
 
     <p id="error" class="error" hidden></p>
@@ -43,6 +50,7 @@
         if (res.ok) {
           $('who').textContent = (await res.json()).display_name;
           $('signed-in').hidden = false;
+          $('nav').hidden = false;
           await loadRooms();
           // Presence changes while the page sits open; refresh it while
           // the tab is visible.
@@ -70,35 +78,37 @@
 
     const presenceOf = n => n >= 2 ? 'in a call' : n === 1 ? '1 waiting' : '';
 
+    // What of a row depends on the room's data: the disc, the name, who is
+    // there. Used when the row is built and on every refresh.
+    function fillRow(li, room) {
+      li.room = room;
+      setAvatar(li.querySelector('.avatar'), room.name);
+      li.querySelector('.room-name').textContent = room.name || 'Room ' + room.id;
+      li.querySelector('.presence').textContent = presenceOf(room.present);
+      li.classList.toggle('present', room.present > 0);
+    }
+
     // The row keeps the latest room data on itself (`li.room`): the
     // buttons' handlers read it there, so an in-place refresh (below)
     // reaches them too.
     function roomRow(room) {
       const li = document.createElement('li');
       li.dataset.id = room.id;
-      li.room = room;
-      const title = document.createElement('a');
-      title.className = 'room-name';
-      title.href = '/room/' + room.id;
-      title.textContent = room.name || 'Room ' + room.id;
-      const presence = document.createElement('span');
-      presence.className = 'presence';
-      presence.textContent = presenceOf(room.present);
-      const actions = document.createElement('span');
-      actions.className = 'actions';
-      const button = (label, onClick) => {
+      li.innerHTML = '<a class="room-link"><span class="avatar"></span><span class="room-text">' +
+        '<span class="room-name"></span><span class="presence"></span></span></a><span class="actions"></span>';
+      li.querySelector('.room-link').href = '/room/' + room.id;
+      const actions = li.querySelector('.actions');
+      const button = (name, label, onClick) => {
         const b = document.createElement('button');
-        b.className = 'link';
-        b.textContent = label;
-        b.addEventListener('click', () => onClick().catch(showError));
+        b.className = 'icon';
+        setIcon(b, name, label);
+        b.addEventListener('click', () => onClick(b).catch(showError));
         actions.append(b);
       };
-      button('Copy link', async () => {
-        await navigator.clipboard.writeText(location.origin + '/room/' + room.id);
-      });
+      button('link', 'Copy link', b => copyLink(b, location.origin + '/room/' + room.id));
       if (room.owner) {
-        button('Rename', async () => {
-          const name = prompt('Name this room', li.room.name || '');
+        button('pencil', 'Rename', async () => {
+          const name = prompt('Who is this call with?', li.room.name || '');
           if (name === null) return;
           await api('/api/rooms/' + room.id, {
             method: 'POST',
@@ -107,13 +117,13 @@
           });
           await loadRooms();
         });
-        button('Delete', async () => {
-          if (!confirm('Delete this room? Its link will stop working.')) return;
+        button('trash', 'Delete', async () => {
+          if (!confirm('Delete this call? Its link will stop working.')) return;
           await api('/api/rooms/' + room.id, { method: 'DELETE' });
           await loadRooms();
         });
       }
-      li.append(title, presence, actions);
+      fillRow(li, room);
       return li;
     }
 
@@ -125,15 +135,8 @@
         const rooms = await api('/api/rooms');
         const rows = [...$('rooms').children];
         const same = rows.length === rooms.length && rows.every((li, i) => li.dataset.id === rooms[i].id);
-        if (same) {
-          rooms.forEach((room, i) => {
-            rows[i].room = room;
-            rows[i].querySelector('.room-name').textContent = room.name || 'Room ' + room.id;
-            rows[i].querySelector('.presence').textContent = presenceOf(room.present);
-          });
-        } else {
-          $('rooms').replaceChildren(...rooms.map(roomRow));
-        }
+        if (same) rooms.forEach((room, i) => fillRow(rows[i], room));
+        else $('rooms').replaceChildren(...rooms.map(roomRow));
         $('no-rooms').hidden = rooms.length > 0;
       } catch (e) { showError(e); }
     }

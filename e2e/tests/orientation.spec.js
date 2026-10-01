@@ -1,7 +1,7 @@
 // The remote video keeps its own shape: tall or wide, it is shown whole.
 // A tall sender is the fake camera replaced by a canvas (tallCamera).
 import { test, expect } from '@playwright/test';
-import { newRoom, joinAs, tallCamera, box, inside, overlaps } from './helpers.js';
+import { newRoom, joinAs, tallCamera, webcam, box, inside, overlaps } from './helpers.js';
 
 const desktop = { viewport: { width: 1280, height: 800 } };
 const ratioOf = b => b.width / b.height;
@@ -65,18 +65,25 @@ test.describe('on a desktop', () => {
     const tile = await box(tileOf(alice.page));
     expect(tile.width).toBeGreaterThan(tile.height);
     await expectFitted(alice.page);
+    // And it takes the window: nothing but the bar above and the controls
+    // below limits it.
+    expect(tile.height).toBeGreaterThan(800 - 56 - 88 - 2);
   });
 });
 
-// A phone's remote tile is the whole screen: the video fills it when it has
-// the screen's orientation and is letterboxed (contain) when it does not.
+// A phone's remote tile is the whole screen: the video fills it when that
+// crops little (it has about the screen's shape) and is letterboxed, shown
+// whole, when it does not. `wide` is the fake camera, 16:9, a sideways
+// phone's own shape; `4:3` is a webcam's, which on a sideways phone would
+// lose a quarter of the picture to filling.
 const phone = { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true };
 const sideways = { ...phone, viewport: { width: 667, height: 375 } };
 const fitOf = page => page.evaluate(() => getComputedStyle(document.getElementById('remote')).objectFit);
 
+const cameras = { wide: {}, tall: { init: tallCamera }, '4:3': { init: webcam } };
 for (const [screen, options] of [['upright', phone], ['sideways', sideways]]) {
-  for (const video of ['wide', 'tall']) {
-    const letterboxed = (screen === 'upright') === (video === 'wide');
+  for (const video of ['wide', 'tall', '4:3']) {
+    const letterboxed = video === '4:3' || (screen === 'upright') === (video === 'wide');
     test.describe(`on a phone held ${screen}`, () => {
       test.use(options);
       let contexts;
@@ -86,8 +93,8 @@ for (const [screen, options] of [['upright', phone], ['sideways', sideways]]) {
       test(`a ${video} video is ${letterboxed ? 'letterboxed' : 'filling the screen'}`, async ({ browser, page }) => {
         const roomUrl = await newRoom(page);
         const alice = await joinAs(browser, contexts, roomUrl, 'alice', options);
-        await joinAs(browser, contexts, roomUrl, 'bob', video === 'tall' ? { init: tallCamera } : {});
-        await expect.poll(async () => alice.page.locator('.tile:not(.self)').getAttribute('class')).toContain(video);
+        await joinAs(browser, contexts, roomUrl, 'bob', cameras[video]);
+        await expect.poll(async () => alice.page.locator('.tile:not(.self)').getAttribute('class')).toContain(video === 'tall' ? 'tall' : 'wide');
         await expect.poll(() => fitOf(alice.page)).toBe(letterboxed ? 'contain' : 'cover');
         expect((await box(tileOf(alice.page))).width).toBe(options.viewport.width);
       });

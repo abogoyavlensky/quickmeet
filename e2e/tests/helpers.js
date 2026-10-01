@@ -16,10 +16,10 @@ export async function signUp(page, name = 'host') {
   return email;
 }
 
-// Sign up, click "New meeting", return the room URL.
+// Sign up, click "New call", return the room URL.
 export async function newRoom(page) {
   await signUp(page);
-  await page.getByRole('button', { name: 'New meeting' }).click();
+  await page.getByRole('button', { name: 'New call' }).click();
   await expect(page).toHaveURL(/\/room\/[0-9a-f]{12}$/);
   // The URL changes when the navigation commits; the room page's elements
   // exist only once it has loaded.
@@ -52,30 +52,34 @@ export async function openLobby(browser, contexts, roomUrl, name, { init, ...con
   return { context, page };
 }
 
-// A camera held upright. The fake device is 640x480; this replaces the
-// video track getUserMedia returns with a 360x640 canvas, repainted on a
-// timer (a canvas that is never repainted sends no frames). The page under
-// test is unchanged: createLocalTracks gets the stream the normal way.
-export async function tallCamera(context) {
-  await context.addInitScript(() => {
+// A camera of a given shape. The fake device arrives as 16:9; this replaces
+// the video track getUserMedia returns with a canvas of the size asked for,
+// repainted on a timer (a canvas that is never repainted sends no frames).
+// The page under test is unchanged: createLocalTracks gets the stream the
+// normal way.
+const canvasCamera = (width, height) => async context => {
+  await context.addInitScript(({ width, height }) => {
     const real = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
     navigator.mediaDevices.getUserMedia = async constraints => {
       const stream = await real(constraints);
       if (!constraints || !constraints.video) return stream;
-      const canvas = Object.assign(document.createElement('canvas'), { width: 360, height: 640 });
+      const canvas = Object.assign(document.createElement('canvas'), { width, height });
       const g = canvas.getContext('2d');
       let n = 0;
       setInterval(() => {
         g.fillStyle = `hsl(${(n++ * 7) % 360} 60% 50%)`;
-        g.fillRect(0, 0, 360, 640);
+        g.fillRect(0, 0, width, height);
       }, 66);
       const [tall] = canvas.captureStream(15).getVideoTracks();
       for (const t of stream.getVideoTracks()) { stream.removeTrack(t); t.stop(); }
       stream.addTrack(tall);
       return stream;
     };
-  });
-}
+  }, { width, height });
+};
+// Held upright, and a webcam's 4:3.
+export const tallCamera = canvasCamera(360, 640);
+export const webcam = canvasCamera(640, 480);
 
 // A participant joined to the room under `name`.
 export async function joinAs(browser, contexts, roomUrl, name, contextOptions = {}) {

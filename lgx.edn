@@ -82,4 +82,10 @@
   ;; The version is pinned here and in docs/KNOWLEDGE.md; bump both.
   vendor-livekit-client
   {:doc "Download the pinned livekit-client UMD build into resources/public"
-   :do {:sh "curl -fsSL https://cdn.jsdelivr.net/npm/livekit-client@2.22.3/dist/livekit-client.umd.min.js -o resources/public/livekit-client.umd.min.js"}}}}
+   :do {:sh "curl -fsSL https://cdn.jsdelivr.net/npm/livekit-client@2.22.3/dist/livekit-client.umd.min.js -o resources/public/livekit-client.umd.min.js"}}
+
+  ;; The typeface, served from the binary too. The version is pinned in the
+  ;; script.
+  vendor-fonts
+  {:doc "Write the pinned Onest font into resources/public/fonts.css"
+   :do {:sh "node scripts/vendor-fonts.mjs"}}}}

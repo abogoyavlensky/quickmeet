@@ -4,19 +4,22 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Sign up · quickmeet</title>
+  <link rel="icon" href="/static/icon.svg">
+  <link rel="stylesheet" href="/static/fonts.css">
   <link rel="stylesheet" href="/static/app.css">
 </head>
 <body>
-  <main>
+  <header class="bar"><a class="brand" href="/">quickmeet</a></header>
+  <main class="page">
     <h1>Sign up</h1>
-    <p class="lead">An account lets you start meetings. Joining one takes only the link.</p>
+    <p class="lead">An account lets you start calls. Joining one takes only the link.</p>
     <form id="form" class="form">
       <label>Email <input id="email" type="email" autocomplete="email" required autofocus></label>
       <label>Password <input id="password" type="password" autocomplete="new-password" minlength="8" required></label>
       <button id="submit" class="primary" type="submit">Sign up</button>
       <p id="error" class="error" hidden></p>
     </form>
-    <p class="links">Have an account? <a href="/signin">Sign in</a></p>
+    <p class="muted">Have an account? <a href="/signin">Sign in</a></p>
   </main>
   <script src="/static/account.js"></script>
   <script>
