@@ -214,6 +214,13 @@ in host mode. Two phones on different networks held a call there. See
   an environment example in `deploy/`; `release.yml` publishes a
   linux/amd64 tarball on a `v*` tag; `lgx smoke` holds a two-browser call
   against any instance as the post-install check.
+- Verified 2026-09-30 on staging through the merge deploy (PR #11): a
+  live call came back by itself after 27.6 s without media; history split
+  it at the deploy; the sign-in limit answers 429. Per-address limits
+  there only hold within one connection, apparently because of the
+  network in front of the box (`docs/backlog/staging-rate-limit-per-connection.md`).
+  The install guide has not yet been run on a fresh box, and no release
+  has been tagged.
 - Satisfied since M3: room ids are 12 hex characters of a random v4 UUID,
   48 bits from crypto/rand, each independent of every other, so no link
   can be guessed from another (`src/quickmeet/id.lg`,

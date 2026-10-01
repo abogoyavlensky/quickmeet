@@ -333,6 +333,18 @@ built binary, run by `lgx e2e` (2026-09-27).
 - The rate limiter keeps its state in an atom updated with `swap!`: no
   dynamic bindings on the request path, which matters while
   `docs/backlog/letgo-http-handlers-share-dynamic-bindings.md` is open.
+- What a deploy costs a live call on staging, measured with `lgx smoke`
+  through the release milestone's merge deploy (2026-09-30): uncloud
+  stopped the old container at 23:52:11.0, it was gone at 11.5, the new
+  one was running at 14.0, and media flowed both ways again at 23:52:38,
+  27.6 s without media in total. Nobody clicked anything. History split
+  the call in two at the deploy, at 23:52:15, the new process's startup.
+  The local restart is faster (11 s) because the browsers back off
+  between reconnect attempts, so a longer outage costs more than its own
+  length.
+- A join can fail once on staging with "could not establish signal
+  connection" when the box drops the new connection; trying again works.
+  `lgx smoke` retries up to four times.
 - Sandboxes: on the dev machine the agent user cannot reach the docker
   socket and cannot create user namespaces (`unshare -U` fails), so the
   PID 1 case cannot be reproduced locally; staging is where it is seen.
@@ -384,11 +396,12 @@ Learned while setting up staging on uncloud, 2026-09-28:
   Real cameras send more than Chrome's fake device; memory should hold
   (it is mostly per-participant buffers), CPU scales with packet rate.
 - Until 2026-09-30 the service set `stop_grace_period: 2s` on the belief
-  that `lg` ignores SIGTERM. In the container the app is PID 1, and the
-  kernel drops signals PID 1 has no handler for, which fits what was seen.
-  The app now registers a handler and the grace period is back to 10 s.
-  Whether the container stops on SIGTERM within it was checked on staging
-  (see "Restarts and shutdown").
+  that `lg` ignores SIGTERM. It did not, even as PID 1 in the container:
+  at the 2026-09-30 deploy the old build, with no handler of its own,
+  stopped 0.44 s after uncloud began stopping it. Go's runtime catches
+  SIGTERM itself and exits when re-raising it has no effect, which is the
+  PID 1 case. The app now registers a handler, and the grace period is
+  10 s, a ceiling it does not reach.
 
 The first deploy, 2026-09-28 to 2026-09-29:
 
