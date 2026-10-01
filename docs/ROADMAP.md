@@ -221,6 +221,11 @@ in host mode. Two phones on different networks held a call there. See
   network in front of the box (`docs/backlog/staging-rate-limit-per-connection.md`).
   The install guide has not yet been run on a fresh box, and no release
   has been tagged.
+- Verified 2026-10-01 at the next deploy (PR #12): the new build stops in
+  under a second as PID 1 and closes history on time. A call took 59.9 s
+  to recover that time, 40 s of it with both people back in the room but
+  not seeing each other
+  (`docs/backlog/reconnect-after-deploy-can-leave-both-waiting.md`).
 - Satisfied since M3: room ids are 12 hex characters of a random v4 UUID,
   48 bits from crypto/rand, each independent of every other, so no link
   can be guessed from another (`src/quickmeet/id.lg`,
