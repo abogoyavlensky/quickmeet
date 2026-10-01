@@ -241,7 +241,11 @@
       (let [js (call handler :get "/static/track-processors.js")]
         (is (= 200 (:status js)))
         (is (= "text/javascript; charset=utf-8" (get-in js [:headers "Content-Type"])))
-        (is (str/includes? (:body js) blur-base)))
+        (is (str/includes? (:body js) blur-base))
+        ;; Bundled with scripts/vendor-blur.patch: the averaging downsample
+        ;; and the mask smoothing are there. Stock, the blur ripples.
+        (is (str/includes? (:body js) "u_srcTexel"))
+        (is (str/includes? (:body js) "u_keep")))
       (let [wasm (call handler :get (str blur-base "/vision_wasm_internal.wasm"))]
         (is (= 200 (:status wasm)))
         (is (= "application/wasm" (get-in wasm [:headers "Content-Type"])))

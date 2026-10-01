@@ -410,11 +410,17 @@
       }
     }
 
+    // How strong the blur is, in pixels of a frame whose short side is 720
+    // (the vendored library scales it to the frame; see
+    // scripts/vendor-blur.patch). Strong enough that a patterned wall becomes
+    // an even wash, which is also what keeps it from shimmering.
+    const BLUR_RADIUS = 80;
     async function switchBlur(track, on) {
       if (!on) return track.stopProcessor();
       const base = location.origin + LivekitTrackProcessors.assetBase;
       await track.setProcessor(LivekitTrackProcessors.BackgroundProcessor({
         mode: 'background-blur',
+        blurRadius: BLUR_RADIUS,
         assetPaths: { tasksVisionFileSet: base, modelAssetPath: base + '/selfie_segmenter.tflite' },
       }));
     }

@@ -1,0 +1,299 @@
+Background blur that holds still: changes to @livekit/track-processors 0.8.1,
+applied to its TypeScript source by scripts/vendor-blur.mjs before bundling.
+Stock, the blurred background ripples: it is shrunk to a quarter by taking one
+pixel in sixteen, so a patterned wall aliases and shimmers with every bit of
+camera noise; the Gaussian is cut off at one sigma, which makes it a box blur
+with a lattice of its own; and the person's mask is new every frame.
+
+- downSampler.ts: the quarter-size copy averages each 4x4 block (four
+  bilinear taps), so nothing aliases.
+- blurShader.ts: sigma is a third of the radius, so the kernel reaches three
+  sigmas; up to 32 taps a side.
+- index.ts: the radius is given for a frame whose short side is 720 pixels and
+  scaled to the frame; the mask is blended with the previous one, keeping
+  exp(-elapsed / 50 ms) of it (maskSmoothShader.ts).
+- every shader: highp. On phones mediump is a 16-bit float, too coarse to
+  address a 720-pixel texture, so samples snap and the picture wobbles.
+
+diff --git a/src/webgl/index.ts b/src/webgl/index.ts
+index f7608d1..2c14bdb 100644
+--- a/src/webgl/index.ts
++++ b/src/webgl/index.ts
+@@ -9,6 +9,7 @@ import { applyBlur, createBlurProgram } from './shader-programs/blurShader';
+ import { createBoxBlurProgram } from './shader-programs/boxBlurShader';
+ import { createCompositeProgram } from './shader-programs/compositeShader';
+ import { applyDownsampling, createDownSampler } from './shader-programs/downSampler';
++import { applyMaskSmoothing, createMaskSmoothProgram } from './shader-programs/maskSmoothShader';
+ import {
+   createFramebuffer,
+   createVertexBuffer,
+@@ -55,6 +56,15 @@ export const setupWebGL = (canvas: OffscreenCanvas | HTMLCanvasElement) => {
+   const blurUniforms = blur.uniforms;
+ 
+   // Create the box blur program
++  const maskSmooth = createMaskSmoothProgram(gl);
++  // The mask's memory, in milliseconds: each new mask keeps
++  // exp(-elapsed / MASK_MEMORY_MS) of the one before, so the smoothing is
++  // the same at 15 frames a second as at 30, and a slow device that
++  // segments rarely gets none rather than a trailing edge.
++  const MASK_MEMORY_MS = 50;
++  let maskHistory = false;
++  let lastMaskAt = 0;
++
+   const boxBlur = createBoxBlurProgram(gl);
+   const boxBlurProgram = boxBlur.program;
+   const boxBlurUniforms = boxBlur.uniforms;
+@@ -97,6 +107,8 @@ export const setupWebGL = (canvas: OffscreenCanvas | HTMLCanvasElement) => {
+   // Initialize texture for the first mask blur pass
+   const tempMaskTexture = initTexture(gl, 5);
+   const tempMaskFrameBuffer = createFramebuffer(gl, tempMaskTexture, canvas.width, canvas.height);
++  const blurredMaskTex = initTexture(gl, 5);
++  const blurredMaskFrameBuffer = createFramebuffer(gl, blurredMaskTex, canvas.width, canvas.height);
+ 
+   // Initialize two textures for double-buffering the final mask
+   finalMaskTextures.push(initTexture(gl, 6)); // For reading in renderFrame
+@@ -129,7 +141,8 @@ export const setupWebGL = (canvas: OffscreenCanvas | HTMLCanvasElement) => {
+     for (const texture of [downSampler.texture, ...bgBlurTextures]) {
+       resizeTexture(gl, texture, bgBlurTextureWidth, bgBlurTextureHeight);
+     }
+-    for (const texture of [tempMaskTexture, ...finalMaskTextures]) {
++    maskHistory = false;
++    for (const texture of [tempMaskTexture, blurredMaskTex, ...finalMaskTextures]) {
+       resizeTexture(gl, texture, bufferWidth, bufferHeight);
+     }
+     if (backgroundSourceImage) {
+@@ -173,13 +186,17 @@ export const setupWebGL = (canvas: OffscreenCanvas | HTMLCanvasElement) => {
+         vertexBuffer!,
+         bgBlurTextureWidth,
+         bgBlurTextureHeight,
++        bufferWidth,
++        bufferHeight,
+       );
+       backgroundTexture = applyBlur(
+         gl,
+         downSampledFrameTexture,
+         bgBlurTextureWidth,
+         bgBlurTextureHeight,
+-        blurRadius,
++        // The radius is given for a frame whose short side is 720 pixels and
++        // scaled to this one, so a 480p camera blurs as much as a 720p one.
++        Math.max(1, (blurRadius * Math.min(bufferWidth, bufferHeight)) / 720),
+         blurProgram,
+         blurUniforms,
+         vertexBuffer!,
+@@ -271,9 +288,9 @@ export const setupWebGL = (canvas: OffscreenCanvas | HTMLCanvasElement) => {
+     // The second blur pass will be written to finalMaskTextures[writeMaskIndex]
+ 
+     // Create temporary arrays for the single blur operation
+-    const tempFramebuffers = [tempMaskFrameBuffer, finalMaskFrameBuffers[writeMaskIndex]];
++    const tempFramebuffers = [tempMaskFrameBuffer, blurredMaskFrameBuffer];
+ 
+-    const tempTextures = [tempMaskTexture, finalMaskTextures[writeMaskIndex]];
++    const tempTextures = [tempMaskTexture, blurredMaskTex];
+ 
+     // Apply the blur using the existing function
+     applyBlur(
+@@ -289,6 +306,20 @@ export const setupWebGL = (canvas: OffscreenCanvas | HTMLCanvasElement) => {
+       tempTextures,
+     );
+ 
++    applyMaskSmoothing(
++      gl,
++      maskSmooth,
++      vertexBuffer!,
++      blurredMaskTex,
++      finalMaskTextures[readMaskIndex],
++      maskHistory ? Math.exp(-(performance.now() - lastMaskAt) / MASK_MEMORY_MS) : 0,
++      finalMaskFrameBuffers[writeMaskIndex],
++      canvas.width,
++      canvas.height,
++    );
++    maskHistory = true;
++    lastMaskAt = performance.now();
++
+     // Swap indices for the next frame
+     readMaskIndex = writeMaskIndex;
+     writeMaskIndex = 1 - writeMaskIndex;
+@@ -302,6 +333,9 @@ export const setupWebGL = (canvas: OffscreenCanvas | HTMLCanvasElement) => {
+     gl.deleteTexture(frameTexture);
+     gl.deleteTexture(tempMaskTexture);
+     gl.deleteFramebuffer(tempMaskFrameBuffer);
++    gl.deleteTexture(blurredMaskTex);
++    gl.deleteFramebuffer(blurredMaskFrameBuffer);
++    gl.deleteProgram(maskSmooth.program);
+ 
+     for (const texture of bgBlurTextures) {
+       gl.deleteTexture(texture);
+diff --git a/src/webgl/shader-programs/blurShader.ts b/src/webgl/shader-programs/blurShader.ts
+index e0bee8e..f0c7072 100644
+--- a/src/webgl/shader-programs/blurShader.ts
++++ b/src/webgl/shader-programs/blurShader.ts
+@@ -3,7 +3,7 @@ import { vertexShaderSource } from './vertexShader';
+ 
+ // Define the blur fragment shader
+ export const blurFragmentShader = glsl`#version 300 es
+-  precision mediump float;
++  precision highp float;
+   in vec2 texCoords;
+   uniform sampler2D u_texture;
+   uniform vec2 u_texelSize;
+@@ -12,11 +12,11 @@ export const blurFragmentShader = glsl`#version 300 es
+   out vec4 fragColor;
+ 
+   void main() {
+-    float sigma = u_radius;
++    const int MAX_SAMPLES = 32;
++    float sigma = max(min(u_radius, float(MAX_SAMPLES)) / 3.0, 0.5);
+     float twoSigmaSq = 2.0 * sigma * sigma;
+     float totalWeight = 0.0;
+     vec3 result = vec3(0.0);
+-    const int MAX_SAMPLES = 16;
+     int radius = int(min(float(MAX_SAMPLES), ceil(u_radius)));
+ 
+     for (int i = -MAX_SAMPLES; i <= MAX_SAMPLES; ++i) {
+diff --git a/src/webgl/shader-programs/boxBlurShader.ts b/src/webgl/shader-programs/boxBlurShader.ts
+index 4d788fa..da71b21 100644
+--- a/src/webgl/shader-programs/boxBlurShader.ts
++++ b/src/webgl/shader-programs/boxBlurShader.ts
+@@ -2,7 +2,7 @@ import { createProgram, createShader, glsl } from '../utils';
+ import { vertexShaderSource } from './vertexShader';
+ 
+ export const boxBlurFragmentShader = glsl`#version 300 es
+-precision mediump float;
++precision highp float;
+ 
+ in vec2 texCoords;
+ 
+diff --git a/src/webgl/shader-programs/compositeShader.ts b/src/webgl/shader-programs/compositeShader.ts
+index 8ea8d7f..cd01c19 100644
+--- a/src/webgl/shader-programs/compositeShader.ts
++++ b/src/webgl/shader-programs/compositeShader.ts
+@@ -3,7 +3,7 @@ import { vertexShaderSource } from './vertexShader';
+ 
+ // Fragment shader source for compositing
+ export const compositeFragmentShader = glsl`#version 300 es
+-  precision mediump float;
++  precision highp float;
+   in vec2 texCoords;
+   uniform sampler2D background;
+   uniform bool disableBackground;
+diff --git a/src/webgl/shader-programs/downSampler.ts b/src/webgl/shader-programs/downSampler.ts
+index 564637f..981f4f2 100644
+--- a/src/webgl/shader-programs/downSampler.ts
++++ b/src/webgl/shader-programs/downSampler.ts
+@@ -35,11 +35,16 @@ export function createDownSampler(
+     `;
+ 
+   const fragmentSource = `
+-      precision mediump float;
++      precision highp float;
+       varying vec2 v_uv;
+       uniform sampler2D u_texture;
++      uniform vec2 u_srcTexel;
+       void main() {
+-        gl_FragColor = texture2D(u_texture, v_uv);
++        gl_FragColor = 0.25 * (
++          texture2D(u_texture, v_uv + u_srcTexel * vec2(-1.0, -1.0)) +
++          texture2D(u_texture, v_uv + u_srcTexel * vec2( 1.0, -1.0)) +
++          texture2D(u_texture, v_uv + u_srcTexel * vec2(-1.0,  1.0)) +
++          texture2D(u_texture, v_uv + u_srcTexel * vec2( 1.0,  1.0)));
+       }
+     `;
+ 
+@@ -49,6 +54,7 @@ export function createDownSampler(
+ 
+   const uniforms = {
+     texture: gl.getUniformLocation(program, 'u_texture'),
++    srcTexel: gl.getUniformLocation(program, 'u_srcTexel'),
+     position: gl.getAttribLocation(program, 'position'),
+   };
+ 
+@@ -72,6 +78,8 @@ export function applyDownsampling(
+   vertexBuffer: WebGLBuffer,
+   width: number,
+   height: number,
++  srcWidth: number,
++  srcHeight: number,
+ ): WebGLTexture {
+   gl.useProgram(downSampler.program);
+ 
+@@ -85,6 +93,7 @@ export function applyDownsampling(
+   gl.activeTexture(gl.TEXTURE0);
+   gl.bindTexture(gl.TEXTURE_2D, inputTexture);
+   gl.uniform1i(downSampler.uniforms.texture, 0);
++  gl.uniform2f(downSampler.uniforms.srcTexel, 1.0 / srcWidth, 1.0 / srcHeight);
+ 
+   gl.drawArrays(gl.TRIANGLES, 0, 6);
+ 
+diff --git a/src/webgl/shader-programs/maskSmoothShader.ts b/src/webgl/shader-programs/maskSmoothShader.ts
+new file mode 100644
+index 0000000..46c8668
+--- /dev/null
++++ b/src/webgl/shader-programs/maskSmoothShader.ts
+@@ -0,0 +1,66 @@
++import { createProgram, createShader, glsl } from '../utils';
++import { vertexShaderSource } from './vertexShader';
++
++// The mask, smoothed over time: each new mask is blended with the one
++// before it, so an edge the segmenter places a little differently from
++// frame to frame holds still instead of shimmering. No flip: the previous
++// mask was written by this pass and must line up with the new one.
++export const maskSmoothFragmentShader = glsl`#version 300 es
++  precision highp float;
++  in vec2 texCoords;
++  uniform sampler2D u_current;
++  uniform sampler2D u_previous;
++  uniform float u_keep;
++  out vec4 fragColor;
++
++  void main() {
++    float current = texture(u_current, texCoords).r;
++    float previous = texture(u_previous, texCoords).r;
++    fragColor = vec4(vec3(mix(current, previous, u_keep)), 1.0);
++  }
++`;
++
++export function createMaskSmoothProgram(gl: WebGL2RenderingContext) {
++  const vertexShader = createShader(gl, gl.VERTEX_SHADER, vertexShaderSource(false));
++  const fragmentShader = createShader(gl, gl.FRAGMENT_SHADER, maskSmoothFragmentShader);
++  const program = createProgram(gl, vertexShader, fragmentShader);
++  return {
++    program,
++    vertexShader,
++    fragmentShader,
++    uniforms: {
++      position: gl.getAttribLocation(program, 'position'),
++      current: gl.getUniformLocation(program, 'u_current'),
++      previous: gl.getUniformLocation(program, 'u_previous'),
++      keep: gl.getUniformLocation(program, 'u_keep'),
++    },
++  };
++}
++
++export function applyMaskSmoothing(
++  gl: WebGL2RenderingContext,
++  smooth: ReturnType<typeof createMaskSmoothProgram>,
++  vertexBuffer: WebGLBuffer,
++  current: WebGLTexture,
++  previous: WebGLTexture,
++  keep: number,
++  target: WebGLFramebuffer,
++  width: number,
++  height: number,
++) {
++  gl.useProgram(smooth.program);
++  gl.bindFramebuffer(gl.FRAMEBUFFER, target);
++  gl.viewport(0, 0, width, height);
++  gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
++  gl.vertexAttribPointer(smooth.uniforms.position, 2, gl.FLOAT, false, 0, 0);
++  gl.enableVertexAttribArray(smooth.uniforms.position);
++  gl.activeTexture(gl.TEXTURE0);
++  gl.bindTexture(gl.TEXTURE_2D, current);
++  gl.uniform1i(smooth.uniforms.current, 0);
++  gl.activeTexture(gl.TEXTURE1);
++  gl.bindTexture(gl.TEXTURE_2D, previous);
++  gl.uniform1i(smooth.uniforms.previous, 1);
++  gl.uniform1f(smooth.uniforms.keep, keep);
++  gl.drawArrays(gl.TRIANGLES, 0, 6);
++  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
++}
