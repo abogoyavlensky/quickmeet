@@ -26,6 +26,8 @@ not enough:
 | letgo-packages `sqlite`, `ragtime` | sqlite-v0.2.0, ragtime-v0.2.0 | storage and migrations |
 | livekit-server | v1.13.7 | the SFU, linked into the binary |
 | livekit-client (JS) | 2.22.3 | the browser side, vendored into `resources/public/` (`lgx vendor-livekit-client`) |
+| @livekit/track-processors (JS) | 0.8.1 | background blur, bundled into `resources/public/track-processors.js` (`lgx vendor-blur`) |
+| @mediapipe/tasks-vision | 0.10.14 | the segmentation under the blur: its wasm, plus `selfie_segmenter.tflite` pinned by SHA-256 (`scripts/vendor-blur.mjs`) |
 | @playwright/test | 1.56.0 | the browser tests in `e2e/`, on `chromium_headless_shell-1194` |
 | uc (uncloud) | 0.20.0 | deploys `compose.yaml` to the staging cluster; bundles Caddy |
 
@@ -310,11 +312,15 @@ built binary, run by `lgx e2e` (2026-09-27).
 
 ## The pages, verified 2026-10-01
 
-- The app serves only text from `resources/public` (`static-response`
-  reads resources as strings), so a `.woff2` cannot be a file. The font
-  is base64 inside `fonts.css` (120 kB, `lgx vendor-fonts`), the one
-  static file sent with `Cache-Control`. Icons are inline SVG from
-  `ui.js`, the favicon is an `.svg`.
+- Binary files are served intact, corrected 2026-10-01: until then this
+  note said the app could serve only text. `io/slurp` returns a let-go
+  string, which is a Go string and holds raw bytes, and the http server
+  writes `[]byte(s)` (`pkg/rt/ions.go:273`). 300 kB of wasm through
+  `io/slurp` and `io/spit` came back identical (`cmp`), and a route test
+  checks the served model's SHA-256. `static-response` serves only the
+  types it lists (now including `wasm` and `tflite`). The font is still
+  base64 inside `fonts.css` (120 kB, `lgx vendor-fonts`); nothing needs
+  it to move. Icons are inline SVG from `ui.js`, the favicon is an `.svg`.
 - Chromium's fake camera reaches the other side as 16:9, not the 640x480
   the device advertises: LiveKit asks for 720p. A 4:3 or a tall sender in
   a test is a canvas (`canvasCamera` in `e2e/tests/helpers.js`).
@@ -328,6 +334,45 @@ built binary, run by `lgx e2e` (2026-09-27).
   absent there; Android and desktop browsers have it. On an iPhone the
   way to lose Safari's bars is "Add to Home Screen". Not tried on a
   device yet.
+
+## Background blur, verified 2026-10-01
+
+- `@livekit/track-processors` ships ES modules only, no UMD build. Its
+  one runtime import from `livekit-client` is `getLogger`, so
+  `scripts/vendor-blur.mjs` bundles it with esbuild into an IIFE (global
+  `LivekitTrackProcessors`) and aliases `livekit-client` to a shim that
+  reads the `LivekitClient` global. The bundle is reproducible: two runs,
+  identical bytes.
+- By default it loads MediaPipe's wasm from jsdelivr and the model from
+  Google's storage; `assetPaths` (`tasksVisionFileSet`,
+  `modelAssetPath`) points both at the app. Only the SIMD wasm is
+  vendored; a browser without wasm SIMD would ask for the `nosimd` file,
+  get a 404 and take the page's failure path.
+- ruuter refuses two different param names at one position, so
+  `/static/:tag/:file` cannot sit beside `/static/:file` ("conflicting
+  param parameter names at same position"); a literal segment can, hence
+  `/static/blur/:tag/:file`.
+- In `livekit-client` 2.22.3, `setProcessor` attaches the processor only
+  once its `init` has finished, and `LocalTrack.stop()` destroys an
+  attached one. A track stopped while a processor initialises therefore
+  gets that processor afterwards; the page takes it off again. With a
+  processor on, `track.mediaStreamTrack` is the processed track, whose
+  settings have no `deviceId` (the source's are behind the internal
+  `getSourceTrackSettings()`). `restartTrack` (a device switch) and
+  unmuting the camera restart the processor with the track; muting
+  stops the source but keeps the processor.
+- The headless shell runs it on software WebGL with no extra flag (it
+  logs a SwiftShader deprecation warning). `setProcessor` took 345 ms with
+  local assets; the blurred track then delivers about one frame a
+  second, and the page's main thread is so busy that animation frames
+  are rare. Playwright's actionability wait ("stable") needs two, so
+  clicks on a blurring page are forced, and `waitForFunction` must poll
+  on a timer (`polling: 500`); its default polls on animation frames.
+  Three blurring pages at once starve each other past a two-minute test
+  timeout: repeat `blur.spec.js` with `--workers 1`.
+- Not tried on a real iPhone or Android phone yet. 0.8.1 has iOS
+  handling in its `canvas.captureStream()` fallback, so iPhones should
+  pass `supportsBackgroundProcessors()`; frame rate and heat are unknown.
 
 ## Restarts and shutdown, verified 2026-09-30
 
@@ -475,7 +520,11 @@ The first deploy, 2026-09-28 to 2026-09-29:
 > `lgx/gobuild.lg` (runtime build, `:go/replace`, the stamp) and
 > `docs/knowledge-base/lgx-go-runtimes.md`; in letgo-packages,
 > `livekit/shim/shim.go`, `livekit/src/livekit/core.lg`,
-> `livekit/README.md`; in let-go 1.13.0, `pkg/rt/http.go`,
-> `pkg/rt/hash_sha.go`, `pkg/rt/os.go`, `pkg/rt/syscall_linux.go`,
-> `pkg/rt/async.go`; in livekit-server v1.13.7,
+> `livekit/README.md`; in `@livekit/track-processors` 0.8.1,
+> `src/index.ts`, `src/ProcessorWrapper.ts` and
+> `src/transformers/BackgroundTransformer.ts`; in `livekit-client` 2.22.3,
+> `src/room/track/LocalTrack.ts` and `LocalVideoTrack.ts`; in ruuter
+> v2.1.1, `src/ruuter/core.cljc`; in let-go 1.13.0, `pkg/rt/ions.go`,
+> `pkg/rt/http.go`, `pkg/rt/hash_sha.go`, `pkg/rt/os.go`,
+> `pkg/rt/syscall_linux.go`, `pkg/rt/async.go`; in livekit-server v1.13.7,
 > `pkg/service/server.go` and `pkg/service/roommanager.go`.

@@ -483,13 +483,13 @@ frame assertions poll for growth and never count on a rate.
 **Files:**
 - Modify: `README.md`, `docs/KNOWLEDGE.md`, `docs/ROADMAP.md` (only if it has a place for shipped features)
 
-- [ ] **Step 1: `README.md`.** Extend the vendoring paragraph (the blur
+- [x] **Step 1: `README.md`.** Extend the vendoring paragraph (the blur
   library, wasm and model: `lgx vendor-blur`, versions in
   `scripts/vendor-blur.mjs`); add `scripts/vendor-blur.mjs` and the new
   files to the layout list; mention blur wherever the README lists what
   the room page does.
 
-- [ ] **Step 2: `docs/KNOWLEDGE.md`.**
+- [x] **Step 2: `docs/KNOWLEDGE.md`.**
   - Stack table: rows for `@livekit/track-processors` 0.8.1 and
     `@mediapipe/tasks-vision` 0.10.14 (with the model's hash pin).
   - "The pages": replace the claim that the app serves only text. A
@@ -506,8 +506,10 @@ frame assertions poll for growth and never count on a rate.
   - Add the new upstream files to the "Verify against" footer.
   Use /writing-clearly.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
   `git commit -am "docs: background blur"`
+
+> `docs/ROADMAP.md` is unchanged: it has no place for shipped work outside its milestones.
 
 ### Task 6: Review and pull request
 
