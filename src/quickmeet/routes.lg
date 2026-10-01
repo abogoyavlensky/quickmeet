@@ -29,29 +29,47 @@
    :body (json/write-json data)})
 
 (def ^:private content-types
-  {"html" "text/html; charset=utf-8"
-   "js"   "text/javascript; charset=utf-8"
-   "css"  "text/css; charset=utf-8"
-   "svg"  "image/svg+xml"})
+  {"html"   "text/html; charset=utf-8"
+   "js"     "text/javascript; charset=utf-8"
+   "css"    "text/css; charset=utf-8"
+   "svg"    "image/svg+xml"
+   ;; Streaming compilation of the wasm needs its own type.
+   "wasm"   "application/wasm"
+   "tflite" "application/octet-stream"})
 
 ;; The font is 120 kB of base64 that changes only when the pinned version
 ;; does, and every page links it: browsers keep it for a week.
 (def ^:private long-lived #{"fonts.css"})
 
+;; Background blur's wasm (9.4 MB), its loader and its model are cached for
+;; a year, so they live under /static/blur/<tag>/, where the tag names the
+;; pinned versions and a bump moves them. scripts/vendor-blur.mjs writes the
+;; same tag into track-processors.js, which is how the page finds them:
+;; change both together. Only the current tag is served, so a page left
+;; open across a bump gets a 404 (and no blur) rather than new files under
+;; an old URL. (A literal `blur` segment, because ruuter refuses two
+;; different param names at one position, and /static/:file is there.)
+(def ^:private blur-tag "tp0.8.1-tv0.10.14")
+(def ^:private blur-assets
+  #{"vision_wasm_internal.js" "vision_wasm_internal.wasm" "selfie_segmenter.tflite"})
+
 (defn- static-response
-  "Serve `name` from resources/public. Only the text types above are served:
-   io/slurp reads a string, so binaries would not survive. io/resource
-   returns nil for a missing name and for one that escapes the resource
-   root, so `..` cannot reach outside it."
-  [name]
-  (let [ct (content-types (last (str/split (str name) #"\.")))
-        res (when ct (io/resource (str "public/" name)))]
-    (if res
-      {:status 200
-       :headers (cond-> {"Content-Type" ct}
-                  (long-lived name) (assoc "Cache-Control" "public, max-age=604800"))
-       :body (io/slurp res)}
-      (json-response 404 {:error "not found"}))))
+  "Serve `name` from resources/public, if its type is one of the above.
+   io/slurp returns a let-go string, which holds raw bytes, so binaries
+   are served intact. io/resource returns nil for a missing name and for
+   one that escapes the resource root, so `..` cannot reach outside it.
+   `cache-control`, if given, is sent as that header."
+  ([name]
+   (static-response name (when (long-lived name) "public, max-age=604800")))
+  ([name cache-control]
+   (let [ct (content-types (last (str/split (str name) #"\.")))
+         res (when ct (io/resource (str "public/" name)))]
+     (if res
+       {:status 200
+        :headers (cond-> {"Content-Type" ct}
+                   cache-control (assoc "Cache-Control" cache-control))
+        :body (io/slurp res)}
+       (json-response 404 {:error "not found"})))))
 
 ;; Room ids are short, URL-safe and unguessable enough for a link that is
 ;; shared on purpose: 12 hex chars of a random UUID.
@@ -291,6 +309,14 @@
    {:path "/static/:file"
     :method :get
     :response (fn [req] (static-response (-> req :params :file)))}
+
+   {:path "/static/blur/:tag/:file"
+    :method :get
+    :response (fn [req]
+                (let [{:keys [tag file]} (:params req)]
+                  (if (and (= blur-tag tag) (blur-assets file))
+                    (static-response file "public, max-age=31536000, immutable")
+                    (json-response 404 {:error "not found"}))))}
 
    ;; Create a room and hand back its id; the page turns it into a link.
    ;; Starting a call takes an account; the room remembers who made it.

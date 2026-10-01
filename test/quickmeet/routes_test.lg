@@ -213,6 +213,7 @@
         (is (= 200 (:status page)))
         ;; The client library is vendored and served from the binary.
         (is (str/includes? (:body page) "/static/livekit-client.umd.min.js"))
+        (is (str/includes? (:body page) "/static/track-processors.js"))
         (is (not (str/includes? (:body page) "jsdelivr"))))
       ;; A room page is served for any well-formed id: the token endpoint
       ;; is what checks the room exists.
@@ -228,6 +229,36 @@
       ;; The account pages, the script they share, and history.
       (doseq [page ["/signup" "/signin" "/settings" "/history" "/static/account.js"]]
         (is (= 200 (:status (call handler :get page))) page)))))
+
+;; Background blur: the bundle names where its wasm and model live, and
+;; that path is the one the server answers, with a year's cache. The model
+;; arriving byte for byte is also the proof that binaries survive io/slurp.
+(def ^:private blur-base "/static/blur/tp0.8.1-tv0.10.14")
+
+(deftest the-blur-assets
+  (with-handler
+    (fn [handler _]
+      (let [js (call handler :get "/static/track-processors.js")]
+        (is (= 200 (:status js)))
+        (is (= "text/javascript; charset=utf-8" (get-in js [:headers "Content-Type"])))
+        (is (str/includes? (:body js) blur-base)))
+      (let [wasm (call handler :get (str blur-base "/vision_wasm_internal.wasm"))]
+        (is (= 200 (:status wasm)))
+        (is (= "application/wasm" (get-in wasm [:headers "Content-Type"])))
+        (is (= "public, max-age=31536000, immutable" (get-in wasm [:headers "Cache-Control"]))))
+      (let [model (call handler :get (str blur-base "/selfie_segmenter.tflite"))]
+        (is (= 200 (:status model)))
+        (is (= "application/octet-stream" (get-in model [:headers "Content-Type"])))
+        (is (= "191ac9529ae506ee0beefa6b2c945a172dab9d07d1e802a290a4e4038226658b"
+               (hash/sha256 (:body model)))))
+      (let [loader (call handler :get (str blur-base "/vision_wasm_internal.js"))]
+        (is (= 200 (:status loader)))
+        (is (= "text/javascript; charset=utf-8" (get-in loader [:headers "Content-Type"]))))
+      ;; Another tag, or a file that is not one of the three: not found.
+      (doseq [uri ["/static/blur/some-other-tag/vision_wasm_internal.js"
+                   (str blur-base "/app.css")
+                   (str blur-base "/nope.wasm")]]
+        (is (= 404 (:status (call handler :get uri))) uri)))))
 
 (deftest accounts-and-sessions
   (with-handler

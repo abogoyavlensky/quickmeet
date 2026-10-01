@@ -34,7 +34,9 @@ Open http://localhost:8080, sign up (any email, no verification), click
 "New call", open the room link in a second window, join from both.
 Starting a call takes an account; joining one takes only the link.
 The room page shows a lobby first: a preview of your camera, pickers for
-the camera and microphone, and who is already in the room. Rooms are
+the camera and microphone, and who is already in the room. A button on
+the preview, and another in the call's controls, blurs the background
+behind you; the browser remembers the choice for the next call. Rooms are
 permanent and hold two people; a third person is told the call is
 full. A link is created once and reused for every call with that person.
 
@@ -55,7 +57,9 @@ the remote video plays, decoded frames and audio packets keep growing,
 nothing is lost, and leaving is noticed. Other specs cover accounts
 (sign up, sign in, sign out, settings, a guest needing none), the lobby
 (preview, device pickers, who is there, a third person refused), the
-call's states (waiting, reconnecting, a lost connection) and the layout
+call's states (waiting, reconnecting, a lost connection), background
+blur (on in the lobby and into the call, a failed load, a browser that
+cannot do it) and the layout
 on phone-sized and short viewports by bounding boxes. Playwright stops
 the app when the run ends, so it coexists with an `lgx run` on the
 default ports.
@@ -87,7 +91,12 @@ binary, so a call page has no CDN dependency. To bump it, change the
 version in the `vendor-livekit-client` task in `lgx.edn` and run
 `lgx vendor-livekit-client`. The typeface (Onest, OFL) is vendored the
 same way, as base64 inside `fonts.css`: `lgx vendor-fonts`, version in
-`scripts/vendor-fonts.mjs`.
+`scripts/vendor-fonts.mjs`. So is background blur: LiveKit's track
+processors bundled into `track-processors.js`, MediaPipe's wasm (9.4 MB)
+and the segmentation model, `lgx vendor-blur`, versions in
+`scripts/vendor-blur.mjs`. The wasm and the model are served under
+`/static/blur/<versions>/` with a year's cache; a bump changes the tag in
+the script and in `src/quickmeet/routes.lg` together.
 
 ## Deployment
 
@@ -176,8 +185,9 @@ src/quickmeet/password.lg      bcrypt (golang.org/x/crypto/bcrypt as a :go/inter
 src/quickmeet/id.lg            random ids for rooms, users and sessions
 src/quickmeet/sfu.lg           asks the embedded SFU who is in a room, and which rooms are live (twirp over loopback)
 src/quickmeet/server.lg        ::http: http/start on init, http/stop on halt
-resources/public/              index, room, history, signup, signin, settings pages; app.css; ui.js (icons, avatars); vendored livekit-client and font
+resources/public/              index, room, history, signup, signin, settings pages; app.css; ui.js (icons, avatars); vendored livekit-client, font and background blur
 scripts/vendor-fonts.mjs       writes resources/public/fonts.css from the pinned Onest release
+scripts/vendor-blur.mjs        writes the blur bundle, MediaPipe's wasm and the model into resources/public
 test/quickmeet/                routes and auth over a temp db; migrations; password; the full system
 e2e/                           Playwright: two browsers in a call against bin/quickmeet; smoke.mjs for a deployed one
 Dockerfile                     the runtime image around bin/quickmeet

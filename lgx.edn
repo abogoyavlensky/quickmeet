@@ -88,4 +88,11 @@
   ;; script.
   vendor-fonts
   {:doc "Write the pinned Onest font into resources/public/fonts.css"
-   :do {:sh "node scripts/vendor-fonts.mjs"}}}}
+   :do {:sh "node scripts/vendor-fonts.mjs"}}
+
+  ;; Background blur: LiveKit's track processors, MediaPipe's wasm and the
+  ;; segmentation model, served from the binary too. Versions are pinned in
+  ;; the script.
+  vendor-blur
+  {:doc "Write the pinned background blur library, wasm and model into resources/public"
+   :do {:sh "node scripts/vendor-blur.mjs"}}}}
