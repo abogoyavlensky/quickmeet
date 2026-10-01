@@ -391,13 +391,18 @@ Why the stock blur ripples, and the patch, 2026-10-01:
   one (keeping `exp(-elapsed / 50 ms)` of it), and `highp` in every
   shader. On iPhones `mediump` is a 16-bit float, about 0.6 of a texel
   across a 720-pixel texture, so samples snap; headless Chromium computes
-  in 32 bits and cannot show it. The page asks for radius 80.
+  in 32 bits and cannot show it. The page asks for radius 60.
 - Measured with a synthetic camera (a fine leaf pattern at 1280x720,
   moved by a seeded random walk, with sensor noise; per-pixel standard
   deviation over 10 output frames): the stock blur kept 27% of the
-  camera's frame-to-frame change, the patched one at radius 80 kept 2.8%.
+  camera's frame-to-frame change, the patched one kept 3.5% at radius 60
+  and 2.8% at 80.
   In the headless shell the patched pipeline renders about 30% slower
   (1.3 against 1.9 frames a second on software WebGL).
+- On the iPhone (2026-10-01) the patched blur at radius 80 held still
+  and ran smoothly, but read as a flat wash, and a sharp patch of
+  background the segmenter took for hair stood out against it: the
+  person looked cut out. Hence 60, which keeps soft shapes of the room.
 - The mask's time smoothing cannot be judged headless: at 2 to 3
   processed frames a second the camera moves between frames, and a fixed
   share of the previous mask only adds lag (it measured worse). Hence a
