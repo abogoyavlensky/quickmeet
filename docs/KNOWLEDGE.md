@@ -399,7 +399,7 @@ Why the stock blur ripples, and the patch, 2026-10-01:
   and 2.8% at 80.
   In the headless shell the patched pipeline renders about 30% slower
   (1.3 against 1.9 frames a second on software WebGL).
-- On the iPhone (2026-10-02) the patched blur at radius 80 held still
+- On the iPhone (2026-10-01) the patched blur at radius 80 held still
   and ran smoothly, but read as a flat wash, and a sharp patch of
   background the segmenter took for hair stood out against it: the
   person looked cut out. Hence 60, which keeps soft shapes of the room.
