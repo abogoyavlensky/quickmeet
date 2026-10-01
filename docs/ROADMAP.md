@@ -77,6 +77,11 @@ follow with a real device to test them on.
   (`e2e/tests/call.spec.js`).
 - Done 2026-09-29: a layout for phones, portrait and landscape, and for
   short desktop windows (`e2e/tests/mobile.spec.js`).
+- Done 2026-10-01: the other person's video keeps its shape. On a desktop
+  the tile becomes tall for a phone held upright; on a phone the video is
+  letterboxed when its orientation differs from the screen's
+  (`e2e/tests/orientation.spec.js`). An upright phone sending tall frames
+  is still to be confirmed on devices.
 - Done 2026-09-29: two-person rule. The SFU caps rooms at two
   (`room.max_participants`); the app asks the SFU who is in the room so
   the token endpoint can say 409 "full" and the lobby can show who is

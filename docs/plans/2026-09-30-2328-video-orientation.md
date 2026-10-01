@@ -142,7 +142,7 @@ Work on a branch (`video-orientation`), one PR, as earlier milestones did.
 - Modify: `e2e/tests/helpers.js`
 - Create: `e2e/tests/orientation.spec.js`
 
-- [ ] **Step 1: The helper.** Export `tallCamera(context)` from
+- [x] **Step 1: The helper.** Export `tallCamera(context)` from
   `helpers.js`: `context.addInitScript` with the `getUserMedia` wrapper
   described under Testing (360×640 canvas, repainted with a changing fill
   about 15 times a second, `captureStream(15)`; when the request has no
@@ -153,14 +153,14 @@ Work on a branch (`video-orientation`), one PR, as earlier milestones did.
   ...options }`), strip it before `browser.newContext`, and call
   `await init(context)` before `newPage`. Existing callers are unaffected.
 
-- [ ] **Step 2: Prove the helper.** In `orientation.spec.js`, with the same
+- [x] **Step 2: Prove the helper.** In `orientation.spec.js`, with the same
   `contexts` setup and teardown as `mobile.spec.js`, a first test "a tall
   camera reaches the other side tall": alice joins plainly, bob joins with
   `{ init: tallCamera }`; poll alice's `#remote` until `videoWidth > 0`,
   then expect `videoHeight > videoWidth`. Also expect bob's own `#local`
   to be tall.
 
-- [ ] **Step 3: Run.**
+- [x] **Step 3: Run.**
   Run: `lgx e2e` (or, after one build, `cd e2e && npx playwright test orientation`)
   Expected: the new test passes; the whole suite still passes.
   If the canvas track does not publish or arrives with no frames, fall back
@@ -169,7 +169,10 @@ Work on a branch (`video-orientation`), one PR, as earlier milestones did.
   constraints (Chromium crops and scales the fake camera). Keep whichever
   works and say which in a deviation note under this task.
 
-- [ ] **Step 4: Commit.** `e2e: a tall fake camera`
+- [x] **Step 4: Commit.** `e2e: a tall fake camera`
+
+> Deviation: the canvas track worked first time; the fake-device fallback was not needed. `box`, `inside` and `overlaps` moved into `helpers.js` here rather than in Task 2, so the specs share them from the start.
+> Codex review: no findings.
 
 ### Task 2: Desktop, the tile takes the video's shape
 
@@ -178,7 +181,7 @@ Work on a branch (`video-orientation`), one PR, as earlier milestones did.
 - Modify: `resources/public/room.html`
 - Modify: `resources/public/app.css`
 
-- [ ] **Step 1: Failing tests.** A `describe('on a desktop')` with viewport
+- [x] **Step 1: Failing tests.** A `describe('on a desktop')` with viewport
   1280×800 for alice (pass it as her context options, as `mobile.spec.js`
   does for `short`):
   - "a tall video gets a tall tile": bob joins with `tallCamera`. Poll
@@ -195,10 +198,10 @@ Work on a branch (`video-orientation`), one PR, as earlier milestones did.
   Copy `box`, `inside` and `overlaps` from `mobile.spec.js` into
   `helpers.js` and import them in both specs rather than duplicating.
 
-- [ ] **Step 2: Run, expect failure.** The tall and wide ratio checks fail
+- [x] **Step 2: Run, expect failure.** The tall and wide ratio checks fail
   (the tile is 16:9 whatever arrives).
 
-- [ ] **Step 3: Script.** In `room.html`, next to the other call helpers,
+- [x] **Step 3: Script.** In `room.html`, next to the other call helpers,
   add `fitRemote()` as specified in the Design (sets or removes `--ratio`,
   `wide`, `tall` on `$('remote').parentElement`). Register it once, at
   script load, for `resize` and `loadedmetadata` on `$('remote')`. In the
@@ -210,7 +213,7 @@ Work on a branch (`video-orientation`), one PR, as earlier milestones did.
   not from LiveKit's track dimensions: the element reports what is actually
   being shown, after rotation and layer switches.
 
-- [ ] **Step 4: Style.** In `app.css`: `container-type: size` on `.call`;
+- [x] **Step 4: Style.** In `app.css`: `container-type: size` on `.call`;
   on `.tile`, replace `width: 100%; max-width: 960px; aspect-ratio: 16 / 9`
   with the two declarations in the Design, keeping `max-height: 100%`.
   Rewrite the comment at lines 68-70: the tile takes the video's shape and
@@ -219,14 +222,20 @@ Work on a branch (`video-orientation`), one PR, as earlier milestones did.
   height: 100%` stay), and check `.tile.self` there and in the base rules
   still sets its own width.
 
-- [ ] **Step 5: Run.**
+- [x] **Step 5: Run.**
   Run: `lgx e2e`
   Expected: all pass, including every test in `mobile.spec.js` (the short
   desktop window test now sees a narrower, uncropped tile; its assertions
   are about fitting, and still hold). If `100cqh` turns out to include the
   call area's padding, subtract the padding in the `calc()` and note it.
 
-- [ ] **Step 6: Commit.** `Room page: the remote tile takes the video's shape`
+- [x] **Step 6: Commit.** `Room page: the remote tile takes the video's shape`
+
+> Deviation: the reset runs in `startLobby` (which every return to the lobby goes through, a failed join included) and in `ParticipantDisconnected`, rather than in the `Disconnected` handler; same effect, one place fewer.
+> Deviation: the fake camera arrives 16:9, not 4:3 (LiveKit asks for 720p), so the wide test asserts the tile has the video's own ratio rather than 4:3. It guards against a regression; it did not fail before the change.
+> Deviation: the reset test ends bob's call with `#leave`, as `call.spec.js` does; closing his browser context left the SFU waiting on its timeout.
+> `100cqh` measures the content box (the short desktop window test passes with no padding correction).
+> Codex review: its one finding was the then-missing phone rules, which are Task 3.
 
 ### Task 3: Phone, letterbox on mismatch
 
@@ -234,7 +243,7 @@ Work on a branch (`video-orientation`), one PR, as earlier milestones did.
 - Modify: `e2e/tests/orientation.spec.js`
 - Modify: `resources/public/app.css`
 
-- [ ] **Step 1: Failing tests.** Reuse the `phone` and `landscape` context
+- [x] **Step 1: Failing tests.** Reuse the `phone` and `landscape` context
   options from `mobile.spec.js` (390×844 and 667×375, `isMobile`,
   `hasTouch`). Four cases, each asserting the computed `object-fit` of
   alice's `#remote` (poll: it settles once the first frame arrives) and
@@ -247,26 +256,29 @@ Work on a branch (`video-orientation`), one PR, as earlier milestones did.
   `alice.page.setViewportSize({ width: 667, height: 375 })`; `object-fit`
   becomes `cover`.
 
-- [ ] **Step 2: Run, expect failure.** The two `contain` cases fail.
+- [x] **Step 2: Run, expect failure.** The two `contain` cases fail.
 
-- [ ] **Step 3: Style.** Add the two orientation rules from the Design
+- [x] **Step 3: Style.** Add the two orientation rules from the Design
   inside the phone block, scoped so the self view is never affected
   (`.tile.wide` and `.tile.tall` are only ever set on the remote tile).
   Update the block's leading comment: the remote video fills the screen
   when it has the screen's orientation and is letterboxed when it does not.
 
-- [ ] **Step 4: Run.**
+- [x] **Step 4: Run.**
   Run: `lgx e2e`
   Expected: all pass.
 
-- [ ] **Step 5: Look at it.** Headless screenshots of a two-browser call,
+- [x] **Step 5: Look at it.** Headless screenshots of a two-browser call,
   as M2 did (an ad hoc script under `e2e/.tmp/`, not committed), for:
   desktop 1280×800 with a tall video, upright phone with a wide video,
   sideways phone with a tall video. Check by eye that the name tag, the
   status banner, the self view and the controls sit clear of each other
   and read well over black bars. Fix what does not.
 
-- [ ] **Step 6: Commit.** `Room page: phones letterbox a video of the other orientation`
+- [x] **Step 6: Commit.** `Room page: phones letterbox a video of the other orientation`
+
+> Deviation: over a letterbox's black bars the phone's ghost buttons lost their dark backing and read as plain text; they now have a light edge (`border-color: rgba(255,255,255,.35)`). Seen in the Step 5 screenshots.
+> Step 5 also covered the short desktop window (1280x550): the tall tile narrows and stays above the controls.
 
 ### Task 4: Docs, review, real devices
 
