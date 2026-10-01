@@ -1,0 +1,26 @@
+# quickmeet as a systemd service. Install to /etc/systemd/system/, then
+# systemctl daemon-reload && systemctl enable --now quickmeet.
+# See docs/INSTALL.md.
+[Unit]
+Description=quickmeet video calls
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+User=quickmeet
+Group=quickmeet
+EnvironmentFile=/etc/quickmeet/env
+ExecStart=/usr/local/bin/quickmeet
+StateDirectory=quickmeet
+WorkingDirectory=/var/lib/quickmeet
+Restart=on-failure
+# On SIGTERM the app stops serving, closes open calls in history and exits
+# in well under a second; this is only the ceiling.
+TimeoutStopSec=10
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

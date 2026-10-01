@@ -26,9 +26,20 @@
 (defn- dsn [path]
   (str path "?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)"))
 
+(declare close-open-calls!)
+
+;; At startup the embedded SFU has no rooms yet, so a call still open in the
+;; database was left by a process that died: SIGKILL, a crash, the OOM
+;; killer. It is closed now rather than at the next join in its room, which
+;; could be days away. The cost: after a long outage its end time is
+;; overstated by the outage. A clean shutdown closes calls itself, on time
+;; (quickmeet.system/shutdown!). This assumes one process per database
+;; file: a second instance started on the same DB_PATH would close the
+;; first one's live calls.
 (defmethod ig/init-key ::conn [_ {:keys [path]}]
   (let [conn (sqlite/open (dsn path))]
     (migrations/migrate! conn)
+    (close-open-calls! conn)
     conn))
 
 (defmethod ig/halt-key! ::conn [_ conn]
@@ -283,3 +294,21 @@
    :started_at :ended_at :seconds :with}."
   [conn user-id]
   (sqlite/query conn [calls-of-user-sql user-id user-id]))
+
+;; Every open call, closed now. Plain SQL: these are fixed statements, and
+;; HoneySQL under let-go misorders some update shapes. Participants first,
+;; so the call's participants all have a leave time when it closes.
+(def ^:private close-open-participants-sql
+  "update call_participants set left_at = datetime('now')
+   where left_at is null
+     and call_id in (select id from calls where ended_at is null)")
+
+(def ^:private close-open-calls-sql
+  "update calls set ended_at = datetime('now') where ended_at is null")
+
+(defn close-open-calls!
+  "End every call that is still open, and its participants' stays, at the
+   current time."
+  [conn]
+  (sqlite/execute! conn [close-open-participants-sql])
+  (sqlite/execute! conn [close-open-calls-sql]))

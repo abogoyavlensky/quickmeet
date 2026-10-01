@@ -4,7 +4,10 @@
             [http :as http]
             [json :as json]
             [livekit.core :as lk]
+            [integrant.core :as ig]
+            [quickmeet.db :as db]
             [quickmeet.sfu :as sfu]
+            [sqlite.core :as sqlite]
             [quickmeet.system :as system]
             [string :as str]))
 
@@ -99,8 +102,16 @@
         (is (nil? (sfu/participants (assoc livekit :port 1) "0123456789ab")))
         (is (nil? (sfu/active-rooms (assoc livekit :port 1))))))))
 
+(def ^:private real-secret "a-real-secret-a-real-secret-a-real-secret")
+
 (defn- config-from [m]
   (system/config (fn [name] (get m name))))
+
+(defn- refused?
+  "Whether config refuses `m`, naming the variable to set."
+  [m]
+  (try (config-from m) false
+       (catch Exception e (str/includes? (str (ex-message e)) "LIVEKIT_API_SECRET"))))
 
 (deftest config-from-the-environment
   ;; Nothing set: the media port range, and the URL derived per request.
@@ -128,7 +139,8 @@
   ;; A container: one multiplexed UDP port, reachable from the proxy.
   (let [c (config-from {"LIVEKIT_UDP_PORT" "7882"
                         "LIVEKIT_PUBLIC_URL" "wss://quickmeet.absky.dev"
-                        "LIVEKIT_BIND" "0.0.0.0"})
+                        "LIVEKIT_BIND" "0.0.0.0"
+                        "LIVEKIT_API_SECRET" real-secret})
         rtc (get-in c [:livekit/server :config :rtc])]
     (is (= 7882 (:udp_port rtc)))
     (is (not (contains? rtc :port_range_start)))
@@ -226,3 +238,84 @@
               (sleep 100)
               (recur (dec tries))))
           (is (some? (:ended_at (first (calls)))) "room_finished never arrived from the SFU"))))))
+
+(deftest sign-in-is-rate-limited-over-http
+  ;; The eleventh attempt from one address within a minute is refused,
+  ;; right or wrong, through the real server and the real limiter.
+  (with-system
+    (fn [_ base]
+      (let [attempt #(post-json (str base "/api/auth/signin")
+                                {:email "nobody@example.com" :password "wrong password"})
+            statuses (mapv (fn [_] (:status (attempt))) (range 11))]
+        (is (= (repeat 10 401) (take 10 statuses)))
+        (is (= 429 (last statuses)))))))
+
+(deftest rate-limits-can-be-switched-off
+  (is (true? (get-in (system/config {}) [:quickmeet.routes/handler :rate-limit?])))
+  (is (false? (get-in (system/config {"RATE_LIMIT" "false"}) [:quickmeet.routes/handler :rate-limit?])))
+  (with-system #(assoc-in % [:quickmeet.routes/handler :rate-limit?] false)
+    (fn [_ base]
+      (is (every? #(= 401 %)
+                  (mapv (fn [_] (:status (post-json (str base "/api/auth/signin")
+                                                    {:email "nobody@example.com" :password "wrong password"})))
+                        (range 12)))))))
+
+(deftest the-development-secret-is-refused-once-exposed
+  ;; A laptop: nothing set, or loopback spelled either way.
+  (is (not (refused? {})))
+  (is (not (refused? {"LIVEKIT_BIND" "localhost"})))
+  (is (not (refused? {"LIVEKIT_BIND" "127.0.0.1"})))
+  ;; Anything that means other machines can reach the SFU, with the
+  ;; well-known secret: refused, whether unset or set to it explicitly.
+  (is (refused? {"LIVEKIT_BIND" "0.0.0.0"}))
+  (is (refused? {"LIVEKIT_USE_EXTERNAL_IP" "true"}))
+  (is (refused? {"LIVEKIT_PUBLIC_URL" "wss://meet.example"}))
+  (is (refused? {"LIVEKIT_BIND" "0.0.0.0" "LIVEKIT_API_SECRET" system/dev-api-secret}))
+  ;; The same with a secret of the operator's own.
+  (doseq [m [{"LIVEKIT_BIND" "0.0.0.0"}
+             {"LIVEKIT_USE_EXTERNAL_IP" "true"}
+             {"LIVEKIT_PUBLIC_URL" "wss://meet.example"}]]
+    (is (map? (config-from (assoc m "LIVEKIT_API_SECRET" real-secret))))))
+
+(deftest host-sets-the-bind-address
+  (is (= "127.0.0.1:9000" (get-in (config-from {"HOST" "127.0.0.1" "PORT" "9000"})
+                                  [:quickmeet.server/http :addr])))
+  (is (= ":9000" (get-in (config-from {"PORT" "9000"}) [:quickmeet.server/http :addr])))
+  (is (= "0.0.0.0:9000" (get-in (config-from {"HOST" "0.0.0.0" "PORT" "9000"})
+                                [:quickmeet.server/http :addr])))
+  ;; Any other address would leave the SFU's webhooks nowhere to go.
+  (doseq [host ["10.0.0.5" "localhost" "::1"]]
+    (is (= "HOST" (try (config-from {"HOST" host}) nil
+                       (catch Exception e (:variable (ex-data e)))))
+        host)))
+
+(deftest shutdown-stops-serving-closes-history-and-keeps-the-sfu
+  ;; Not through with-system: this test owns the teardown, since shutdown!
+  ;; leaves the SFU for the process exit to take down.
+  (let [path (str "/tmp/quickmeet-system-" (rand-int 100000000) ".db")
+        system (system/start! (-> (system/config)
+                                  (assoc-in [:quickmeet.db/conn :path] path)
+                                  (assoc-in [:quickmeet.server/http :addr] "127.0.0.1:0")
+                                  (assoc-in [:livekit/server :config :port] lk-port)
+                                  (assoc-in [:livekit/server :config :rtc :tcp_port] 7891)
+                                  (assoc-in [:quickmeet.routes/handler :livekit :port] lk-port)))
+        base (str "http://" (:addr (:quickmeet.server/http system)))
+        livekit (get-in (system/config) [:quickmeet.routes/handler :livekit])
+        livekit (assoc livekit :port lk-port)
+        conn (:quickmeet.db/conn system)]
+    (try
+      (db/create-user! conn "u-1" "one@example.com" "x" "One")
+      (db/create-room! conn "0123456789ab" "u-1")
+      (db/create-call! conn "c-1" "0123456789ab" "RM_1")
+      (is (= 200 (:status (http/get (str base "/")))))
+      (system/shutdown! system)
+      (is (= :refused (try (http/get (str base "/")) (catch Exception _ :refused)))
+          "the app no longer serves")
+      (is (map? (sfu/active-rooms livekit)) "the SFU is still up")
+      (let [c (sqlite/open path)]
+        (try
+          (is (some? (:ended_at (sqlite/execute-one! c ["select ended_at from calls where id = ?" "c-1"]))))
+          (finally (sqlite/close! c))))
+      (finally
+        (ig/halt! system [:livekit/server])
+        (os/sh "rm" "-f" path (str path "-wal") (str path "-shm"))))))
