@@ -418,13 +418,15 @@ frame assertions poll for growth and never count on a rate.
 
 > Deviation: the icon's background dots are small filled circles, not zero-length strokes, which looked too faint beside the microphone at 20px. The preview button's glass is dark (`rgba(0,0,0,.45)`), not the controls' light glass, because it sits over a bright, lit room. The screenshot script found that Playwright's actionability wait ("stable") barely completes on a page running blur in headless Chromium (software WebGL starves animation frames), so clicks while blur runs use `{ force: true }`; Task 4's spec does the same.
 
+> Review fixup (`6de83e1`, codex): the blur buttons are also disabled from the Join click until the call is up (a switch started then could publish the raw camera), and a switch whose camera was replaced by a restarting lobby takes its processor off that old track and reports nothing; `restoreBlur` waits out any switch in flight.
+
 ### Task 4: Browser tests
 
 **Files:**
 - Create: `e2e/tests/blur.spec.js`
 - Modify: `e2e/tests/mobile.spec.js`
 
-- [ ] **Step 1: Write `blur.spec.js`** with the helpers in
+- [x] **Step 1: Write `blur.spec.js`** with the helpers in
   `e2e/tests/helpers.js` (`newRoom`, `openLobby`, `joinAs`, `statsOf`,
   `remoteOf`) and the suite's shape (own contexts, closed in
   `afterEach`). Four tests, as "Testing" in the design lists them:
@@ -457,13 +459,13 @@ frame assertions poll for growth and never count on a rate.
      `#blur-preview` is hidden; after the join, `#blur` is hidden.
   Give test 1 `test.setTimeout(120_000)`: software WebGL is slow.
 
-- [ ] **Step 2: Extend `mobile.spec.js`**: add `'#blur'` to the id lists
+- [x] **Step 2: Extend `mobile.spec.js`**: add `'#blur'` to the id lists
   in "the banner, the sound button and the controls all fit" (both
   loops) and in "the remote tile, its name and the controls all fit",
   and to any other list there that names `#mic`, `#cam` and `#leave`
   together as the set of controls.
 
-- [ ] **Step 3: Run**
+- [x] **Step 3: Run**
   Run: `lgx e2e`
   Expected: PASS, the four new tests included. If test 1 is flaky on
   frame growth, lengthen the poll's timeout; do not assert a rate.
@@ -471,8 +473,10 @@ frame assertions poll for growth and never count on a rate.
   against a fresh `lgx build` (Playwright starts the binary itself).
   Expected: 12 passed.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
   `git add e2e && git commit -m "e2e: background blur in the lobby and the call"`
+
+> Deviation: five tests, not four. Test 1 took 1.5 minutes of its 2 (every Playwright call on a blurred page costs about half a second, since software WebGL holds the main thread), so it is split into a lobby test and a call test. Waits use `waitForFunction(..., { polling: 500 })`, because the default polls on animation frames, which blur starves. `--repeat-each 3` ran with `--workers 1` (15 passed): with three workers, three blurring pages starve each other and the call test hits its timeout; the full suite, where the blur file runs serially in one worker, passed 39/39. Removing `await blurBusy` from `join()` makes "a join right after the click…" fail (published unblurred), so that test guards the wait.
 
 ### Task 5: Documentation
 
