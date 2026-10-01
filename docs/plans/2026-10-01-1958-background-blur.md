@@ -350,19 +350,20 @@ frame assertions poll for growth and never count on a rate.
 **Files:**
 - Modify: `resources/public/ui.js`, `resources/public/room.html`, `resources/public/app.css`
 
-- [ ] **Step 1: Read first.** In `resources/public/livekit-client.umd.min.js`,
+- [x] **Step 1: Read first.** In `resources/public/livekit-client.umd.min.js`,
   find what `LocalTrack.stop()` does with a processor (search for
   `stopProcessor` and `processor`), to settle the `stopTracks` point in
   the design, and confirm `getProcessor`, `setProcessor` and
   `stopProcessor` are the method names.
+  > Found (livekit-client 2.22.3 source): `LocalTrack.stop()` already calls `processor.destroy()`, so `stopTracks` stays as it is; `restart()` (device switch, camera unmute) restarts the processor; the `mediaStreamTrack` getter returns `processor.processedTrack` when there is one (the source's settings are only on the internal `getSourceTrackSettings()`), which confirms `fillDevices` before `restoreBlur`. Camera off (`mute`) stops the source track but keeps the processor.
 
-- [ ] **Step 2: The icon.** Add `blur` to `ICONS` in `ui.js`: a head and
+- [x] **Step 2: The icon.** Add `blur` to `ICONS` in `ui.js`: a head and
   shoulders with dots on both sides, in the outline style of the others.
   A starting point, to be adjusted by eye in step 6:
   `<circle cx="12" cy="9" r="3.5"/><path d="M5.5 20a6.5 6.5 0 0 1 13 0"/><path d="M3 5h.01M3 10h.01M3 15h.01M21 5h.01M21 10h.01M21 15h.01M7.5 3h.01M16.5 3h.01"/>`.
   One icon serves both states; the solid button is what says "on".
 
-- [ ] **Step 3: Markup** in `room.html`:
+- [x] **Step 3: Markup** in `room.html`:
   `<script src="/static/track-processors.js"></script>` after the
   `livekit-client` script; `<button id="blur-preview" hidden></button>`
   inside `.preview`, after the video; `<button id="blur" hidden></button>`
@@ -371,7 +372,7 @@ frame assertions poll for growth and never count on a rate.
   assert that the room page's body includes
   `/static/track-processors.js`.
 
-- [ ] **Step 4: Logic** in `room.html`, as "The page logic" in the
+- [x] **Step 4: Logic** in `room.html`, as "The page logic" in the
   design specifies: `BLUR_KEY`, `camTrack`, `blurOn`, `blurSupported`,
   `setBlur`, `restoreBlur`, `drawBlur`, the click handlers on both
   buttons, the `window.call.blur` getter (document it in the comment
@@ -384,7 +385,7 @@ frame assertions poll for growth and never count on a rate.
   `blurBusy` promise, which `join()` awaits. Clicks while the controls are faded are already
   swallowed by the existing handlers; nothing to add.
 
-- [ ] **Step 5: CSS** in `app.css`:
+- [x] **Step 5: CSS** in `app.css`:
   - `.preview { position: relative; }` and `#blur-preview`: absolute,
     12px from the right and bottom, 44px round, the glass look of
     `.controls button` (share the rule by adding the selector to it
@@ -396,7 +397,7 @@ frame assertions poll for growth and never count on a rate.
   The lobby preview video is mirrored with `transform` on the `<video>`;
   the button is a sibling, so it is not mirrored.
 
-- [ ] **Step 6: Look at it.** Build and run locally (`lgx build`, then
+- [x] **Step 6: Look at it.** Build and run locally (`lgx build`, then
   the binary with the e2e ports from `e2e/playwright.config.js`, or a
   short Playwright script in the scratch directory) and take headless
   screenshots at 390x844, 667x375 and 1280x800 of the lobby and the
@@ -406,14 +407,16 @@ frame assertions poll for growth and never count on a rate.
   clearly different from off. Adjust the icon and spacing until it does.
   Follow /frontend-design only as far as matching what is there.
 
-- [ ] **Step 7: Run the existing suites**
+- [x] **Step 7: Run the existing suites**
   Run: `lgx test && lgx e2e`
   Expected: PASS. Nothing that existed changes behaviour; a failure here
   is a regression (the likeliest: the device select losing its selected
   option, or `lobby.ready` no longer resolving).
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
   `git commit -am "Background blur: one toggle in the lobby and in the call"`
+
+> Deviation: the icon's background dots are small filled circles, not zero-length strokes, which looked too faint beside the microphone at 20px. The preview button's glass is dark (`rgba(0,0,0,.45)`), not the controls' light glass, because it sits over a bright, lit room. The screenshot script found that Playwright's actionability wait ("stable") barely completes on a page running blur in headless Chromium (software WebGL starves animation frames), so clicks while blur runs use `{ force: true }`; Task 4's spec does the same.
 
 ### Task 4: Browser tests
 

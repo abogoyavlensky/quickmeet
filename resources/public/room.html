@@ -9,6 +9,7 @@
   <link rel="stylesheet" href="/static/fonts.css">
   <link rel="stylesheet" href="/static/app.css">
   <script src="/static/livekit-client.umd.min.js"></script>
+  <script src="/static/track-processors.js"></script>
   <script src="/static/ui.js"></script>
 </head>
 <body class="room">
@@ -30,9 +31,14 @@
     <p><a class="button" href="/">Start a new call</a></p>
   </section>
 
-  <!-- Before joining: a preview, who is already there, the devices. -->
+  <!-- Before joining: a preview (with the blur button in its corner, so
+       the background is hidden before anyone sees it), who is already
+       there, the devices. -->
   <section id="lobby" class="lobby" hidden>
-    <div class="preview"><video id="preview" autoplay playsinline muted></video></div>
+    <div class="preview">
+      <video id="preview" autoplay playsinline muted></video>
+      <button id="blur-preview" hidden></button>
+    </div>
     <p id="presence"></p>
     <p id="notice" class="notice" hidden></p>
     <div class="join-row">
@@ -58,6 +64,7 @@
       <button id="sound" class="primary" hidden>Tap to enable sound</button>
     </div>
     <footer class="controls">
+      <button id="blur" hidden></button>
       <button id="mic"></button>
       <button id="cam"></button>
       <button id="leave" class="danger"></button>
@@ -105,6 +112,8 @@
     // other participant's name (what they typed, or their account's display
     // name), not their LiveKit identity; `tracks` holds the subscribed
     // remote tracks so `stats()` can read their inbound RTP counters.
+    // `blur` (defined with the blur logic below) says whether the camera is
+    // blurred now.
     window.call = { room: null, remote: null, joined: false, tracks: { video: null, audio: null } };
 
     // Inbound RTP stats for the remote video and audio: null for a kind that
@@ -276,7 +285,8 @@
       showNotice(notice);
       $('error').hidden = true;
       $('join').disabled = false;
-      lobby.ready = acquireTracks().then(fillDevices);
+      drawBlur();
+      lobby.ready = acquireTracks().then(fillDevices).then(restoreBlur);
       startPolling();
     }
 
@@ -353,6 +363,97 @@
     function startPolling() { stopPolling(); pollPresence(); lobby.poll = setInterval(pollPresence, 3000); }
     function stopPolling() { if (lobby.poll) clearInterval(lobby.poll); lobby.poll = null; }
 
+    // ---- blur -----------------------------------------------------------
+
+    // Background blur, one look, on or off, from the button on the preview
+    // or the one in the controls: LiveKit's background processor on the
+    // camera track, with its wasm and model served by the app
+    // (LivekitTrackProcessors.assetBase). The track is the truth: blur is
+    // on while the camera track has a processor. The processor goes where
+    // the track goes, into the call and through a device switch or the
+    // camera going off and on (the client restarts it with the track).
+    //
+    // The choice is remembered on this device, and a lobby restores it only
+    // after fillDevices: with a processor on, the track's mediaStreamTrack
+    // is the processed one, which has no deviceId to select. join() waits
+    // for the lobby and for any switch in flight, so whoever asked for blur
+    // is never published without it.
+    const BLUR_KEY = 'quickmeet.blur';
+    const BLUR_FAILED = 'Background blur is not available here.';
+    const blurButtons = [$('blur-preview'), $('blur')];
+    const camTrack = () => trackOfKind(Track.Kind.Video);
+    const blurOn = () => { const t = camTrack(); return !!(t && t.getProcessor()); };
+    const blurSupported = () => !!window.LivekitTrackProcessors && LivekitTrackProcessors.supportsBackgroundProcessors();
+    Object.defineProperty(window.call, 'blur', { get: blurOn });
+    // Storage can be refused (some private modes); blur then just is not
+    // remembered.
+    const remembered = () => { try { return localStorage.getItem(BLUR_KEY) === '1'; } catch (e) { return false; } };
+    function remember(on) {
+      try { on ? localStorage.setItem(BLUR_KEY, '1') : localStorage.removeItem(BLUR_KEY); } catch (e) { /* not remembered */ }
+    }
+    // The promise of the switch in flight, null when there is none.
+    let blurBusy = null;
+
+    // Both buttons show the same state; on is the solid one. With the camera
+    // off there is nothing to blur, so the button waits.
+    function drawBlur() {
+      const track = camTrack(), on = blurOn();
+      for (const button of blurButtons) {
+        button.hidden = !track || !blurSupported();
+        button.disabled = !!blurBusy || !!(track && track.isMuted);
+        setIcon(button, 'blur', on ? 'Stop blurring' : 'Blur background');
+        button.setAttribute('aria-pressed', String(on));
+        button.toggleAttribute('data-on', on);
+      }
+    }
+
+    async function switchBlur(track, on) {
+      if (!on) return track.stopProcessor();
+      const base = location.origin + LivekitTrackProcessors.assetBase;
+      await track.setProcessor(LivekitTrackProcessors.BackgroundProcessor({
+        mode: 'background-blur',
+        assetPaths: { tasksVisionFileSet: base, modelAssetPath: base + '/selfie_segmenter.tflite' },
+      }));
+    }
+
+    // Turns blur on or off; resolves to whether it is now as asked. When it
+    // cannot start (the wasm did not load, WebGL refused), the camera goes
+    // on unblurred, the choice is forgotten and the person is told.
+    async function setBlur(on) {
+      const track = camTrack();
+      if (!track || !blurSupported() || blurBusy) return false;
+      if (on === blurOn()) return true;
+      blurBusy = switchBlur(track, on).then(() => true, async () => {
+        await track.stopProcessor().catch(() => {});
+        remember(false);
+        blurFailed();
+        return false;
+      });
+      drawBlur();
+      const ok = await blurBusy;
+      blurBusy = null;
+      drawBlur();
+      return ok;
+    }
+    function blurFailed() {
+      if (!window.call.joined) { showNotice(BLUR_FAILED); return; }
+      setStatus(BLUR_FAILED);
+      setTimeout(() => {
+        if (window.call.room && $('status').textContent === BLUR_FAILED) refreshStatus(window.call.room);
+      }, 4000);
+    }
+
+    async function restoreBlur() {
+      drawBlur();
+      if (remembered()) await setBlur(true);
+    }
+    for (const button of blurButtons) {
+      button.addEventListener('click', async () => {
+        const on = !blurOn();
+        if (await setBlur(on)) remember(on);
+      });
+    }
+
     // ---- call -----------------------------------------------------------
 
     // Presence drives the banner, not media: a receive-only participant
@@ -376,6 +477,7 @@
       setIcon($('cam'), on ? 'video' : 'video-off', on ? 'Stop video' : 'Start video');
       $('cam').toggleAttribute('data-off', !on);
       $('local').parentElement.hidden = !on;
+      drawBlur();
     }
 
     // Two people can both get tokens before the room fills; the SFU then
@@ -397,6 +499,7 @@
       $('error').hidden = true;
       try {
         await lobby.ready;
+        await blurBusy;
         const res = await fetch(`/api/rooms/${roomId}/token`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },

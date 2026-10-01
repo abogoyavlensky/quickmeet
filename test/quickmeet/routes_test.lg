@@ -213,6 +213,7 @@
         (is (= 200 (:status page)))
         ;; The client library is vendored and served from the binary.
         (is (str/includes? (:body page) "/static/livekit-client.umd.min.js"))
+        (is (str/includes? (:body page) "/static/track-processors.js"))
         (is (not (str/includes? (:body page) "jsdelivr"))))
       ;; A room page is served for any well-formed id: the token endpoint
       ;; is what checks the room exists.

@@ -114,7 +114,7 @@ input::placeholder { color: var(--muted); }
 body.room { display: flex; flex-direction: column; }
 body:not(.in-call) .bar #copy { height: 36px; padding: 0 12px; border-radius: 10px; font-size: 15px; }
 .lobby { width: 100%; max-width: 560px; margin: 8px auto 0; padding: 0 20px 24px; display: grid; gap: 16px; }
-.preview { width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: 20px; overflow: hidden; }
+.preview { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: 20px; overflow: hidden; }
 .preview video { width: 100%; height: 100%; object-fit: cover; display: block; }
 /* Your own picture is a mirror, in the lobby and in the call. */
 .preview video, .tile.self video { transform: scaleX(-1); }
@@ -160,12 +160,19 @@ body.in-call { min-height: 0; height: 100vh; height: 100dvh; overflow: hidden; }
 .tile.self { position: absolute; right: 20px; bottom: 20px; width: 200px; max-width: 30vw; aspect-ratio: 16 / 9; border-radius: 14px; box-shadow: 0 0 0 1px rgba(255,255,255,.14), 0 8px 24px rgba(0,0,0,.45); }
 
 .controls { position: absolute; z-index: 2; bottom: 16px; left: 0; right: 0; display: flex; justify-content: center; gap: 14px; }
-.controls button { width: 56px; height: 56px; padding: 0; border: 0; border-radius: 28px; background: rgba(255,255,255,.14); color: #fff; -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); }
+/* Round glass buttons over video: the controls, and blur on the lobby's
+   preview, which is darker because a lit room behind it is bright. */
+.controls button, #blur-preview { padding: 0; border: 0; border-radius: 50%; background: rgba(255,255,255,.14); color: #fff; -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); }
+.controls button { width: 56px; height: 56px; border-radius: 28px; }
 .controls button:hover { background: rgba(255,255,255,.22); }
+#blur-preview { position: absolute; right: 12px; bottom: 12px; width: 44px; height: 44px; background: rgba(0,0,0,.45); }
+#blur-preview:hover { background: rgba(0,0,0,.6); }
 .controls svg { width: 24px; height: 24px; }
-/* Microphone or camera off: the button turns solid, so "off" is the state
-   that stands out. */
-.controls button[data-off], .controls button[data-off]:hover { background: #fff; color: #161917; }
+/* The unusual state is the solid one, so it stands out: microphone or
+   camera off, blur on. */
+.controls button[data-off], .controls button[data-off]:hover,
+.controls button[data-on], .controls button[data-on]:hover,
+#blur-preview[data-on], #blur-preview[data-on]:hover { background: #fff; color: #161917; }
 .controls .danger, .controls .danger:hover { width: 76px; background: var(--hang); }
 
 .overlay { position: absolute; z-index: 1; top: 64px; left: 0; right: 0; padding: 0 16px; display: grid; justify-items: center; gap: 12px; text-align: center; pointer-events: none; }
