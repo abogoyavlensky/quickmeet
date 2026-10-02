@@ -1,0 +1,29 @@
+(ns quickmeet.push
+  (:require [string :as str]
+            [webpush.shim :as shim]))
+
+;; Ringing over Web Push. The browser vendors run the push services; this
+;; app holds a VAPID key pair that identifies it to them, keeps each
+;; device's subscription, and posts one encrypted message per device per
+;; ring. The encryption and the VAPID signature are webpush-go's, behind
+;; the shim in webpush/.
+
+(defn generate-keys
+  "A new VAPID key pair, {:public .. :private ..}, unpadded base64url."
+  []
+  (let [[private public] (str/split (shim/GenerateVAPIDKeys) " ")]
+    {:public public :private private}))
+
+;; How long a push service may hold a ring for a device that is offline:
+;; an hour, so a ring can still arrive as a trace of a missed call, but
+;; not the next morning.
+(def ttl-seconds 3600)
+
+(defn send!
+  "Post `message` to one subscription. `keys` is the VAPID pair, `target`
+   {:endpoint :p256dh :auth}, `message` {:payload json-string :topic
+   string :subject string}. The push service's status; throws when nothing
+   was sent."
+  [keys {:keys [endpoint p256dh auth]} {:keys [payload topic subject]}]
+  (shim/Send endpoint p256dh auth payload subject (:public keys) (:private keys)
+             (or topic "") ttl-seconds))

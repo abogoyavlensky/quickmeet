@@ -1,0 +1,54 @@
+(ns quickmeet.push-test
+  (:require [clojure.test :refer [deftest is]]
+            [http :as http]
+            [quickmeet.id :as id]
+            [quickmeet.push :as push]
+            [string :as str]))
+
+(deftest vapid-keys-are-fresh-p256-pairs
+  (let [a (push/generate-keys)
+        b (push/generate-keys)]
+    ;; An uncompressed P-256 point is 65 bytes: 87 characters of unpadded
+    ;; base64url.
+    (is (= 87 (count (:public a))))
+    (is (not (str/blank? (:private a))))
+    (is (not= (:public a) (:private a)))
+    (is (not= (:public a) (:public b)))))
+
+;; A real send, to a push service played by a let-go server on loopback.
+;; A VAPID public key is the same kind of value as a subscription's p256dh
+;; (an uncompressed P-256 point), so a generated one stands in for a
+;; browser's.
+(deftest a-message-is-encrypted-signed-and-posted
+  (let [seen (atom nil)
+        srv (http/start (fn [req]
+                          (reset! seen req)
+                          {:status 201 :body ""})
+                        "127.0.0.1:0")]
+    (try
+      (let [keys (push/generate-keys)
+            target {:endpoint (str "http://127.0.0.1:" (:port srv) "/push/abc")
+                    :p256dh (:public (push/generate-keys))
+                    :auth (io/encode :base64 (io/decode :hex (subs (id/random-hex) 0 32)))}
+            status (push/send! keys target {:payload "{\"title\":\"hi\"}"
+                                            :topic "0123456789ab"
+                                            :subject "https://meet.example"})
+            headers (:headers @seen)]
+        (is (= 201 status))
+        (is (= :post (:request-method @seen)))
+        (is (= "3600" (get headers "ttl")))
+        (is (= "aes128gcm" (get headers "content-encoding")))
+        (is (= "high" (get headers "urgency")))
+        (is (= "0123456789ab" (get headers "topic")))
+        (is (str/starts-with? (str (get headers "authorization")) "vapid t="))
+        (is (str/includes? (str (get headers "authorization")) (str "k=" (:public keys))))
+        ;; The payload is encrypted: the plain text is not in the body.
+        (is (not (str/includes? (str (:body @seen)) "title"))))
+      (finally
+        (http/stop srv)))))
+
+(deftest a-bad-subscription-sends-nothing
+  (is (thrown? Exception
+               (push/send! (push/generate-keys)
+                           {:endpoint "http://127.0.0.1:1/x" :p256dh "AAAA" :auth "AAAA"}
+                           {:payload "{}" :topic "" :subject "https://meet.example"}))))

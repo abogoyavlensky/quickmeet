@@ -56,7 +56,13 @@
         ;; crosses as []byte and the hash comes back as a string. The alias
         ;; must be the package path's last segment. livekit-server already
         ;; pulls this module in, so the pin stays within the graph it uses.
-        golang.org/x/crypto/bcrypt {:go/version "v0.56.0" :go/interop "bcrypt"}}
+        golang.org/x/crypto/bcrypt {:go/version "v0.56.0" :go/interop "bcrypt"}
+
+        ;; Web Push (ringing): a hand-written shim over webpush-go, in this
+        ;; repository. The library takes its subscription and options as
+        ;; structs, which generated bindings cannot build. lgx rebuilds the
+        ;; runtime when the directory's files change.
+        github.com/abogoyavlensky/quickmeet/webpush {:go/local "webpush"}}
 
  :tasks
  {;; Browser tests: build the binary that ships, then let Playwright start it
