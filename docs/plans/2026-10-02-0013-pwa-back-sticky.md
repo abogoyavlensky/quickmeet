@@ -330,7 +330,7 @@ Work on branch `pwa-back-sticky` (already created from `master`).
 - Modify: `resources/public/app.css`, `resources/public/index.html`
 - Test: `e2e/tests/app.spec.js`
 
-- [ ] **Step 1: Write the failing e2e test**
+- [x] **Step 1: Write the failing e2e test**
   In `app.spec.js`, a `test.describe` with the phone settings from
   `mobile.spec.js` (`viewport 390x844, isMobile, hasTouch`):
   "the menu and New call stay in view on a long list": `signUp(page)`;
@@ -344,23 +344,23 @@ Work on branch `pwa-back-sticky` (already created from `master`).
   not hidden behind anything: its box does not overlap `#new`'s).
   Run `lgx e2e`: this test fails.
 
-- [ ] **Step 2: Implement**
+- [x] **Step 2: Implement**
   `index.html`: wrap `#new` in `<div class="pinned">` (update the comment
   above the list if it needs it). `app.css`: the two sticky rules from
   Design section 4, with a comment explaining the `z-index` (avatars are
   positioned and come later); reduce `.rooms`'s `margin-top` by the
   wrapper's bottom padding so the resting layout is unchanged.
 
-- [ ] **Step 3: Run the browser tests**
+- [x] **Step 3: Run the browser tests**
   Run: `lgx e2e`
   Expected: PASS, whole suite.
 
-- [ ] **Step 4: Look at it**
+- [x] **Step 4: Look at it**
   Screenshots of the 25-room list at 390x844, scrolled to the middle, light
   and dark: no row or disc shows through the bar or around the button, and
   the unscrolled page looks as before. History scrolled: the bar stays.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git commit -m "The menu and New call stay at the top of the room list"`
 
 ### Task 5: Docs

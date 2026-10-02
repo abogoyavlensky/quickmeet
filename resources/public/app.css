@@ -38,6 +38,10 @@ p { margin: 0; }
    the right. */
 .bar { display: flex; align-items: center; gap: 18px; height: 56px; padding: 0 20px; }
 body:not(.room) .bar, .page { max-width: 600px; margin: 0 auto; }
+/* On the app pages the bar stays at the top while the page scrolls. The
+   z-index matters: the discs below are positioned and come later in the
+   page, so without it they would paint over the bar. */
+body:not(.room) .bar { position: sticky; top: 0; z-index: 2; background: var(--bg); }
 /* Installed to a home screen there is no browser Back, so the pages off
    the list have their own. The negative margins line the chevron up with
    the page's left edge and keep it close to the brand. */
@@ -87,10 +91,15 @@ input::placeholder { color: var(--muted); }
 .avatar[data-initial] { background: oklch(0.82 0.08 var(--hue)); color: oklch(0.32 0.07 var(--hue)); }
 .avatar[data-initial]::before { content: attr(data-initial); }
 
+/* "New call" stays under the bar while the list scrolls under it. The
+   padding is background around it as rows pass; the negative margin and
+   the list's smaller margin keep the resting layout as it was. */
+.pinned { position: sticky; top: 56px; z-index: 1; margin-top: -8px; padding: 8px 0; background: var(--bg); }
+
 /* The rooms on the landing page, one row each: the disc and name are the
    link into the room, who is there now sits under the name, and the
    owner's actions stay quiet on the right. */
-.rooms { list-style: none; margin: 20px 0 0; padding: 0; }
+.rooms { list-style: none; margin: 12px 0 0; padding: 0; }
 .rooms li { display: flex; align-items: center; gap: 8px; padding: 10px 0; }
 .rooms li + li { border-top: 1px solid var(--line); }
 .room-link { flex: 1; min-width: 0; display: flex; align-items: center; gap: 14px; text-decoration: none; }

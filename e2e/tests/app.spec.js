@@ -2,7 +2,7 @@
 // no browser Back button: the manifest and its icons, a way back to the
 // room list from every page that leads off it, and what stays in view.
 import { test, expect } from '@playwright/test';
-import { newRoom } from './helpers.js';
+import { signUp, newRoom, box, overlaps } from './helpers.js';
 
 test('Back leads to the room list from the lobby, history and settings', async ({ page }) => {
   await newRoom(page);
@@ -35,4 +35,27 @@ test('the manifest and its icons load', async ({ page }) => {
     expect(icon.headers()['content-type'], src).toBe('image/png');
   }
   expect((await page.request.get('/favicon.ico')).status()).toBe(200);
+});
+
+test.describe('on a phone', () => {
+  test.use({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+
+  test('the menu and New call stay in view on a long list', async ({ page }) => {
+    await signUp(page);
+    for (let i = 0; i < 25; i++) expect((await page.request.post('/api/rooms')).status()).toBe(201);
+    await page.goto('/');
+    await expect(page.locator('#rooms li')).toHaveCount(25);
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+
+    await expect(page.locator('#nav').getByRole('link', { name: 'History' })).toBeInViewport();
+    await expect(page.locator('#new')).toBeInViewport();
+    const bar = await box(page.locator('.bar'));
+    const button = await box(page.locator('#new'));
+    expect(bar.y).toBe(0);
+    expect(button.y).toBeGreaterThanOrEqual(bar.y + bar.height);
+    const last = page.locator('#rooms li').last();
+    await expect(last).toBeInViewport();
+    expect(overlaps(await box(last), button)).toBe(false);
+  });
 });
