@@ -118,9 +118,11 @@
     // other participant's name (what they typed, or their account's display
     // name), not their LiveKit identity; `tracks` holds the subscribed
     // remote tracks so `stats()` can read their inbound RTP counters.
-    // `blur` (defined with the blur logic below) says whether the camera is
-    // blurred now.
+    // `tracks.video` is the one on stage, the screen or the camera. `blur`
+    // (defined with the blur logic below) says whether the camera is blurred
+    // now; `remoteScreen` whether the stage shows the other side's screen.
     window.call = { room: null, remote: null, joined: false, tracks: { video: null, audio: null } };
+    Object.defineProperty(window.call, 'remoteScreen', { get: () => !!remoteVideo.screen });
 
     // Inbound RTP stats for the remote video and audio: null for a kind that
     // is not subscribed. Video: framesDecoded, packetsReceived, packetsLost;
@@ -152,9 +154,13 @@
     // decides between filling it and showing the video whole: filling crops,
     // and is worth it only while it crops little. A phone lying sideways in
     // a browser leaves a strip three times as wide as it is high; filling
-    // that with a 4:3 picture would cut half of it away.
+    // that with a 4:3 picture would cut half of it away. A shared screen is
+    // never cropped: it is text, not a face.
     const CROP_LIMIT = 0.2;
     const remoteTile = $('remote').parentElement;
+    // The other side's videos by source, the ones subscribed now (see
+    // showRemote below).
+    const remoteVideo = { camera: null, screen: null };
     function resetRemote() {
       remoteTile.style.removeProperty('--ratio');
       remoteTile.classList.remove('wide', 'tall', 'fill');
@@ -170,12 +176,33 @@
       const box = remoteTile.getBoundingClientRect();
       if (!box.width || !box.height) return;
       const video = w / h, tile = box.width / box.height;
-      remoteTile.classList.toggle('fill', 1 - Math.min(video / tile, tile / video) <= CROP_LIMIT);
+      remoteTile.classList.toggle('fill', !remoteVideo.screen && 1 - Math.min(video / tile, tile / video) <= CROP_LIMIT);
     }
     $('remote').addEventListener('resize', fitRemote);
     $('remote').addEventListener('loadedmetadata', fitRemote);
     // The tile changes size when the window does or the phone is turned.
     new ResizeObserver(fitRemote).observe(remoteTile);
+
+    // The other side can send two videos, their camera and their screen.
+    // Both stay subscribed and the stage shows one: the screen while there
+    // is one, else the camera. The camera, attached to nothing meanwhile, is
+    // paused by the SFU (adaptiveStream), so it costs no bandwidth. `screen`
+    // on the tile follows the choice, not the element: fitRemote resets the
+    // tile while a new video has no frame yet, and must not lose it then.
+    function showRemote() {
+      const track = remoteVideo.screen || remoteVideo.camera;
+      const shown = window.call.tracks.video;
+      if (shown && shown !== track) shown.detach($('remote'));
+      if (track && track !== shown) track.attach($('remote'));
+      window.call.tracks.video = track;
+      remoteTile.classList.toggle('screen', !!remoteVideo.screen);
+      if (track) fitRemote(); else resetRemote();
+    }
+    function clearRemote() {
+      remoteVideo.camera = remoteVideo.screen = null;
+      showRemote();
+    }
+    const remoteSlot = pub => (pub.source === Track.Source.ScreenShare ? 'screen' : 'camera');
 
     // ---- stage ----------------------------------------------------------
 
@@ -286,7 +313,7 @@
 
     function startLobby(notice) {
       stopTracks();
-      resetRemote();
+      clearRemote();
       lobby.joining = false;
       showNotice(notice);
       $('error').hidden = true;
@@ -538,17 +565,24 @@
         const room = new Room({ adaptiveStream: true, dynacast: true });
         window.call.room = room;
         room.on(RoomEvent.TrackSubscribed, (track, pub, participant) => {
-          if (track.kind === Track.Kind.Video) { track.attach($('remote')); window.call.tracks.video = track; }
+          if (track.kind === Track.Kind.Video) { remoteVideo[remoteSlot(pub)] = track; showRemote(); }
           if (track.kind === Track.Kind.Audio) { track.attach(); window.call.tracks.audio = track; }
           arrived(participant);
           window.call.remote = nameOf(participant);
+        });
+        // A share that ends arrives here: the stage goes back to the camera.
+        room.on(RoomEvent.TrackUnsubscribed, (track, pub) => {
+          const slot = remoteSlot(pub);
+          if (track.kind !== Track.Kind.Video || remoteVideo[slot] !== track) return;
+          remoteVideo[slot] = null;
+          showRemote();
         });
         room.on(RoomEvent.ParticipantConnected, participant => { arrived(participant); setStatus(null); });
         room.on(RoomEvent.ParticipantDisconnected, () => {
           $('remote-name').textContent = 'the other side left';
           // The element can keep the last frame's size after the track
           // ends, so the reset does not ask it.
-          resetRemote();
+          clearRemote();
           stopClock();
           window.call.remote = null;
           window.call.tracks = { video: null, audio: null };
@@ -566,6 +600,7 @@
           // that was up returns to the lobby from here.
           if (!window.call.joined) return;
           window.call.joined = false;
+          clearRemote();
           window.call.tracks = { video: null, audio: null };
           stopClock();
           document.body.classList.remove('reconnecting');

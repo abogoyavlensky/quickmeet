@@ -203,7 +203,7 @@ Work on a branch (`screen-sharing`), not on master.
 - Create: `e2e/tests/screenshare.spec.js`
 - Modify: `resources/public/room.html`
 
-- [ ] **Step 1: Add the test helpers**
+- [x] **Step 1: Add the test helpers**
   In `helpers.js`, export `canvasScreen(width, height)` and `noScreen`
   as described under Testing. Reuse `canvasCamera`'s painting loop
   rather than copying it: pull the "canvas repainted on a timer, return
@@ -211,7 +211,7 @@ Work on a branch (`screen-sharing`), not on master.
   into a shared string, whichever keeps both init scripts
   self-contained (an init script cannot close over module scope).
 
-- [ ] **Step 2: Write the failing viewer tests**
+- [x] **Step 2: Write the failing viewer tests**
   In `screenshare.spec.js`, with the `contexts` setup and teardown the
   other specs use. The sharer starts a share from the test, not from the
   button (the button comes in Task 2):
@@ -244,11 +244,11 @@ Work on a branch (`screen-sharing`), not on master.
      Bob's tile loses `screen` and returns to the default 16:9 shape,
      and `call.remoteScreen` is false.
 
-- [ ] **Step 3: Run them and see them fail**
+- [x] **Step 3: Run them and see them fail**
   Run: `lgx build && (cd e2e && npx playwright test screenshare)`
   Expected: FAIL (`call.remoteScreen` is undefined, no `screen` class).
 
-- [ ] **Step 4: Implement the selection in `room.html`**
+- [x] **Step 4: Implement the selection in `room.html`**
   Add `remoteVideo`, `showRemote()` and `call.remoteScreen` as in
   "The viewer" above, next to `fitRemote`. Change the `TrackSubscribed`
   handler to file a video track under its source and call
@@ -261,13 +261,17 @@ Work on a branch (`screen-sharing`), not on master.
   `resetRemote()` (see "The viewer").
   Update the comment above `window.call` for the new fields.
 
-- [ ] **Step 5: Run the spec, then the specs that share this code**
+- [x] **Step 5: Run the spec, then the specs that share this code**
   Run: `lgx build && (cd e2e && npx playwright test screenshare orientation call mobile)`
   Expected: PASS. `orientation`, `call` and `mobile` exercise the same
   attach path with a camera only and must be unchanged.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
   `git commit -m "Room page: a shared screen takes the stage"`
+
+> Deviation: "the sharer has no camera" is the sharer turning the camera off (`#cam`) before sharing. The muted camera stays published, so Bob still subscribes to a camera track; it just never sends a frame. That still exercises the case the review raised: a screen that has to win while metadata is pending.
+> Deviation: `canvasScreen` and `canvasMedia('user', ...)` share one init function, `canvasMedia(api, width, height)`; the two existing cameras are defined through it.
+> Deviation: `startLobby` calls `clearRemote()` instead of `resetRemote()`, so a failed join cannot leave a stale slot or the `screen` class behind.
 
 ### Task 2: The share button
 
