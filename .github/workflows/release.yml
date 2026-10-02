@@ -1,60 +1,160 @@
 name: release
 
-# A version tag (v0.1.0) publishes a GitHub release with a linux/amd64
-# tarball: the binary, the files docs/INSTALL.md installs, and the guide.
-# No container image and no macOS build; see docs/ROADMAP.md.
+# A pushed tag vX.Y.Z publishes the image to ghcr.io (X.Y.Z, X.Y, latest)
+# and a GitHub release with a tarball per architecture: the binary, the
+# files docs/INSTALL.md installs, and the guide. Nothing else publishes:
+# master pushes and pull requests never push an image or cut a release.
+# Run by hand, it is a dry run: the tests and both builds, nothing pushed.
+# No macOS build; see docs/ROADMAP.md.
 on:
   push:
-    tags: ["v*"]
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+  workflow_dispatch:
 
-# Static, like the staging image: the tarball must run on any linux/amd64
-# distribution, not only on one with the runner's glibc. See .mise.toml.
+# A release that started is never cancelled halfway.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+# Static, like the staging image: the tarball must run on any Linux
+# distribution, not only on one with the runner's glibc, and the image is
+# Alpine. See .mise.toml.
 env:
   CGO_ENABLED: "0"
+  IMAGE: ghcr.io/abogoyavlensky/quickmeet
 
 jobs:
   # A release is never cut from a commit the tests have not passed on.
   test:
     uses: ./.github/workflows/test.yml
 
-  release:
-    runs-on: ubuntu-latest
+  build:
     needs: [test]
+    # Native per architecture, rather than relying on lgx to cross-build
+    # its Go runtime.
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    # Job permissions replace the top-level map, so contents is restated.
     permissions:
-      contents: write
-    timeout-minutes: 20
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+            cache: runtimes-static-Linux
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            cache: runtimes-static-arm64-Linux
     steps:
       - uses: actions/checkout@v4
 
       # lgx and Go at the versions in .mise.toml.
       - uses: jdx/mise-action@v3
 
-      # Same runtime cache as test.yml and deploy.yml: the build is a hit.
+      # runner.os is Linux on both architectures, so the arm64 key carries
+      # the architecture. amd64 shares test.yml's key (a hit from master's
+      # runs); neither prefix is a prefix of the other, so no fallback
+      # restores the other architecture's lg.
       - uses: actions/cache@v4
         with:
           path: |
             ~/.cache/go-build
             ~/go/pkg/mod
             ~/.lgx/runtimes
-          key: runtimes-static-${{ runner.os }}-${{ hashFiles('lgx.edn', 'webpush/**') }}
-          restore-keys: runtimes-static-${{ runner.os }}-
+          key: ${{ matrix.cache }}-${{ hashFiles('lgx.edn', 'webpush/**') }}
+          restore-keys: ${{ matrix.cache }}-
+
+      # The test job ran these on amd64 only; on arm64 this is their one run.
+      - name: Unit tests
+        if: matrix.arch == 'arm64'
+        run: lgx test
 
       - name: Build the binary
-        run: |
-          lgx build
-          file bin/quickmeet | grep -q 'statically linked'
+        run: lgx build
 
+      # Builds quickmeet:local around this binary, starts it and asks for a
+      # page. The image pushed below is this one, not a rebuild.
+      - name: Smoke-test the image
+        run: scripts/docker-smoke.sh
+
+      # On a dispatch the ref is a branch, which may contain a slash.
       - name: Package
+        env:
+          ARCH: ${{ matrix.arch }}
         run: |
-          name="quickmeet-${GITHUB_REF_NAME}-linux-amd64"
+          name="quickmeet-${GITHUB_REF_NAME//\//-}-linux-$ARCH"
           mkdir "$name"
           cp bin/quickmeet deploy/quickmeet.service deploy/Caddyfile \
              deploy/quickmeet.env.example docs/INSTALL.md "$name/"
           tar czf "$name.tar.gz" "$name"
           sha256sum "$name.tar.gz" > "$name.tar.gz.sha256"
-          echo "NAME=$name" >> "$GITHUB_ENV"
 
-      - name: Publish the release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: quickmeet-linux-${{ matrix.arch }}
+          path: quickmeet-*-linux-${{ matrix.arch }}.tar.gz*
+          if-no-files-found: error
+          retention-days: 7
+
+      # Only a pushed tag publishes: a manual run can target a tag too.
+      - name: Log in to ghcr.io
+        if: github.event_name == 'push' && github.ref_type == 'tag'
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACTOR: ${{ github.actor }}
+        run: echo "$TOKEN" | docker login ghcr.io -u "$ACTOR" --password-stdin
+
+      - name: Push the image
+        if: github.event_name == 'push' && github.ref_type == 'tag'
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          tag="$IMAGE:${GITHUB_REF_NAME#v}-$ARCH"
+          docker tag quickmeet:local "$tag"
+          docker push "$tag"
+
+  publish:
+    needs: [build]
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      # gh release needs the repository.
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: quickmeet-linux-*
+          merge-multiple: true
+          path: dist
+
+      - name: Log in to ghcr.io
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACTOR: ${{ github.actor }}
+        run: echo "$TOKEN" | docker login ghcr.io -u "$ACTOR" --password-stdin
+
+      # One multi-arch image over the two smoke-tested ones.
+      - name: Publish the image
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          minor="${version%.*}"
+          docker buildx imagetools create \
+            -t "$IMAGE:$version" -t "$IMAGE:$minor" -t "$IMAGE:latest" \
+            "$IMAGE:$version-amd64" "$IMAGE:$version-arm64"
+          docker buildx imagetools inspect "$IMAGE:$version"
+
+      # Last, so a release never exists without its image.
+      - name: Create the release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" --generate-notes "$NAME.tar.gz" "$NAME.tar.gz.sha256"
+        run: gh release create "$GITHUB_REF_NAME" dist/* --title "$GITHUB_REF_NAME" --generate-notes --verify-tag
