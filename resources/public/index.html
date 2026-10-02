@@ -34,6 +34,16 @@
     </section>
 
     <section id="signed-in" hidden>
+      <!-- The offer to be rung on this device: never asked for on its own,
+           only from a tap on Turn on. Not now hides it here for good. -->
+      <div id="ring-offer" class="banner" hidden>
+        <p id="ring-offer-text"></p>
+        <p id="ring-offer-error" class="error" hidden></p>
+        <p class="row">
+          <button id="ring-on" class="primary">Turn on</button>
+          <button id="ring-later" class="link">Not now</button>
+        </p>
+      </div>
       <!-- Stays under the bar while the list scrolls. -->
       <div class="pinned"><button id="new" class="primary">New call</button></div>
       <!-- My rooms: the ones I made or joined, with who is in them now.
@@ -54,13 +64,19 @@
     const $ = id => document.getElementById(id);
     const showError = e => { $('error').textContent = String(e.message || e); $('error').hidden = false; };
 
+    // The signed-in person's address: whose this device's ringing is.
+    let email = null;
+
     async function load() {
       try {
         const res = await fetch('/api/me');
         if (res.ok) {
-          $('who').textContent = (await res.json()).display_name;
+          const me = await res.json();
+          email = me.email;
+          $('who').textContent = me.display_name;
           $('signed-in').hidden = false;
           $('nav').hidden = false;
+          offerRinging();
           await loadRooms();
           // Presence changes while the page sits open; refresh it while
           // the tab is visible.
@@ -70,6 +86,52 @@
         }
       } catch (e) { showError(e); }
     }
+
+    // ---- ringing --------------------------------------------------------
+
+    // The banner shows to someone this device could ring them for: push
+    // works here, nothing is subscribed yet, the browser has not refused,
+    // and they did not say Not now. An iPhone in Safari cannot be rung
+    // until quickmeet is added to its home screen, so it gets that hint
+    // instead. The device's existing subscription is handed to the server
+    // first (push.sync), or dropped if it is not this person's.
+    async function offerRinging() {
+      try { await push.sync(email); } catch (e) { /* offline: decided below */ }
+      if (stored.get(PUSH_DISMISSED)) return;
+      if (push.supported()) {
+        if (Notification.permission === 'denied') return;
+        if (await push.subscription().catch(() => null)) return;
+        $('ring-offer-text').textContent = 'Let people ring you on this device.';
+        $('ring-on').hidden = false;
+      } else if (push.needsInstall()) {
+        $('ring-offer-text').textContent = 'To be rung on this iPhone, add quickmeet to your home screen ' +
+          '(Share, then Add to Home Screen) and open it from there.';
+        $('ring-on').hidden = true;
+      } else {
+        return;
+      }
+      $('ring-offer').hidden = false;
+    }
+
+    // push.on asks for permission before anything else, so the browser
+    // still sees this tap as the reason (Safari insists).
+    $('ring-on').addEventListener('click', async () => {
+      $('ring-on').disabled = true;
+      $('ring-offer-error').hidden = true;
+      try {
+        await push.on(email);
+        $('ring-offer').hidden = true;
+      } catch (e) {
+        $('ring-offer-error').textContent = String(e.message || e);
+        $('ring-offer-error').hidden = false;
+      } finally {
+        $('ring-on').disabled = false;
+      }
+    });
+    $('ring-later').addEventListener('click', () => {
+      stored.set(PUSH_DISMISSED, '1');
+      $('ring-offer').hidden = true;
+    });
 
     // ---- rooms ----------------------------------------------------------
 
