@@ -1,8 +1,11 @@
 (ns quickmeet.push-test
   (:require [clojure.test :refer [deftest is]]
             [http :as http]
+            [integrant.core :as ig]
+            [quickmeet.db :as db]
             [quickmeet.id :as id]
             [quickmeet.push :as push]
+            [sqlite.core :as sqlite]
             [string :as str]))
 
 (deftest vapid-keys-are-fresh-p256-pairs
@@ -52,3 +55,75 @@
                (push/send! (push/generate-keys)
                            {:endpoint "http://127.0.0.1:1/x" :p256dh "AAAA" :auth "AAAA"}
                            {:payload "{}" :topic "" :subject "https://meet.example"}))))
+
+;; ---- keys, endpoints, delivery ------------------------------------------
+
+(defn- with-db [f]
+  (let [path (str "/tmp/quickmeet-push-" (rand-int 100000000) ".db")
+        system (ig/init {:quickmeet.db/conn {:path path}})]
+    (try
+      (f (:quickmeet.db/conn system))
+      (finally
+        (ig/halt! system)
+        (os/sh "rm" "-f" path (str path "-wal") (str path "-shm"))))))
+
+(deftest keys-are-made-once-and-kept
+  (with-db
+    (fn [conn]
+      (let [a (push/keys! conn)
+            b (push/keys! conn)]
+        (is (= a b))
+        (is (= 87 (count (:public a))))
+        (is (= (str (:private a) " " (:public a)) (db/setting conn "vapid-keys")))))))
+
+(deftest only-the-browser-vendors-push-services
+  (doseq [ok ["https://fcm.googleapis.com/fcm/send/abc:def"
+              "https://updates.push.services.mozilla.com/wpush/v2/gAAA"
+              "https://web.push.apple.com/QGx2_abc"
+              "https://wns2-par02p.notify.windows.com/w/?token=BQYAAA"]]
+    (is (nil? (push/endpoint-problem ok)) ok))
+  (doseq [bad [nil ""
+               "http://fcm.googleapis.com/fcm/send/abc"
+               "https://example.com/push"
+               "https://fcm.googleapis.com.evil.example/x"
+               "https://evil.example/fcm.googleapis.com/x"
+               "https://fcm.googleapis.com@evil.example/x"
+               "https://fcm.googleapis.com:8443/x"
+               "https://push.apple.com.evil.example/x"
+               "https://notpush.apple.com/x"
+               "https://127.0.0.1/x"
+               (str "https://fcm.googleapis.com/" (apply str (repeat 2048 "a")))]]
+    (is (string? (push/endpoint-problem bad)) (str bad))))
+
+(defn- service-recording
+  "A push service whose sends answer from `statuses` by endpoint (an
+   exception for :throw) and are recorded; spawning runs at once."
+  [statuses]
+  (let [sent (atom [])]
+    {:sent sent
+     :push {:public-key "pk"
+            :spawn (fn [f] (f))
+            :send! (fn [target message]
+                     (swap! sent conj [(:endpoint target) message])
+                     (let [s (statuses (:endpoint target))]
+                       (if (= :throw s) (throw (ex-info "no connection" {})) s)))}}))
+
+(deftest delivery-drops-subscriptions-that-are-gone
+  (with-db
+    (fn [conn]
+      (db/create-user! conn "u1" "a@example.com" "x" "A")
+      (db/create-session! conn "s1" "u1")
+      (let [fcm "https://fcm.googleapis.com/fcm/send/"
+            statuses {(str fcm "ok") 201 (str fcm "gone") 410 (str fcm "unknown") 404
+                      (str fcm "busy") 429 (str fcm "down") :throw}
+            {:keys [sent push]} (service-recording statuses)
+            targets (mapv (fn [e] (db/save-subscription! conn e "s1" "p" "a")
+                            {:endpoint e :p256dh "p" :auth "a"})
+                          (keys statuses))
+            message {:payload "{}" :topic "0123456789ab" :subject "https://meet.example"}]
+        (push/deliver! push conn targets message)
+        (is (= (set (keys statuses)) (set (map first @sent))))
+        (is (every? #(= message (second %)) @sent))
+        ;; 404 and 410 are gone for good; anything else may pass.
+        (is (= #{(str fcm "ok") (str fcm "busy") (str fcm "down")}
+               (set (map :endpoint (sqlite/query conn ["select endpoint from push_subscriptions"])))))))))
