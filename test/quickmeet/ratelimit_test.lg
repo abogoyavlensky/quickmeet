@@ -68,4 +68,5 @@
 (deftest the-defaults
   (is (= {:limit 10 :window-ms 60000} (:signin ratelimit/default-limits)))
   (is (= {:limit 10 :window-ms 3600000} (:signup ratelimit/default-limits)))
-  (is (= {:limit 60 :window-ms 3600000} (:create-room ratelimit/default-limits))))
+  (is (= {:limit 60 :window-ms 3600000} (:create-room ratelimit/default-limits)))
+  (is (= {:limit 1 :window-ms 30000} (:ring ratelimit/default-limits))))
