@@ -266,6 +266,11 @@ in host mode. Two phones on different networks held a call there. See
   small shim in `webpush/`. Left for later, each in the backlog: a ring
   from the list, ring state (decline, cancel, missed calls in history),
   rings from guests. Not yet tried on a real phone.
+- Done 2026-10-02: the microphone and the camera can be turned off in
+  the lobby, from two buttons on the preview, and the call starts that
+  way (`docs/plans/2026-10-02-2217-lobby-mic-camera-off.md`). The camera's
+  light goes out while it is off. The choice is not remembered between
+  visits: every lobby starts with both on.
 - Mobile: LiveKit's Swift, Kotlin and React Native SDKs talk to the same
   SFU and the same token endpoint. Native ringing needs APNs and FCM
   signing that let-go does not have; a small Go shim or a hosted push
