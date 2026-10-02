@@ -27,9 +27,27 @@ media. It takes about fifteen minutes.
 Every other port stays closed. In particular 8080 (the app) and 7880 (the
 SFU's signalling) listen on loopback only; Caddy reaches them there.
 
-## 1. Download and verify the release
+## 1. Get the binary
 
-Pick the latest tag from the
+### Build from source
+
+There are no published releases yet. On Linux x86-64, install lgx 0.4.2
+or newer and Go (versions are pinned in `.mise.toml`), then run:
+
+```bash
+git clone https://github.com/abogoyavlensky/quickmeet.git
+cd quickmeet
+CGO_ENABLED=0 lgx build
+```
+
+In step 2, use `bin/quickmeet` and `deploy/quickmeet.service` as the
+source files. In step 3, use `deploy/quickmeet.env.example`; in step 5,
+use `deploy/Caddyfile`. If you built on another machine, copy these four files to
+the server first, preserving these paths.
+
+### Install a release when available
+
+Pick a tag from the
 [releases page](https://github.com/abogoyavlensky/quickmeet/releases), then:
 
 ```bash
@@ -76,8 +94,8 @@ Edit `/etc/quickmeet/env`:
   start calls on your bandwidth.
 
 The file explains every other variable; the defaults in it are right
-for this setup. The full list is the "Configuration" table in the
-[README](https://github.com/abogoyavlensky/quickmeet#configuration).
+for this setup. See the full
+[configuration reference](https://github.com/abogoyavlensky/quickmeet/blob/master/docs/CONFIGURATION.md).
 
 ## 4. Open the firewall
 

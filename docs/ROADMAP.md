@@ -196,7 +196,7 @@ Staging done (2026-09-29): every push to master tests, builds and deploys
 the app with uncloud to `https://quickmeet.absky.dev`, one hostname with
 Caddy routing `/rtc*` to the SFU, media on one UDP port and one TCP port
 in host mode. Two phones on different networks held a call there. See
-"Deployment" in the README.
+[Deployment](DEPLOYMENT.md#staging).
 
 - Measured 2026-09-30, before planning: a call survives the server being
   killed and restarted. The browsers reconnect by themselves: media was
