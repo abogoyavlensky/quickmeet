@@ -101,6 +101,9 @@ bundled from its source with `scripts/vendor-blur.patch` applied, which
 keeps the blurred background from rippling; a version bump must carry the
 patch forward (it fails to apply otherwise).
 
+The home-screen icons and `favicon.ico` are drawn by
+`scripts/make-icons.mjs` after `icon.svg`; `lgx icons` rewrites them.
+
 ## Deployment
 
 To run quickmeet on your own server, follow
@@ -188,9 +191,10 @@ src/quickmeet/password.lg      bcrypt (golang.org/x/crypto/bcrypt as a :go/inter
 src/quickmeet/id.lg            random ids for rooms, users and sessions
 src/quickmeet/sfu.lg           asks the embedded SFU who is in a room, and which rooms are live (twirp over loopback)
 src/quickmeet/server.lg        ::http: http/start on init, http/stop on halt
-resources/public/              index, room, history, signup, signin, settings pages; app.css; ui.js (icons, avatars); vendored livekit-client, font and background blur
+resources/public/              index, room, history, signup, signin, settings pages; app.css; ui.js (icons, avatars); the manifest and app icons; vendored livekit-client, font and background blur
 scripts/vendor-fonts.mjs       writes resources/public/fonts.css from the pinned Onest release
 scripts/vendor-blur.mjs        writes the blur bundle, MediaPipe's wasm and the model into resources/public
+scripts/make-icons.mjs         writes the home-screen icons and favicon.ico into resources/public
 test/quickmeet/                routes and auth over a temp db; migrations; password; the full system
 e2e/                           Playwright: two browsers in a call against bin/quickmeet; smoke.mjs for a deployed one
 Dockerfile                     the runtime image around bin/quickmeet

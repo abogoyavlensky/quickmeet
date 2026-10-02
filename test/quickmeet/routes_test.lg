@@ -264,6 +264,31 @@
                    (str blur-base "/nope.wasm")]]
         (is (= 404 (:status (call handler :get uri))) uri)))))
 
+;; Installable to a home screen: the manifest, the icons it names (PNGs,
+;; byte for byte: they start with the PNG signature) and the favicon at
+;; the path browsers ask for on their own.
+(deftest the-installable-app
+  (with-handler
+    (fn [handler _]
+      (let [res (call handler :get "/static/manifest.webmanifest")
+            manifest (json/read-json (:body res) {:keywords? true})]
+        (is (= 200 (:status res)))
+        (is (= "application/manifest+json" (get-in res [:headers "Content-Type"])))
+        (is (= "standalone" (:display manifest)))
+        (is (= 3 (count (:icons manifest)))))
+      (doseq [uri ["/static/icon-192.png" "/static/icon-512.png" "/static/apple-touch-icon.png"]]
+        (let [png (call handler :get uri)]
+          (is (= 200 (:status png)) uri)
+          (is (= "image/png" (get-in png [:headers "Content-Type"])) uri)
+          (is (str/starts-with? (io/encode :hex (:body png)) "89504e470d0a1a0a") uri)))
+      (let [ico (call handler :get "/favicon.ico")]
+        (is (= 200 (:status ico)))
+        (is (= "image/x-icon" (get-in ico [:headers "Content-Type"]))))
+      ;; Every page links them.
+      (doseq [uri ["/" "/signup" "/signin" "/settings" "/history" (str "/room/" (new-room handler))]
+              link ["/static/manifest.webmanifest" "/static/apple-touch-icon.png" "href=\"/favicon.ico\""]]
+        (is (str/includes? (:body (call handler :get uri)) link) (str uri " " link))))))
+
 (deftest accounts-and-sessions
   (with-handler
     (fn [handler _]

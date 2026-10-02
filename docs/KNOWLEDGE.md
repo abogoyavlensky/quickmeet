@@ -320,7 +320,8 @@ built binary, run by `lgx e2e` (2026-09-27).
   checks the served model's SHA-256. `static-response` serves only the
   types it lists (now including `wasm` and `tflite`). The font is still
   base64 inside `fonts.css` (120 kB, `lgx vendor-fonts`); nothing needs
-  it to move. Icons are inline SVG from `ui.js`, the favicon is an `.svg`.
+  it to move. Icons are inline SVG from `ui.js`; for the favicon and
+  the home-screen icons see "The installable app" below.
 - Chromium's fake camera reaches the other side as 16:9, not the 640x480
   the device advertises: LiveKit asks for 720p. A 4:3 or a tall sender in
   a test is a canvas (`canvasCamera` in `e2e/tests/helpers.js`).
@@ -334,6 +335,32 @@ built binary, run by `lgx e2e` (2026-09-27).
   absent there; Android and desktop browsers have it. On an iPhone the
   way to lose Safari's bars is "Add to Home Screen". Not tried on a
   device yet.
+
+## The installable app, verified 2026-10-02
+
+- Installable through a web app manifest alone
+  (`/static/manifest.webmanifest`, `display: standalone`, scope `/`):
+  no service worker. Chrome no longer needs one to offer installation,
+  and iOS "Add to Home Screen" never did. A manifest's scope is not
+  limited by where the file lives; that rule is for service workers.
+  Headless, the manifest and its icons load (`e2e/tests/app.spec.js`);
+  installing on a real phone is not tried yet.
+- The PNG icons and `favicon.ico` come from `scripts/make-icons.mjs`
+  (`lgx icons`): pure Node, the PNG encoded by hand over `zlib`
+  (`zlib.crc32` needs Node 22+), the ICO a 22-byte header around one
+  32 px PNG. Two runs write identical bytes. The home-screen icons are
+  full-bleed (Android and iOS cut the corners); the favicon has
+  `icon.svg`'s rounded ones. `/favicon.ico` is a route of its own,
+  because browsers ask for that path whatever a page links, and Safari
+  ignores SVG favicons.
+- A sticky bar over a list of discs needs a `z-index`. `.avatar` is
+  `position: relative` and comes later in the page, so with the bar's
+  and the pinned "New call"'s `z-index` set to `auto` a disc scrolled
+  under them is what `elementFromPoint` finds there: it paints over
+  both.
+- Installed to a home screen there is no browser Back, so the lobby,
+  History and Settings have a Back link to `/` (not `history.back()`: a
+  lobby opened from a shared link has no history).
 
 ## Background blur, verified 2026-10-01
 
@@ -551,9 +578,9 @@ The first deploy, 2026-09-28 to 2026-09-29:
 
 ---
 
-> **Verify against:** `lgx.edn`, `compose.yaml` and
-> `.github/workflows/deploy.yml` in this repo; in uncloud v0.20.0,
-> `pkg/client/compose/` and `internal/machine/caddyconfig/template.go`; in lgx,
+> **Verify against:** `lgx.edn`, `compose.yaml`,
+> `scripts/make-icons.mjs` and `.github/workflows/deploy.yml` in this repo;
+> in uncloud v0.20.0, `pkg/client/compose/` and `internal/machine/caddyconfig/template.go`; in lgx,
 > `lgx/gobuild.lg` (runtime build, `:go/replace`, the stamp) and
 > `docs/knowledge-base/lgx-go-runtimes.md`; in letgo-packages,
 > `livekit/shim/shim.go`, `livekit/src/livekit/core.lg`,
