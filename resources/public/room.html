@@ -521,6 +521,11 @@
         return;
       }
       drawRing();
+      // Said only while still alone: someone may have arrived, or the
+      // connection dropped, while the request was out.
+      const room = window.call.room;
+      const alone = room && room.remoteParticipants.size === 0 && !document.body.classList.contains('reconnecting');
+      if (!alone) return;
       setStatus(RING_FAILED, true);
       setTimeout(() => {
         if (window.call.room && $('status').textContent === RING_FAILED) refreshStatus(window.call.room);
