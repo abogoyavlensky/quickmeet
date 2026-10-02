@@ -220,7 +220,7 @@
                                      :createdAt "1000"
                                      :participant {:sid "PA_1" :identity user-id :name "Alice" :joinedAt "1000"}})
             hook (str base "/api/webhooks/livekit")
-            calls (fn [] (json-body (http/get (str base "/api/calls") {:headers cookie})))]
+            calls (fn [] (:items (json-body (http/get (str base "/api/calls") {:headers cookie}))))]
         ;; Over real HTTP, with the real verification: unsigned refused,
         ;; signed recorded.
         (is (= 401 (:status (http/post hook joined {:content-type "application/json"}))))

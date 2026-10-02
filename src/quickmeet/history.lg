@@ -75,6 +75,6 @@
   nil)
 
 (defn calls-of-user
-  "A signed-in user's history, newest first."
-  [conn user-id]
-  (db/calls-of-user conn user-id))
+  "A signed-in user's history, newest first: `limit` calls from `offset`."
+  [conn user-id limit offset]
+  (db/calls-of-user conn user-id limit offset))

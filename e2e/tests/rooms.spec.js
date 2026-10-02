@@ -17,6 +17,8 @@ test.describe('my rooms', () => {
     await expect(row).toBeVisible();
     await expect(row.locator('.room-name')).toHaveText('Room ' + id);
     await expect(row.locator('.presence')).toHaveText('');
+    // One room fits on one page: no pager.
+    await expect(page.locator('#pager')).toBeHidden();
 
     // Rename through the prompt; the next prompt offers the new name.
     page.once('dialog', d => d.accept('Mom'));
@@ -39,6 +41,58 @@ test.describe('my rooms', () => {
     await expect(page.locator('#no-rooms')).toBeVisible();
     await page.goto(roomUrl);
     await expect(page.locator('#gone')).toBeVisible();
+  });
+
+  test('the list comes twenty at a time, and the page survives a reload', async ({ page }) => {
+    // 21 rooms; the API call carries this context's session cookie. The
+    // first made is the oldest, alone on page 2.
+    await newRoom(page);
+    const oldest = page.url().split('/').pop();
+    // created_at counts whole seconds and ties go by the random id: the
+    // others must come a second later for this one to be the oldest.
+    await page.waitForTimeout(1100);
+    for (let i = 0; i < 20; i++) expect((await page.request.post('/api/rooms')).status()).toBe(201);
+
+    await page.goto('/');
+    const rows = page.locator('#rooms li');
+    await expect(rows).toHaveCount(20);
+    await expect(page.locator('#pager')).toBeVisible();
+    await expect(page.locator('#newer')).toBeDisabled();
+    await expect(page.locator('#older')).toBeEnabled();
+
+    await page.click('#older');
+    await expect(rows).toHaveCount(1);
+    await expect(rows.first()).toHaveAttribute('data-id', oldest);
+    await expect(page).toHaveURL(/\/\?page=2$/);
+    await expect(page.locator('#older')).toBeDisabled();
+
+    await page.reload();
+    await expect(rows).toHaveCount(1);
+    await expect(rows.first()).toHaveAttribute('data-id', oldest);
+
+    // Deleting the last room on the last page steps back to the one before,
+    // which is now everything: no pager, no page in the address.
+    page.once('dialog', d => d.accept());
+    await rows.first().getByRole('button', { name: 'Delete' }).click();
+    await expect(rows).toHaveCount(20);
+    await expect(page.locator('#pager')).toBeHidden();
+    await expect(page).toHaveURL(/\/$/);
+
+    // Newer goes back from a later page.
+    expect((await page.request.post('/api/rooms')).status()).toBe(201);
+    await page.goto('/?page=2');
+    await expect(rows).toHaveCount(1);
+    await page.click('#newer');
+    await expect(rows).toHaveCount(20);
+    await expect(page).toHaveURL(/\/$/);
+    // A page far past the end lands on the first, and so does one the
+    // server cannot read.
+    for (const n of ['999', '1000000']) {
+      await page.goto('/?page=' + n);
+      await expect(page).toHaveURL(/\/$/);
+      await expect(rows).toHaveCount(20);
+      await expect(page.locator('#newer')).toBeDisabled();
+    }
   });
 
   test('joining someone else\'s room puts it on my list, without owner actions', async ({ browser, page }) => {

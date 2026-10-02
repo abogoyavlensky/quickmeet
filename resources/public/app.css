@@ -124,6 +124,11 @@ input::placeholder { color: var(--muted); }
 .calls td:nth-child(2) { color: var(--muted); }
 .calls th:last-child, .calls td:last-child { text-align: right; padding-right: 0; font-variant-numeric: tabular-nums; }
 
+/* Newer and Older under a list, quiet like the bar's links. */
+.pager { display: flex; justify-content: space-between; margin-top: 16px; font-size: 15px; }
+.pager button { color: var(--muted); }
+.pager button:not(:disabled):hover { color: var(--fg); }
+
 /* ---- the room page ---------------------------------------------------- */
 
 body.room { display: flex; flex-direction: column; }

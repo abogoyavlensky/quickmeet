@@ -45,6 +45,26 @@ test.describe('accounts', () => {
     await expect(page.locator('#signed-in')).toBeVisible();
   });
 
+  test('history and settings sign out too', async ({ page }) => {
+    const email = await signUp(page, 'erin');
+    for (const path of ['/history', '/settings']) {
+      if (path !== '/history') {
+        await page.goto('/signin');
+        await page.fill('#email', email);
+        await page.fill('#password', 'correct horse');
+        await page.click('#submit');
+        await expect(page).toHaveURL(/\/$/);
+      }
+      await page.goto(path);
+      await page.getByRole('button', { name: 'Sign out' }).click();
+      await expect(page).toHaveURL(/\/$/);
+      await expect(page.locator('#signed-out')).toBeVisible();
+      // The session is gone, not only the page: history sends to sign in.
+      await page.goto('/history');
+      await expect(page).toHaveURL(/\/signin$/);
+    }
+  });
+
   test('signing up twice with one address is refused with a message', async ({ page }) => {
     const email = await signUp(page, 'dup');
     await page.goto('/signup');

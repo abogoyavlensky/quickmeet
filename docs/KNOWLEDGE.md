@@ -178,6 +178,11 @@ Verified 2026-09-29, for the two-person rule:
   `"cookie"`. Response headers are added one by one (`Header.Add`), so a
   map with one `Set-Cookie` is enough. Its http client lowercases
   response header names too: read `set-cookie`, not `Set-Cookie`.
+- Verified 2026-10-02: the server's `:uri` is the request URI, query
+  string included (`url.RequestURI()`, `pkg/rt/http.go:270`); `:path` is
+  the path alone and `:query-string` the raw query. ruuter matches `:uri`
+  whole, so any `?..` used to 404. `routes/handler` strips the query
+  before routing; read parameters from `:query-string`.
 - `hash` and `open` are `clojure.core` names in let-go; a namespace that
   defines them warns unless it `:refer-clojure :exclude`s them.
 - The sql layer treats a bare `pragma table_info(t)` as a statement

@@ -41,6 +41,10 @@
            person; naming one after them is how it is told from the others. -->
       <ul id="rooms" class="rooms"></ul>
       <p id="no-rooms" class="empty" hidden>Nobody to call yet. Start a call and send its link; the link stays here for next time.</p>
+      <nav id="pager" class="pager" hidden>
+        <button id="newer" class="link">← Newer</button>
+        <button id="older" class="link">Older →</button>
+      </nav>
       <p class="account">Signed in as <span id="who"></span></p>
     </section>
 
@@ -133,17 +137,33 @@
       return li;
     }
 
+    // The list comes a page at a time; the poll and every change reload
+    // the page being shown.
+    let page = pageInUrl();
+
     // Rows are rebuilt only when the set of rooms changed; a refresh of
     // the same rooms updates them in place, so a focused link or button
     // (keyboard navigation) survives the five-second poll.
-    async function loadRooms() {
+    async function loadRooms(fellBack = false) {
+      const asked = page;
       try {
-        const rooms = await api('/api/rooms');
+        const { items: rooms, page: served, more } = await api('/api/rooms?page=' + asked);
+        // A poll and a click on the pager can overlap: an answer for a
+        // page no longer shown is dropped.
+        if (page !== asked) return;
+        // The server reads a page it cannot serve (?page=junk) as the first.
+        page = served;
+        // Past the end: the page before, which is where deleting the last
+        // room of the last page leaves you; if that is empty too (an old
+        // link), the first.
+        if (rooms.length === 0 && page > 1) { page = fellBack ? 1 : page - 1; return loadRooms(true); }
         const rows = [...$('rooms').children];
         const same = rows.length === rooms.length && rows.every((li, i) => li.dataset.id === rooms[i].id);
         if (same) rooms.forEach((room, i) => fillRow(rows[i], room));
         else $('rooms').replaceChildren(...rooms.map(roomRow));
         $('no-rooms').hidden = rooms.length > 0;
+        setPager($('pager'), page, more, n => { page = n; loadRooms(); });
+        setPageInUrl(page);
       } catch (e) { showError(e); }
     }
 
@@ -156,11 +176,6 @@
         showError(e);
         $('new').disabled = false;
       }
-    });
-
-    $('signout').addEventListener('click', async () => {
-      await fetch('/api/auth/signout', { method: 'POST' });
-      location.reload();
     });
 
     load();

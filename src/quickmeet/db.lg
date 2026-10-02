@@ -77,7 +77,9 @@
            :from [[:rooms :r]]
            :join [[:room_members :m] [:= :m.room_id :r.id]]
            :where [:= :m.user_id "user"]
-           :order-by [[:r.created_at :desc] [:r.id :asc]]}))
+           :order-by [[:r.created_at :desc] [:r.id :asc]]
+           :limit "limit"
+           :offset "offset"}))
 
 (def ^:private rename-room-sql
   (sql-of {:update :rooms
@@ -111,9 +113,10 @@
   (sqlite/execute-one! conn [get-room-sql id]))
 
 (defn rooms-of-user
-  "The rooms `user-id` is a member of, newest first."
-  [conn user-id]
-  (sqlite/query conn [rooms-of-user-sql user-id]))
+  "The rooms `user-id` is a member of, newest first: `limit` of them from
+   `offset`."
+  [conn user-id limit offset]
+  (sqlite/query conn [rooms-of-user-sql user-id limit offset]))
 
 (defn rename-room!
   "Set the room's name; nil clears it."
@@ -258,7 +261,11 @@
                             :from [[:call_participants :me]]
                             :where [:and [:= :me.call_id :c.id] [:= :me.user_id "user"]]}]
            :group-by [:c.id]
-           :order-by [[:started_at :desc]]}))
+           ;; The id breaks ties, so calls that started in the same second
+           ;; keep their places between pages.
+           :order-by [[:started_at :desc] [:c.id :asc]]
+           :limit "limit"
+           :offset "offset"}))
 
 (defn open-call [conn room-id]
   (sqlite/execute-one! conn [open-call-sql room-id]))
@@ -291,9 +298,9 @@
 
 (defn calls-of-user
   "The calls `user-id` took part in, newest first: {:id :room_id
-   :started_at :ended_at :seconds :with}."
-  [conn user-id]
-  (sqlite/query conn [calls-of-user-sql user-id user-id]))
+   :started_at :ended_at :seconds :with}, `limit` of them from `offset`."
+  [conn user-id limit offset]
+  (sqlite/query conn [calls-of-user-sql user-id user-id limit offset]))
 
 ;; Every open call, closed now. Plain SQL: these are fixed statements, and
 ;; HoneySQL under let-go misorders some update shapes. Participants first,

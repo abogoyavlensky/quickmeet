@@ -42,9 +42,11 @@ test.describe('on a phone', () => {
 
   test('the menu and New call stay in view on a long list', async ({ page }) => {
     await signUp(page);
-    for (let i = 0; i < 25; i++) expect((await page.request.post('/api/rooms')).status()).toBe(201);
+    // A full page of rooms (the list shows 20 at a time) is longer than
+    // the screen.
+    for (let i = 0; i < 20; i++) expect((await page.request.post('/api/rooms')).status()).toBe(201);
     await page.goto('/');
-    await expect(page.locator('#rooms li')).toHaveCount(25);
+    await expect(page.locator('#rooms li')).toHaveCount(20);
     await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
     expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
 

@@ -216,6 +216,32 @@
     {:identity (str "user:" (:id user)) :name (:display_name user)}
     {:identity (str "guest:" (subs (id/random-hex) 0 4)) :name (clean-name typed-name)}))
 
+;; ---- pages --------------------------------------------------------------
+
+;; The lists (my rooms, my calls) come a page at a time, newest first. The
+;; size is the server's; a client asks only for ?page=N, from 1.
+(def ^:private page-size 20)
+
+(defn- page-of
+  "The page a request asks for. Missing, malformed or 0 is the first: a
+   list has no reason to refuse one."
+  [req]
+  (let [n (some-> (re-find #"(?:^|&)page=(\d{1,6})(?:&|$)" (str (:query-string req)))
+                  second
+                  parse-long)]
+    (if (and n (pos? n)) n 1)))
+
+(defn- paged
+  "One page of a list as {:items [..] :page n :more bool}. `fetch` is
+   (fn [limit offset]) -> rows; it is asked for one row more than a page,
+   and getting it back is how `more` knows an older page exists."
+  [req fetch]
+  (let [page (page-of req)
+        rows (fetch (inc page-size) (* (dec page) page-size))]
+    {:items (vec (take page-size rows))
+     :page page
+     :more (> (count rows) page-size)}))
+
 (defn- room-name-problem [name]
   (when (> (count name) 64) "The name must be at most 64 characters."))
 
@@ -337,16 +363,17 @@
                         (json-response 201 {:id (:id room)})))
                   unauthorized))}
 
-   ;; My rooms: the ones I own or have joined, newest first, with how many
-   ;; are in each right now (one question to the SFU for all of them; if it
-   ;; could not be asked, nobody is).
+   ;; My rooms: a page of the ones I own or have joined, newest first, with
+   ;; how many are in each right now (one question to the SFU for all of
+   ;; them; if it could not be asked, nobody is).
    {:path "/api/rooms"
     :method :get
     :response (fn [req]
                 (if-let [user (current-user req)]
-                  (let [active (or (active-rooms) {})]
-                    (json-response 200 (mapv #(public-room % user active)
-                                             (db/rooms-of-user conn (:id user)))))
+                  (let [active (or (active-rooms) {})
+                        result (paged req #(db/rooms-of-user conn (:id user) %1 %2))]
+                    (json-response 200 (update result :items
+                                               (fn [rooms] (mapv #(public-room % user active) rooms)))))
                   unauthorized))}
 
    ;; Rename. Body: {"name": "..."}; blank clears the name.
@@ -416,12 +443,12 @@
                                       :name name
                                       :url (signalling-url req livekit)})))))}
 
-   ;; My call history, newest first.
+   ;; A page of my call history, newest first.
    {:path "/api/calls"
     :method :get
     :response (fn [req]
                 (if-let [user (current-user req)]
-                  (json-response 200 (history/calls-of-user conn (:id user)))
+                  (json-response 200 (paged req #(history/calls-of-user conn (:id user) %1 %2)))
                   unauthorized))}
 
    ;; Where the embedded SFU posts its events (system.lg gives it this
@@ -455,7 +482,10 @@
   [conn livekit lookups auth]
   (let [table (routes conn livekit lookups auth)]
     (fn [req]
-      (r/route table req))))
+      ;; let-go's :uri is the request URI, query string included, and
+      ;; ruuter matches it whole: routes see the path alone. The query
+      ;; stays under :query-string.
+      (r/route table (update req :uri #(str/replace (str %) #"\?.*$" ""))))))
 
 ;; The real lookups are built from the same :livekit map the routes use, so
 ;; a system that moves the SFU port (the tests do) asks the right one.
