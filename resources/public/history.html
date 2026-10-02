@@ -68,17 +68,19 @@
     let page = pageInUrl();
 
     // History is for a signed-in person; anyone else goes to sign in.
-    async function load() {
+    async function load(fellBack = false) {
       const asked = page;
       try {
         const res = await fetch('/api/calls?page=' + asked);
         if (res.status === 401) { location.href = '/signin'; return; }
         if (!res.ok) throw new Error('could not load history (' + res.status + ')');
-        const { items: calls, more } = await res.json();
+        const { items: calls, page: served, more } = await res.json();
         // Two quick clicks on the pager: only the last one's answer counts.
         if (page !== asked) return;
-        // Past the end (an old link, say): the page before.
-        if (calls.length === 0 && page > 1) { page--; return load(); }
+        // The server reads a page it cannot serve (?page=junk) as the first.
+        page = served;
+        // Past the end (an old link, say): the page before, then the first.
+        if (calls.length === 0 && page > 1) { page = fellBack ? 1 : page - 1; return load(true); }
         $('calls').querySelector('tbody').replaceChildren(...calls.map(row));
         $('calls').hidden = calls.length === 0;
         $('empty').hidden = calls.length > 0;

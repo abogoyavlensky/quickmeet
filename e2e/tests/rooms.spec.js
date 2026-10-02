@@ -85,6 +85,14 @@ test.describe('my rooms', () => {
     await page.click('#newer');
     await expect(rows).toHaveCount(20);
     await expect(page).toHaveURL(/\/$/);
+    // A page far past the end lands on the first, and so does one the
+    // server cannot read.
+    for (const n of ['999', '1000000']) {
+      await page.goto('/?page=' + n);
+      await expect(page).toHaveURL(/\/$/);
+      await expect(rows).toHaveCount(20);
+      await expect(page.locator('#newer')).toBeDisabled();
+    }
   });
 
   test('joining someone else\'s room puts it on my list, without owner actions', async ({ browser, page }) => {
