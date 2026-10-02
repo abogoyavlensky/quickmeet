@@ -76,7 +76,24 @@
               [{:drop-table :call_participants}
                {:drop-table :calls}
                {:drop-table :room_members}
-               {:alter-table :rooms :drop-column :name}])])
+               {:alter-table :rooms :drop-column :name}])
+
+   ;; Ringing: each device's push subscription, tied to the session that
+   ;; made it so signing out stops that device, and a settings table whose
+   ;; first row is the app's VAPID key pair (quickmeet.push).
+   (migration "004-push"
+              [{:create-table :settings
+                :with-columns [[:key :text [:primary-key]]
+                               [:value :text [:not nil]]]}
+               {:create-table :push_subscriptions
+                :with-columns [[:endpoint :text [:primary-key]]
+                               [:session_id :text [:not nil] [:references :sessions :id]]
+                               [:p256dh :text [:not nil]]
+                               [:auth :text [:not nil]]
+                               [:created_at :text [:not nil]
+                                [:default [:raw "CURRENT_TIMESTAMP"]]]]}]
+              [{:drop-table :push_subscriptions}
+               {:drop-table :settings}])])
 
 (defn store
   "The ragtime DataStore over `conn`."

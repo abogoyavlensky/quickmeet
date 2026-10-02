@@ -33,12 +33,19 @@
     (fn [conn]
       (is (= [] (applied conn)))
       (migrations/migrate! conn)
-      (is (= ["001-create-rooms" "002-create-users" "003-rooms-members-calls"] (applied conn)))
-      (is (= ["call_participants" "calls" "ragtime_migrations" "room_members" "rooms" "sessions" "users"]
+      (is (= ["001-create-rooms" "002-create-users" "003-rooms-members-calls" "004-push"] (applied conn)))
+      (is (= ["call_participants" "calls" "push_subscriptions" "ragtime_migrations" "room_members"
+              "rooms" "sessions" "settings" "users"]
              (tables conn)))
       (is (= ["id" "created_at" "owner_id" "name"] (columns conn "rooms")))
+      (is (= ["endpoint" "session_id" "p256dh" "auth" "created_at"] (columns conn "push_subscriptions")))
+      (is (= ["key" "value"] (columns conn "settings")))
       (migrations/migrate! conn)
-      (is (= 3 (count (applied conn))))
+      (is (= 4 (count (applied conn))))
+      ;; One step back: the push tables go, the rest stays.
+      (migrations/rollback! conn)
+      (is (= ["call_participants" "calls" "ragtime_migrations" "room_members" "rooms" "sessions" "users"]
+             (tables conn)))
       ;; Two steps back: the accounts go, the rooms stay, without their owner.
       (migrations/rollback! conn 2)
       (is (= ["001-create-rooms"] (applied conn)))
@@ -78,7 +85,8 @@
       (sqlite/execute! conn ["insert into users (id, email, password_hash, display_name)
                               values ('u1', 'a@b.c', 'x', 'a')"])
       (sqlite/execute! conn ["insert into rooms (id, owner_id) values ('aaaaaaaaaaaa', 'u1'), ('bbbbbbbbbbbb', null)"])
-      (migrations/migrate! conn)
+      (rt/migrate {:datastore (migrations/store conn)
+                   :migrations (vec (take 3 migrations/migrations))})
       (is (= ["001-create-rooms" "002-create-users" "003-rooms-members-calls"] (applied conn)))
       (is (= ["call_participants" "calls" "ragtime_migrations" "room_members" "rooms" "sessions" "users"]
              (tables conn)))
@@ -97,4 +105,22 @@
       (is (= [{:id "aaaaaaaaaaaa" :owner_id "u1"} {:id "bbbbbbbbbbbb" :owner_id nil}]
              (sqlite/query conn ["select id, owner_id from rooms order by id"])))
       (migrations/migrate! conn)
-      (is (= 3 (count (applied conn)))))))
+      (is (= 4 (count (applied conn)))))))
+
+(deftest migration-004-both-ways
+  ;; Push: a subscription per device, tied to the session that made it, and
+  ;; a settings table for the VAPID keys. Rolling back drops both and
+  ;; leaves the sessions.
+  (with-conn
+    (fn [conn]
+      (migrations/migrate! conn)
+      (sqlite/execute! conn ["insert into users (id, email, password_hash, display_name)
+                              values ('u1', 'a@b.c', 'x', 'a')"])
+      (sqlite/execute! conn ["insert into sessions (id, user_id) values ('s1', 'u1')"])
+      (sqlite/execute! conn ["insert into push_subscriptions (endpoint, session_id, p256dh, auth)
+                              values ('https://fcm.googleapis.com/fcm/send/x', 's1', 'p', 'a')"])
+      (sqlite/execute! conn ["insert into settings (key, value) values ('k', 'v')"])
+      (is (= [{:key "k" :value "v"}] (sqlite/query conn ["select key, value from settings"])))
+      (migrations/rollback! conn)
+      (is (= 3 (count (applied conn))))
+      (is (= [{:id "s1"}] (sqlite/query conn ["select id from sessions"]))))))
