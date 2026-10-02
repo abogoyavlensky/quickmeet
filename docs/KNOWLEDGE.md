@@ -505,6 +505,55 @@ Why the stock blur ripples, and the patch, 2026-10-01:
   a same-tag ring replacing the earlier one, the sound) is the device
   checklist in `docs/plans/2026-10-02-2050-ring-web-push.md`, Task 9.
 
+## Screen sharing, verified 2026-10-02
+
+- No server change is needed. `lk/token` leaves `canPublish` nil when the
+  key is absent, which upstream reads as "not restricted", and sets no
+  `canPublishSources`, so the join token's `:room-join` alone lets a
+  participant publish a screen (`livekit/shim/shim.go`, `Token`). The
+  two-person cap counts participants, not tracks.
+- `localParticipant.setScreenShareEnabled(on, options)` captures and
+  publishes, or unpublishes. Its `createScreenTracks` calls
+  `getDisplayMedia` and takes the first video track (and an audio track,
+  if the stream has one, as `ScreenShareAudio`). The options become the
+  constraints in `screenCaptureToDisplayMediaStreamOptions` (`Aa` in the
+  minified bundle): `video` may be an object, into which the default
+  1080p resolution is merged, so `{ displaySurface: 'monitor' }` reaches
+  the browser; `audio` defaults to false.
+- When a published screen track ends by itself (the browser's "Stop
+  sharing" bar, the shared window closing), the client unpublishes it
+  (`handleTrackEnded` in `LocalParticipant`; a camera or microphone is
+  muted instead). Dispatching a synthetic `ended` on the track's
+  `mediaStreamTrack` drives the same path; `screenshare.spec.js` does.
+  `RoomEvent.LocalTrackPublished` and `LocalTrackUnpublished` say so, and
+  fire for the camera and microphone at every join too: filter on
+  `pub.source`.
+- A page cannot pick the monitor. `getDisplayMedia` always opens the
+  browser's or the OS's picker; `displaySurface` only chooses which of
+  its tabs opens first.
+- Mobile browsers cannot capture the screen. From compatibility data,
+  not tried on a device: iPhone Safari (and so every iPhone browser) has
+  no `getDisplayMedia` through iOS 26, with one unconfirmed report that
+  iOS 27 has it; Chrome and Firefox for Android define it and reject
+  every call with `NotAllowedError`. Feature detection alone would show
+  a button that cannot work, so the room page also checks the user
+  agent.
+- A camera turned off with `setCameraEnabled(false)` stays published and
+  muted, so the other side still subscribes to it: a viewer can hold a
+  camera track that sends no frames.
+- The headless shell answers `getDisplayMedia` under
+  `--use-fake-ui-for-media-stream` with no prompt: a track labelled
+  `screen:-3:0`, `displaySurface: "monitor"`, 1280x720 when asked
+  plainly and 1920x1080 through the client (which asks for 1080p). It
+  delivers frames: shared from the button, the viewer decoded 33 in 3 s.
+  The spec still uses a canvas (`canvasScreen` in
+  `e2e/tests/helpers.js`), because its shape tells it apart from the 16:9
+  fake camera.
+- The viewer's camera, subscribed but attached to no element while a
+  screen is on stage, is paused: its `framesDecoded` stayed flat over
+  3 s while the screen's grew. `adaptiveStream` asks the SFU to stop a
+  video nobody shows, so the hidden camera costs no bandwidth.
+
 ## Restarts and shutdown, verified 2026-09-30
 
 - A call survives the server process being killed. Two headless
@@ -655,7 +704,10 @@ The first deploy, 2026-09-28 to 2026-09-29:
 > `livekit/README.md`; in `@livekit/track-processors` 0.8.1,
 > `src/index.ts`, `src/ProcessorWrapper.ts` and
 > `src/transformers/BackgroundTransformer.ts`; in `livekit-client` 2.22.3,
-> `src/room/track/LocalTrack.ts` and `LocalVideoTrack.ts`; in ruuter
+> `src/room/track/LocalTrack.ts`, `LocalVideoTrack.ts` and `utils.ts`
+> (`screenCaptureToDisplayMediaStreamOptions`), and
+> `src/room/participant/LocalParticipant.ts` (`createScreenTracks`,
+> `handleTrackEnded`), read in the minified bundle; in ruuter
 > v2.1.1, `src/ruuter/core.cljc`; in let-go 1.13.0, `pkg/rt/ions.go`,
 > `pkg/rt/http.go`, `pkg/rt/hash_sha.go`, `pkg/rt/os.go`,
 > `pkg/rt/syscall_linux.go`, `pkg/rt/async.go`; in livekit-server v1.13.7,

@@ -52,17 +52,15 @@ export async function openLobby(browser, contexts, roomUrl, name, { init, ...con
   return { context, page };
 }
 
-// A camera of a given shape. The fake device arrives as 16:9; this replaces
-// the video track getUserMedia returns with a canvas of the size asked for,
+// A camera or a screen of a given shape: a canvas of the size asked for,
 // repainted on a timer (a canvas that is never repainted sends no frames).
-// The page under test is unchanged: createLocalTracks gets the stream the
-// normal way.
-const canvasCamera = (width, height) => async context => {
-  await context.addInitScript(({ width, height }) => {
-    const real = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
-    navigator.mediaDevices.getUserMedia = async constraints => {
-      const stream = await real(constraints);
-      if (!constraints || !constraints.video) return stream;
+// For the camera, the video track getUserMedia returns is replaced (the
+// fake device arrives as 16:9); for the screen, getDisplayMedia returns the
+// canvas alone, with no picker. The page under test is unchanged: the
+// client gets the stream the normal way.
+const canvasMedia = (api, width, height) => async context => {
+  await context.addInitScript(({ api, width, height }) => {
+    const canvasTrack = () => {
       const canvas = Object.assign(document.createElement('canvas'), { width, height });
       const g = canvas.getContext('2d');
       let n = 0;
@@ -70,16 +68,34 @@ const canvasCamera = (width, height) => async context => {
         g.fillStyle = `hsl(${(n++ * 7) % 360} 60% 50%)`;
         g.fillRect(0, 0, width, height);
       }, 66);
-      const [tall] = canvas.captureStream(15).getVideoTracks();
+      return canvas.captureStream(15).getVideoTracks()[0];
+    };
+    const devices = navigator.mediaDevices;
+    if (api === 'display') {
+      devices.getDisplayMedia = async () => new MediaStream([canvasTrack()]);
+      return;
+    }
+    const real = devices.getUserMedia.bind(devices);
+    devices.getUserMedia = async constraints => {
+      const stream = await real(constraints);
+      if (!constraints || !constraints.video) return stream;
       for (const t of stream.getVideoTracks()) { stream.removeTrack(t); t.stop(); }
-      stream.addTrack(tall);
+      stream.addTrack(canvasTrack());
       return stream;
     };
-  }, { width, height });
+  }, { api, width, height });
 };
 // Held upright, and a webcam's 4:3.
-export const tallCamera = canvasCamera(360, 640);
-export const webcam = canvasCamera(640, 480);
+export const tallCamera = canvasMedia('user', 360, 640);
+export const webcam = canvasMedia('user', 640, 480);
+// A screen to share. Its shape tells it apart from the 16:9 fake camera.
+export const canvasScreen = (width, height) => canvasMedia('display', width, height);
+// The picker closed without choosing: what the browser answers then.
+export const noScreen = async context => {
+  await context.addInitScript(() => {
+    navigator.mediaDevices.getDisplayMedia = async () => { throw new DOMException('denied', 'NotAllowedError'); };
+  });
+};
 
 // A participant joined to the room under `name`.
 export async function joinAs(browser, contexts, roomUrl, name, contextOptions = {}) {

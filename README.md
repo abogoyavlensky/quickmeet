@@ -36,7 +36,11 @@ Starting a call takes an account; joining one takes only the link.
 The room page shows a lobby first: a preview of your camera, pickers for
 the camera and microphone, and who is already in the room. A button on
 the preview, and another in the call's controls, blurs the background
-behind you; the browser remembers the choice for the next call. Rooms are
+behind you; the browser remembers the choice for the next call. On a
+desktop another button shares your screen, a window or a tab, picked in
+the browser's own dialog; the other person sees it in place of your
+camera. Phones can watch a shared screen but not share one: their
+browsers cannot capture the screen. Rooms are
 permanent and hold two people; a third person is told the call is
 full. A link is created once and reused for every call with that person.
 
@@ -59,7 +63,9 @@ nothing is lost, and leaving is noticed. Other specs cover accounts
 (preview, device pickers, who is there, a third person refused), the
 call's states (waiting, reconnecting, a lost connection), background
 blur (on in the lobby and into the call, a failed load, a browser that
-cannot do it) and the layout
+cannot do it), screen sharing (the screen taking the other side's
+stage whole, the button, a share the browser ends, no button on a
+phone) and the layout
 on phone-sized and short viewports by bounding boxes. Playwright stops
 the app when the run ends, so it coexists with an `lgx run` on the
 default ports.
