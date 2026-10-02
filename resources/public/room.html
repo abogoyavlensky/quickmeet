@@ -88,7 +88,8 @@
     // The page has three states, one section each: #gone (no such room),
     // #lobby (preview, devices, presence, not yet in the call) and #call.
     // The lobby acquires the camera and microphone once; joining publishes
-    // those same tracks, so there is one permission prompt. Leaving, or a
+    // those same tracks, so there is one permission prompt. Either can be
+    // turned off there, and is then published muted. Leaving, or a
     // dropped connection, returns to the lobby, which starts over (the
     // client stops local tracks on disconnect).
     const { Room, RoomEvent, Track, DisconnectReason, createLocalTracks } = LivekitClient;
@@ -631,8 +632,10 @@
       $('join').disabled = true;
       $('error').hidden = true;
       drawBlur();
+      drawMedia();
       try {
         await lobby.ready;
+        await lobby.switching;
         await blurBusy;
         const res = await fetch(`/api/rooms/${roomId}/token`, {
           method: 'POST',

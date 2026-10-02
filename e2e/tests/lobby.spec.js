@@ -1,6 +1,6 @@
 // The lobby: what a person sees before joining.
 import { test, expect } from '@playwright/test';
-import { newRoom, openLobby, joinAs, remoteOf } from './helpers.js';
+import { newRoom, openLobby, joinAs, remoteOf, statsOf } from './helpers.js';
 
 test.describe('the lobby', () => {
   let contexts;
@@ -72,6 +72,46 @@ test.describe('the lobby', () => {
     await expect(page.locator('#mic-preview')).toHaveAttribute('aria-label', 'Mute');
     await expect(page.locator('#mic-select')).toBeEnabled();
     await expect(page.locator('#error')).toBeHidden();
+  });
+
+  test('joining with both off publishes nothing until they are turned on', async ({ browser, page }) => {
+    const roomUrl = await newRoom(page);
+    const { page: alice } = await openLobby(browser, contexts, roomUrl, 'alice');
+    for (const id of ['#mic-preview', '#cam-preview']) {
+      await alice.click(id);
+      await expect(alice.locator(id)).toHaveAttribute('data-off', '');
+    }
+    await alice.click('#join');
+    await alice.waitForFunction(() => window.call.joined === true, null, { timeout: 15_000 });
+    const bob = await joinAs(browser, contexts, roomUrl, 'bob');
+    await expect.poll(() => remoteOf(alice)).toBe('bob');
+
+    // Alice joined muted and without video, and says so.
+    await expect(alice.locator('#mic')).toHaveAttribute('data-off', '');
+    await expect(alice.locator('#cam')).toHaveAttribute('data-off', '');
+    await expect(alice.locator('.tile.self')).toBeHidden();
+
+    // She still sees and hears bob.
+    const frames = async p => ((await statsOf(p)).video || {}).framesDecoded || 0;
+    const packets = async p => ((await statsOf(p)).audio || {}).packetsReceived || 0;
+    const aliceFrames = await frames(alice);
+    await expect.poll(() => frames(alice)).toBeGreaterThan(aliceFrames);
+    await expect.poll(() => packets(alice)).toBeGreaterThan(0);
+
+    // Bob gets nothing from her.
+    const before = await frames(bob.page), silent = await packets(bob.page);
+    await new Promise(r => setTimeout(r, 2000));
+    expect(await frames(bob.page)).toBe(before);
+    expect(await packets(bob.page)).toBe(silent);
+
+    // Turned on from the call, both reach bob.
+    await alice.click('#cam');
+    await alice.click('#mic');
+    await expect(alice.locator('#cam')).not.toHaveAttribute('data-off');
+    await expect(alice.locator('#mic')).not.toHaveAttribute('data-off');
+    await expect(alice.locator('.tile.self')).toBeVisible();
+    await expect.poll(() => frames(bob.page)).toBeGreaterThan(before);
+    await expect.poll(() => packets(bob.page)).toBeGreaterThan(silent);
   });
 
   test('the lobby shows who is already here', async ({ browser, page }) => {
