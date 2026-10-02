@@ -2,6 +2,8 @@
 
 > **For agentic workers:** Use executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+**Status: completed 2026-10-02**
+
 **Goal:** In the lobby a person can turn the microphone and the camera off (and back on) before joining, and joins the call in that state.
 
 **Tech Stack:** Plain JavaScript in `resources/public/room.html`, livekit-client 2.22.3 (`LocalTrack.mute` / `unmute`), CSS in `resources/public/app.css`, Playwright e2e (`lgx e2e`).
@@ -139,7 +141,7 @@ above does not explain, stop and report; do not work around it.
 - Modify: `resources/public/room.html`, `resources/public/app.css`
 - Test: `e2e/tests/lobby.spec.js`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
   In `lobby.spec.js` add "the microphone and the camera can be turned off
   before joining", on the fixture page after `newRoom(page)`, with the
   lobby assertions from Testing above. Wait for the preview
@@ -149,17 +151,17 @@ above does not explain, stop and report; do not work around it.
   track state with `page.evaluate` (`trackOfKind` and `Track` are globals
   of the page's script, as `blur.spec.js` uses them).
 
-- [ ] **Step 2: Run it to see it fail**
+- [x] **Step 2: Run it to see it fail**
   Run: `lgx build && (cd e2e && npx playwright test tests/lobby.spec.js)`
   Expected: the new test FAILS (no `#cam-preview`); the others pass.
 
-- [ ] **Step 3: Markup**
+- [x] **Step 3: Markup**
   In `.preview`, after `#blur-preview`:
   `<p class="cam-off-label">Camera is off</p>` and
   `<div class="preview-controls"><button id="mic-preview" hidden></button><button id="cam-preview" hidden></button></div>`.
   Update the comment above `#lobby` to mention them.
 
-- [ ] **Step 4: Style**
+- [x] **Step 4: Style**
   In `app.css`, with the "Round glass buttons over video" rules:
   - `.preview-controls`: absolute, bottom 12px, centred horizontally, a
     flex row with a 10px gap.
@@ -175,7 +177,7 @@ above does not explain, stop and report; do not work around it.
   the blur button must not overlap at 360px wide; three 44px buttons with
   12px margins fit.
 
-- [ ] **Step 5: Logic**
+- [x] **Step 5: Logic**
   In the lobby section of the script, as the design's "How it works"
   describes:
   - add `switching: null` to `lobby` and to its comment;
@@ -193,12 +195,23 @@ above does not explain, stop and report; do not work around it.
   called at the end of the script, so declare any new `const` above that
   call as the existing code does.
 
-- [ ] **Step 6: Run the lobby tests**
+- [x] **Step 6: Run the lobby tests**
   Run: `lgx build && (cd e2e && npx playwright test tests/lobby.spec.js)`
   Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
   `git commit -m "Lobby: turn the microphone and the camera off before joining"`
+
+> Deviation: no `aria-pressed` on the lobby buttons. The label already
+> changes with the state (Mute / Unmute), as on the call's buttons, which
+> have none; both together would read as a contradiction.
+> Deviation: the device selects also wait while a switch is in flight, and
+> the blur button waits for a switch too (`drawBlur`), so a blur switch and
+> a mute never run on the camera at once in either order.
+> Deviation: `showMic` / `showCam` and the lobby share one `drawSwitch`
+> (icon, label, `data-off`) instead of repeating the icon choice.
+> Codex review (ed0f1a3): one finding, join() not awaiting the switch;
+> that is Task 2 Step 3.
 
 ### Task 2: Joining with them off
 
@@ -206,7 +219,7 @@ above does not explain, stop and report; do not work around it.
 - Modify: `resources/public/room.html` (`join`)
 - Test: `e2e/tests/lobby.spec.js`
 
-- [ ] **Step 1: Write the test**
+- [x] **Step 1: Write the test**
   "joining with both off publishes nothing until they are turned on", as
   in Testing above: `openLobby` for alice, click `#mic-preview` and
   `#cam-preview` (wait for `data-off` on each), click `#join`, wait for
@@ -214,12 +227,12 @@ above does not explain, stop and report; do not work around it.
   null `video` stat on bob's side counts as zero frames. Poll for growth
   with `expect.poll`, as `blur.spec.js` does with `framesGrow`.
 
-- [ ] **Step 2: Run it**
+- [x] **Step 2: Run it**
   Run: `lgx build && (cd e2e && npx playwright test tests/lobby.spec.js)`
   It may already pass: Task 1 mutes the tracks and the join path publishes
   them as they are. Note the result either way.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
   In `join()`: call `drawMedia()` beside the existing `drawBlur()` (the
   buttons go disabled with `lobby.joining`), and after `await lobby.ready`
   add `await lobby.switching` before `await blurBusy`. Extend the comment
@@ -227,33 +240,48 @@ above does not explain, stop and report; do not work around it.
   once…") with one sentence: either can be turned off there, and is then
   published muted.
 
-- [ ] **Step 4: Run the lobby tests**
+- [x] **Step 4: Run the lobby tests**
   Same command. Expected: PASS. If the join-with-camera-off test fails,
   see the note at the end of Testing: stop and report.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git commit -m "Lobby: join with the microphone or the camera off"`
+
+> Step 2 result: the test passed before Step 3, as expected. Publishing a
+> stopped camera makes the client log "could not determine track
+> dimensions, using defaults" (720p, its capture default); harmless.
+> Deviation: the test also checks that bob receives no audio packets while
+> alice is muted, so the growth after unmuting is not trivially true.
+> Codex review (a8b8244): no findings.
 
 ### Task 3: Full suite
 
-- [ ] **Step 1: Run everything**
+- [x] **Step 1: Run everything**
   Run: `lgx test` and `lgx e2e`.
   Expected: all PASS. `blur.spec.js` and `mobile.spec.js` touch the same
   preview; fix what this change broke. An unrelated flake is reported, not
   patched.
 
-- [ ] **Step 2: Look at it**
+- [x] **Step 2: Look at it**
   With the built binary running (see "Browser tests" in the README for how
   the e2e config starts it), take a screenshot of the lobby at desktop
   size, at 390x844 and at 844x390 with the camera on and off, and check the buttons
   sit as designed and nothing overlaps.
+
+> Task 3 results: `lgx test` 81 tests, 0 failures in three runs after one
+> flaky failure in the first run (no `.lg` code changed). `lgx e2e`: 52
+> of 54 passed; the two failures were blur tests timing out while sharing
+> the machine with the parallel workers (load average about 6), which the
+> spec's header warns about. `blur.spec.js` alone with one worker passes on
+> this branch with master's timings (1.0 m, 1.8 m, 36 s). The screenshots
+> at 1280x800, 390x844 and 844x390 show no overlap.
 
 ### Task 4: Docs
 
 **Files:**
 - Modify: `docs/KNOWLEDGE.md`, `docs/ROADMAP.md`
 
-- [ ] **Step 1: Write it down**
+- [x] **Step 1: Write it down**
   `docs/KNOWLEDGE.md`, beside the 2026-09-29 `restartTrack` note: a local
   track can be muted before it is published and is then published muted;
   muting a camera track stops the capture and unmuting restarts it; a
@@ -262,5 +290,32 @@ above does not explain, stop and report; do not work around it.
   style of its neighbours, saying the choice is not remembered between
   visits.
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
   `git commit -m "docs: microphone and camera off from the lobby"`
+
+## Summary
+
+**Status: completed.** The lobby's preview has microphone and camera
+buttons at its foot. Off mutes the lobby track: the camera's capture stops
+and the preview says "Camera is off"; the call starts with the track
+published muted, and the call's buttons turn it back on. Join waits for a
+switch in flight, and a blur switch and a camera switch never overlap.
+Two new e2e tests in `lobby.spec.js` cover the lobby and the call.
+
+Issues: none in the design. One flaky unit test run and two blur e2e
+tests timing out under parallel load; both pass when re-run, the blur
+file with master's timings.
+
+Deviations, gathered:
+- No `aria-pressed` on the lobby buttons; the changing label carries the
+  state, as on the call's buttons.
+- Device selects also wait while a switch is in flight, and the blur
+  button waits for a switch (`drawBlur`).
+- `showMic` / `showCam` and the lobby share one `drawSwitch`.
+- The call test also checks that no audio reaches the other side while
+  muted.
+
+What the plan could have specified better: the blur button's side of the
+blur/camera lock (the plan locked only the camera button against blur),
+and that the blur e2e tests time out under parallel load, so a full-suite
+failure there needs a one-worker re-run before it counts.
