@@ -4,6 +4,8 @@
 
 **Goal:** The room list and the call history are served and shown a page at a time, and every signed-in page has the Sign out button the landing page has.
 
+**Status: completed** (2026-10-02, branch `pagination-and-sign-out`)
+
 **Tech Stack:** let-go 1.13.0 (`src/quickmeet/*.lg`), HoneySQL over sqlite, ruuter, plain JavaScript pages in `resources/public/`, `lgx test`, Playwright (`lgx e2e`).
 
 ---
@@ -321,3 +323,37 @@ posts to `/api/rooms`.
 
 - [x] **Step 2: Commit**
   `git commit -m "docs: the list endpoints are paged"`
+
+## Completion Summary
+
+**Implemented.** `GET /api/rooms` and `GET /api/calls` take `?page=N` and
+answer `{items, page, more}`, 20 per page, newest first (calls now tiebreak
+on id). The landing page and history show Newer/Older, keep the page in the
+address, drop late answers, and recover from a page past the end in at most
+two extra requests. History and settings have Sign out; the handler is
+shared in `ui.js` and always lands on `/`. README and KNOWLEDGE are updated.
+
+**Verified.** `lgx test`: 66 tests, 435 assertions, 0 failures. `lgx e2e`:
+39 passed, 2 failed, both blur tests that time out intermittently on this
+machine and fail the same way on master (`--repeat-each=2`: 5 failures).
+By hand against the built binary with 21 seeded rooms and calls: both
+pagers, page 2 by URL, and Sign out from history.
+
+**Issues found on the way.** let-go's `:uri` includes the query string and
+ruuter matches it whole, so any URL with `?` answered 404, including
+`/?anything` before this work. Fixed in `routes/handler`. Codex's review
+caught an unbounded step-back loop and the client ignoring the page the
+server actually served; both were fixed.
+
+**Deviations, in one place.**
+- `db_test.lg` also needed the new arity (a `rooms-of` helper plus one page assertion).
+- HoneySQL rendered `LIMIT ? OFFSET ?` fine; no raw SQL fallback.
+- `handler` strips the query string before routing (own commit), and route tests send `:uri` with it.
+- The URL helpers live in `ui.js` next to `setPager`.
+- Pages adopt the served `page`; an empty page steps back once, then to page 1.
+- Signing out on the landing page now navigates to `/` instead of reloading.
+- KNOWLEDGE.md records the `:uri`/`:query-string` fact.
+
+**What the plan could have specified better:** checking how the real
+server fills `:uri` before asserting it; the plan stated a fact about the
+request map that it had not verified.
