@@ -210,13 +210,18 @@ const push = {
 // loads in the head, before the bar. The owner is forgotten first, which
 // cannot fail; if unsubscribing then fails, the next person to sign in
 // here does not adopt the subscription (push.sync), and the server drops
-// it with the session anyway.
+// it with the session anyway. So unsubscribing gets a few seconds and no
+// more: a request that hangs must not keep anyone signed in.
+const SIGNOUT_PUSH_WAIT_MS = 3000;
 document.addEventListener('DOMContentLoaded', () => {
   const button = document.getElementById('signout');
   if (!button) return;
   button.addEventListener('click', async () => {
     stored.remove(PUSH_USER);
-    try { await push.off(); } catch (e) { /* the session's end removes it on the server */ }
+    await Promise.race([
+      push.off().catch(() => { /* the session's end removes it on the server */ }),
+      new Promise(resolve => setTimeout(resolve, SIGNOUT_PUSH_WAIT_MS)),
+    ]);
     await fetch('/api/auth/signout', { method: 'POST' });
     location.href = '/';
   });
