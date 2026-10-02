@@ -84,6 +84,13 @@
   {:doc "Install the e2e dependencies and the headless browser"
    :do {:sh "cd e2e && npm ci && npx playwright install chromium-headless-shell"}}
 
+  ;; The image around the binary that ships, started and asked for a page.
+  ;; Needs a running Docker; see scripts/docker-smoke.sh.
+  docker
+  {:doc "Build the binary, then the image, and smoke-test it"
+   :do [{:task lgx:build}
+        {:sh "scripts/docker-smoke.sh"}]}
+
   ;; The browser side of LiveKit, served from the binary rather than a CDN.
   ;; The version is pinned here and in docs/KNOWLEDGE.md; bump both.
   vendor-livekit-client
