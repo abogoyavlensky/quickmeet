@@ -254,7 +254,14 @@
       (is (= 404 (:status (call handler :get "/static/nope.js"))))
       ;; The account pages, the script they share, and history.
       (doseq [page ["/signup" "/signin" "/settings" "/history" "/static/account.js"]]
-        (is (= 200 (:status (call handler :get page))) page)))))
+        (is (= 200 (:status (call handler :get page))) page))
+      ;; The service worker, at the root: a worker controls only the paths
+      ;; under its own file's. Never cached, so a change reaches browsers.
+      (let [sw (call handler :get "/sw.js")]
+        (is (= 200 (:status sw)))
+        (is (= "text/javascript; charset=utf-8" (get-in sw [:headers "Content-Type"])))
+        (is (= "no-cache" (get-in sw [:headers "Cache-Control"])))
+        (is (str/includes? (:body sw) "notificationclick"))))))
 
 ;; Background blur: the bundle names where its wasm and model live, and
 ;; that path is the one the server answers, with a year's cache. The model
