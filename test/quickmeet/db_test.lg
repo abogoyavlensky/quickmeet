@@ -31,6 +31,11 @@
         (ig/halt! system)
         (os/sh "rm" "-f" path (str path "-wal") (str path "-shm"))))))
 
+(defn- rooms-of
+  "All of `user-id`'s rooms: one page larger than any test here."
+  [conn user-id]
+  (db/rooms-of-user conn user-id 100 0))
+
 (deftest rooms-members-and-names
   (with-db
     (fn [conn]
@@ -41,12 +46,14 @@
         ;; Owners are members; the list is newest first (both rooms were
         ;; made this second, so one is aged by hand); membership is idempotent.
         (sqlite/execute! conn ["update rooms set created_at = '2026-01-01 00:00:00' where id = 'aaaaaaaaaaaa'"])
-        (is (= ["bbbbbbbbbbbb" "aaaaaaaaaaaa"] (mapv :id (db/rooms-of-user conn (:id alice)))))
-        (is (= [] (db/rooms-of-user conn (:id bob))))
+        (is (= ["bbbbbbbbbbbb" "aaaaaaaaaaaa"] (mapv :id (rooms-of conn (:id alice)))))
+        ;; A page is `limit` rooms from `offset`, in the same order.
+        (is (= ["aaaaaaaaaaaa"] (mapv :id (db/rooms-of-user conn (:id alice) 1 1))))
+        (is (= [] (rooms-of conn (:id bob))))
         (db/add-member! conn "aaaaaaaaaaaa" (:id bob))
         (db/add-member! conn "aaaaaaaaaaaa" (:id bob))
         (is (= [{:id "aaaaaaaaaaaa" :owner_id "u-alice" :name nil}]
-               (mapv #(select-keys % [:id :owner_id :name]) (db/rooms-of-user conn (:id bob)))))
+               (mapv #(select-keys % [:id :owner_id :name]) (rooms-of conn (:id bob)))))
         ;; Names are set and cleared.
         (is (= "Mom" (:name (db/rename-room! conn "aaaaaaaaaaaa" "Mom"))))
         (is (= "Mom" (:name (db/get-room conn "aaaaaaaaaaaa"))))
@@ -54,5 +61,5 @@
         ;; Deleting takes the memberships with it.
         (db/delete-room! conn "aaaaaaaaaaaa")
         (is (nil? (db/get-room conn "aaaaaaaaaaaa")))
-        (is (= [] (db/rooms-of-user conn (:id bob))))
-        (is (= ["bbbbbbbbbbbb"] (mapv :id (db/rooms-of-user conn (:id alice)))))))))
+        (is (= [] (rooms-of conn (:id bob))))
+        (is (= ["bbbbbbbbbbbb"] (mapv :id (rooms-of conn (:id alice)))))))))

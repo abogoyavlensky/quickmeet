@@ -35,6 +35,11 @@
 (defn- finished [at]
   {:event "room_finished" :room {:name room :sid room-sid} :createdAt (str at)})
 
+(defn- calls-of
+  "Everything `user-id` took part in: one page larger than any test here."
+  [conn user-id]
+  (history/calls-of-user conn user-id 100 0))
+
 (defn- setup [conn]
   (db/create-user! conn "u-alice" "alice@example.com" "x" "Alice")
   (db/create-room! conn room "u-alice"))
@@ -46,14 +51,14 @@
       (history/record! conn (joined "PA_1" "user:u-alice" "Alice" 1000))
       (history/record! conn (joined "PA_2" "guest:ab12" "bob" 1010))
       ;; Still on: no end, no duration.
-      (let [[call] (history/calls-of-user conn "u-alice")]
+      (let [[call] (calls-of conn "u-alice")]
         (is (= "bob" (:with call)))
         (is (nil? (:ended_at call)))
         (is (nil? (:seconds call))))
       (history/record! conn (left "PA_2" 1100))
       (history/record! conn (left "PA_1" 1120))
       (history/record! conn (finished 1420))
-      (let [calls (history/calls-of-user conn "u-alice")
+      (let [calls (calls-of conn "u-alice")
             call (first calls)]
         (is (= 1 (count calls)))
         (is (= room (:room_id call)))
@@ -62,7 +67,7 @@
         (is (= "1970-01-01 00:18:40" (:ended_at call)))
         (is (= 120 (:seconds call))))
       ;; The guest has no history to see.
-      (is (= [] (history/calls-of-user conn "u-bob"))))))
+      (is (= [] (calls-of conn "u-bob"))))))
 
 (deftest redeliveries-and-noise-change-nothing
   (with-db
@@ -77,7 +82,7 @@
       (history/record! conn (joined "PA_1" "user:u-alice" "Alice" 1000))
       (history/record! conn (assoc (joined "PA_9" "user:u-alice" "Alice" 1000) :event "track_published"))
       (history/record! conn (assoc-in (joined "PA_8" "user:u-alice" "Alice" 1000) [:room :name] "000000000000"))
-      (let [calls (history/calls-of-user conn "u-alice")]
+      (let [calls (calls-of conn "u-alice")]
         (is (= 1 (count calls)))
         (is (= 100 (:seconds (first calls))))
         (is (nil? (:with (first calls))))))))
@@ -91,12 +96,12 @@
       (history/record! conn (left "PA_2" 1100))
       ;; Alice's leave never arrives; the finish stands in for it.
       (history/record! conn (finished 1400))
-      (let [[call] (history/calls-of-user conn "u-alice")]
+      (let [[call] (calls-of conn "u-alice")]
         (is (= 400 (:seconds call)))
         (is (= "1970-01-01 00:23:20" (:ended_at call))))
       ;; A later join is a second call.
       (history/record! conn (joined "PA_3" "user:u-alice" "Alice" 2000))
-      (is (= 2 (count (history/calls-of-user conn "u-alice")))))))
+      (is (= 2 (count (calls-of conn "u-alice")))))))
 
 (deftest events-land-after-the-room-is-deleted
   (with-db
@@ -107,12 +112,12 @@
       (db/delete-room! conn room)
       (history/record! conn (left "PA_2" 1100))
       (history/record! conn (finished 1400))
-      (let [[call] (history/calls-of-user conn "u-alice")]
+      (let [[call] (calls-of conn "u-alice")]
         (is (= "bob" (:with call)))
         (is (= 400 (:seconds call))))
       ;; But nobody can join a room that is gone.
       (history/record! conn (joined "PA_3" "user:u-alice" "Alice" 2000))
-      (is (= 1 (count (history/calls-of-user conn "u-alice")))))))
+      (is (= 1 (count (calls-of conn "u-alice")))))))
 
 (deftest a-new-room-lifetime-closes-a-stale-call
   ;; The process died mid-call: no leaves, no finish. The SFU's next room
@@ -124,14 +129,14 @@
       (history/record! conn (joined "PA_2" "guest:ab12" "bob" 1010))
       (history/record! conn (assoc-in (joined "PA_3" "user:u-alice" "Alice" 5000) [:room :sid] "RM_second"))
       (history/record! conn (assoc-in (joined "PA_4" "guest:cd34" "dan" 5010) [:room :sid] "RM_second"))
-      (let [[new old] (history/calls-of-user conn "u-alice")]
+      (let [[new old] (calls-of conn "u-alice")]
         (is (= "bob" (:with old)))
         (is (= 4000 (:seconds old)))
         (is (= "dan" (:with new)))
         (is (nil? (:ended_at new))))
       ;; The stale call is closed, so a late finish for it changes nothing.
       (history/record! conn (assoc-in (finished 9000) [:room :sid] "RM_second"))
-      (is (= 4000 (:seconds (second (history/calls-of-user conn "u-alice"))))))))
+      (is (= 4000 (:seconds (second (calls-of conn "u-alice"))))))))
 
 ;; ---- calls left open by a process that died ------------------------------
 

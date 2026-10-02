@@ -5,6 +5,7 @@
             [json :as json]
             [livekit.core :as lk]
             [quickmeet.db]
+            [quickmeet.history :as history]
             [quickmeet.routes :as routes]
             [sqlite.core :as sqlite]
             [string :as str]))
@@ -87,6 +88,11 @@
   "Request extras that carry a session cookie."
   [cookie]
   {:headers {"cookie" (str "session=" cookie)}})
+
+(defn- listed
+  "The items on the first page of a list endpoint, as `cookie`'s user."
+  [handler uri cookie]
+  (:items (:json (call handler :get uri nil (as cookie)))))
 
 (defn- new-room
   "A room made by a freshly signed-up user; its id."
@@ -423,23 +429,23 @@
             second-id (:id (:json (call handler :post "/api/rooms" nil (as (:cookie alice)))))]
         (sqlite/execute! conn ["update rooms set created_at = '2026-01-01 00:00:00' where id = ?" first-id])
         ;; Alice owns both, newest first; nobody is in them.
-        (let [rooms (:json (call handler :get "/api/rooms" nil (as (:cookie alice))))]
+        (let [rooms (listed handler "/api/rooms" (:cookie alice))]
           (is (= [second-id first-id] (mapv :id rooms)))
           (is (= [true true] (mapv :owner rooms)))
           (is (= [0 0] (mapv :present rooms)))
           (is (= [nil nil] (mapv :name rooms))))
         ;; Bob has none until he joins one; a guest's token adds nobody.
-        (is (= [] (:json (call handler :get "/api/rooms" nil (as (:cookie bob))))))
+        (is (= [] (listed handler "/api/rooms" (:cookie bob))))
         (call handler :post (str "/api/rooms/" first-id "/token") "{}")
-        (is (= [] (:json (call handler :get "/api/rooms" nil (as (:cookie bob))))))
+        (is (= [] (listed handler "/api/rooms" (:cookie bob))))
         (call handler :post (str "/api/rooms/" first-id "/token") "{}" (as (:cookie bob)))
-        (let [rooms (:json (call handler :get "/api/rooms" nil (as (:cookie bob))))]
+        (let [rooms (listed handler "/api/rooms" (:cookie bob))]
           (is (= [first-id] (mapv :id rooms)))
           (is (= [false] (mapv :owner rooms))))
         ;; Presence comes from the SFU's active rooms, keyed by id.
         (sqlite/execute! conn ["update rooms set id = '000000000000' where id = ?" second-id])
         (sqlite/execute! conn ["update room_members set room_id = '000000000000' where room_id = ?" second-id])
-        (is (= [2 0] (mapv :present (:json (call handler :get "/api/rooms" nil (as (:cookie alice)))))))))))
+        (is (= [2 0] (mapv :present (listed handler "/api/rooms" (:cookie alice)))))))))
 
 (deftest only-the-owner-renames-and-deletes
   (with-handler
@@ -460,7 +466,7 @@
           (is (= 200 (:status res)))
           (is (= "Mom" (:name (:json res))))
           (is (= true (:owner (:json res)))))
-        (is (= "Mom" (:name (first (:json (call handler :get "/api/rooms" nil (as (:cookie alice))))))))
+        (is (= "Mom" (:name (first (listed handler "/api/rooms" (:cookie alice))))))
         (is (nil? (:name (:json (rename alice "")))))
         (is (= 400 (:status (rename alice (apply str (repeat 65 "x"))))))
         (is (= 404 (:status (call handler :post "/api/rooms/000000000000"
@@ -470,8 +476,8 @@
         (is (= 403 (:status (call handler :delete (str "/api/rooms/" id) nil (as (:cookie bob))))))
         (is (= 200 (:status (call handler :delete (str "/api/rooms/" id) nil (as (:cookie alice))))))
         (is (= 404 (:status (call handler :get (str "/api/rooms/" id)))))
-        (is (= [] (:json (call handler :get "/api/rooms" nil (as (:cookie alice))))))
-        (is (= [] (:json (call handler :get "/api/rooms" nil (as (:cookie bob))))))
+        (is (= [] (listed handler "/api/rooms" (:cookie alice))))
+        (is (= [] (listed handler "/api/rooms" (:cookie bob))))
         (is (= 404 (:status (call handler :delete (str "/api/rooms/" id) nil (as (:cookie alice))))))))))
 
 (deftest webhooks-are-verified-and-recorded
@@ -494,16 +500,85 @@
         (is (= 401 (:status (post joined (signed-webhook joined "another-secret-another-secret-another!")))))
         ;; The header must match this body, not some other.
         (is (= 401 (:status (post joined (signed-webhook guest)))))
-        (is (= [] (:json (call handler :get "/api/calls" nil (as (:cookie alice))))))
+        (is (= [] (listed handler "/api/calls" (:cookie alice))))
         ;; Genuine: recorded, and the call shows up in Alice's history.
         (is (= 200 (:status (post joined (signed-webhook joined)))))
         (is (= 200 (:status (post guest (signed-webhook guest)))))
         (is (= 200 (:status (post left (signed-webhook left)))))
-        (let [[call :as calls] (:json (call handler :get "/api/calls" nil (as (:cookie alice))))]
+        (let [[call :as calls] (listed handler "/api/calls" (:cookie alice))]
           (is (= 1 (count calls)))
           (is (= id (:room_id call)))
           (is (= "bob" (:with call)))
           (is (nil? (:ended_at call))))))))
+
+;; ---- pages ----------------------------------------------------------------
+
+(defn- page-of
+  "A list endpoint's whole answer, as `cookie`'s user, for `query` (nil for
+   none)."
+  [handler uri cookie query]
+  (:json (call handler :get uri nil (merge (as cookie) {:query-string query}))))
+
+(deftest rooms-come-a-page-at-a-time
+  (with-handler
+    (fn [handler conn]
+      (let [alice (signup handler "alice@example.com")
+            bob (signup handler "bob@example.com")
+            ;; 21 rooms, a second apart, oldest first.
+            ids (vec (for [i (range 21)]
+                       (let [id (:id (:json (call handler :post "/api/rooms" nil (as (:cookie alice)))))]
+                         (sqlite/execute! conn ["update rooms set created_at = datetime(?, 'unixepoch') where id = ?"
+                                                (+ 1000 i) id])
+                         id)))
+            newest-first (vec (reverse ids))
+            page (fn [query] (page-of handler "/api/rooms" (:cookie alice) query))
+            ids-of (fn [res] (mapv :id (:items res)))]
+        (let [first-page (page nil)]
+          (is (= (subvec newest-first 0 20) (ids-of first-page)))
+          (is (= [1 true] [(:page first-page) (:more first-page)])))
+        (is (= {:page 2 :more false} (dissoc (page "page=2") :items)))
+        (is (= [(first ids)] (ids-of (page "page=2"))))
+        (is (= [(first ids)] (ids-of (page "x=1&page=2"))))
+        ;; Past the end: an empty page, not an error.
+        (is (= {:items [] :page 3 :more false} (page "page=3")))
+        ;; Junk reads as the first page.
+        (doseq [query ["page=abc" "page=0" "page=-2" "page=" "pages=2" "x=1"]]
+          (is (= 1 (:page (page query))) query)
+          (is (= (subvec newest-first 0 20) (ids-of (page query))) query))
+        ;; Exactly a page's worth: no older page.
+        (call handler :delete (str "/api/rooms/" (first ids)) nil (as (:cookie alice)))
+        (is (= [20 false] ((juxt (comp count :items) :more) (page nil))))
+        ;; Nobody else's rooms, on any page.
+        (is (= {:items [] :page 1 :more false} (page-of handler "/api/rooms" (:cookie bob) nil)))
+        (is (= {:items [] :page 2 :more false} (page-of handler "/api/rooms" (:cookie bob) "page=2")))))))
+
+(deftest calls-come-a-page-at-a-time
+  (with-handler
+    (fn [handler conn]
+      (let [alice (signup handler "alice@example.com")
+            bob (signup handler "bob@example.com")
+            id (:id (:json (call handler :post "/api/rooms" nil (as (:cookie alice)))))
+            user-id (:identity (:json (call handler :post (str "/api/rooms/" id "/token") "{}" (as (:cookie alice)))))
+            page (fn [query] (page-of handler "/api/calls" (:cookie alice) query))]
+        ;; 21 calls in one room, each a new SFU room lifetime 100 s apart,
+        ;; so each join closes the call before it.
+        (doseq [i (range 21)]
+          (let [at (str (+ 1000 (* 100 i)))]
+            (history/record! conn {:event "participant_joined"
+                                   :room {:name id :sid (str "RM_" i)}
+                                   :createdAt at
+                                   :participant {:sid (str "PA_" i) :identity user-id
+                                                 :name "Alice" :joinedAt at}})))
+        (let [first-page (page nil)]
+          (is (= 20 (count (:items first-page))))
+          (is (= [1 true] [(:page first-page) (:more first-page)]))
+          (is (= "1970-01-01 00:50:00" (:started_at (first (:items first-page))))))
+        (let [second-page (page "page=2")]
+          (is (= ["1970-01-01 00:16:40"] (mapv :started_at (:items second-page))))
+          (is (= [2 false] [(:page second-page) (:more second-page)])))
+        (is (= {:items [] :page 3 :more false} (page "page=3")))
+        (is (= 1 (:page (page "page=zz"))))
+        (is (= {:items [] :page 1 :more false} (page-of handler "/api/calls" (:cookie bob) nil)))))))
 
 ;; ---- rate limits --------------------------------------------------------
 

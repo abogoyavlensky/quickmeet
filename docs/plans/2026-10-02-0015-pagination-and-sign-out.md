@@ -160,7 +160,7 @@ posts to `/api/rooms`.
 - Modify: `src/quickmeet/db.lg`, `src/quickmeet/history.lg`, `src/quickmeet/routes.lg`
 - Test: `test/quickmeet/routes_test.lg`, `test/quickmeet/system_test.lg`, `test/quickmeet/history_test.lg`
 
-- [ ] **Step 1: Update the existing tests to the new shape, add the paging tests**
+- [x] **Step 1: Update the existing tests to the new shape, add the paging tests**
   In `routes_test.lg`, every read of `GET /api/rooms` and `GET /api/calls`
   goes through `:items` (`my-rooms-are-the-ones-I-own-or-joined`,
   `only-the-owner-renames-and-deletes`, `webhooks-are-verified-and-recorded`).
@@ -182,12 +182,12 @@ posts to `/api/rooms`.
   (`(history/calls-of-user conn user-id 100 0)`) and use it there. Grep
   `test/` for `rooms-of-user` and `calls-of-user` to catch any other caller.
 
-- [ ] **Step 2: Run the tests, see them fail**
+- [x] **Step 2: Run the tests, see them fail**
   Run: `lgx test`
   Expected: the changed and new route tests FAIL (the endpoints still
   return arrays).
 
-- [ ] **Step 3: Page the queries in `db.lg`**
+- [x] **Step 3: Page the queries in `db.lg`**
   Add `:limit` and `:offset` to `rooms-of-user-sql` and `calls-of-user-sql`
   as placeholders, in the style of the file (`sql-of` renders once at load;
   callers pass values in the order of the rendered SQL). Check the rendered
@@ -205,7 +205,7 @@ posts to `/api/rooms`.
 
   Update the docstrings ("newest first, `limit` rows from `offset`").
 
-- [ ] **Step 4: Page the routes in `routes.lg`**
+- [x] **Step 4: Page the routes in `routes.lg`**
   Add `(def ^:private page-size 20)`, `page-of` (request → page number, per
   the Design's regex and fallbacks) and one helper both routes use:
 
@@ -218,11 +218,14 @@ posts to `/api/rooms`.
   lookup stays one call per request); `GET /api/calls` returns the rows as
   they are. Update the comments above both routes to say "a page of".
 
-- [ ] **Step 5: Run the tests**
+- [x] **Step 5: Run the tests**
   Run: `lgx test`
   Expected: PASS, all namespaces.
 
-- [ ] **Step 6: Commit**
+> Deviation: `test/quickmeet/db_test.lg` also calls `db/rooms-of-user`; it got the same `rooms-of` helper as `history_test.lg`, plus one assertion of a 1-row page from offset 1.
+> Deviation: HoneySQL rendered `LIMIT ? OFFSET ?` correctly under let-go, so no raw SQL fallback was needed.
+
+- [x] **Step 6: Commit**
   `git commit -m "Rooms and calls are served a page at a time"`
 
 ### Task 2: The pager in the pages
