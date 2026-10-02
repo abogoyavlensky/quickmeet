@@ -481,12 +481,16 @@ Why the stock blur ripples, and the patch, 2026-10-01:
   camera track that sends no frames.
 - The headless shell answers `getDisplayMedia` under
   `--use-fake-ui-for-media-stream` with no prompt: a track labelled
-  `screen:-3:0`, 1280x720, `displaySurface: "monitor"`. Whether it
-  delivers frames was not checked; the tests replace `getDisplayMedia`
-  with a canvas (`canvasScreen` in `e2e/tests/helpers.js`) whose shape
-  tells it apart from the 16:9 fake camera.
-- Not measured: whether the viewer's camera, attached to no element while
-  a screen is on stage, is paused by `adaptiveStream` as expected.
+  `screen:-3:0`, `displaySurface: "monitor"`, 1280x720 when asked
+  plainly and 1920x1080 through the client (which asks for 1080p). It
+  delivers frames: shared from the button, the viewer decoded 33 in 3 s.
+  The spec still uses a canvas (`canvasScreen` in
+  `e2e/tests/helpers.js`), because its shape tells it apart from the 16:9
+  fake camera.
+- The viewer's camera, subscribed but attached to no element while a
+  screen is on stage, is paused: its `framesDecoded` stayed flat over
+  3 s while the screen's grew. `adaptiveStream` asks the SFU to stop a
+  video nobody shows, so the hidden camera costs no bandwidth.
 
 ## Restarts and shutdown, verified 2026-09-30
 

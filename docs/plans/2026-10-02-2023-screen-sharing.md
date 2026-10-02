@@ -4,6 +4,8 @@
 
 **Goal:** A person in a call on a desktop browser can share their screen; the other person, on any device, sees it in place of the sharer's camera.
 
+**Status: completed 2026-10-02**
+
 **Tech Stack:** Plain DOM and CSS in `resources/public/room.html`, `resources/public/app.css` and `resources/public/ui.js`; `livekit-client` 2.22.3 (vendored); Playwright via `lgx e2e` with headless Chromium and fake media. No server change.
 
 ---
@@ -408,7 +410,7 @@ Work on a branch (`screen-sharing`), not on master.
 **Files:**
 - Create: `docs/backlog/screen-share-face-tile.md`
 
-- [ ] **Step 1: Write the entry**
+- [x] **Step 1: Write the entry**
   Use /backlog. Title: while a screen is shared, show the sharer's face
   in a second small tile. Starts with `**Status: open**`. Say what is
   there now (the camera is hidden while the screen is on stage), why it
@@ -418,6 +420,51 @@ Work on a branch (`screen-sharing`), not on master.
   still subscribed, so it is a second `<video>` on the viewer's side
   only). Mention tab audio in one line as the other thing left out.
 
-- [ ] **Step 2: Commit, on its own**
+- [x] **Step 2: Commit, on its own**
   `git commit -m "Backlog: the sharer's face beside a shared screen"`
   (`AGENTS.md`: a backlog entry is never mixed with code.)
+
+---
+
+## Completion summary
+
+Implemented on branch `screen-sharing` in five commits: the viewer's
+selection (`a4dde8f`), the share button (`0326c0e`), the docs
+(`bad2199`), the backlog entry (`cd840a0`) and this summary with the
+end-to-end findings. Front-end only, as planned; no server change.
+
+- A desktop participant shares from a fifth control. The other side's
+  stage shows the screen whole and goes back to the camera when it
+  ends, including when the browser's own bar ends it. The button is
+  hidden on phones.
+- Tests: `e2e/tests/screenshare.spec.js`, 10 tests. Full `lgx e2e`
+  passed 55/55, the new spec passed 50/50 with `--repeat-each 5`, and
+  `lgx test` passed 67/67. Codex reviewed each commit and found nothing
+  actionable.
+- End to end, through the button with the headless browser's own fake
+  monitor (not the canvas): the viewer decoded 1920x1080 frames shown
+  `contain`, and the hidden camera's `framesDecoded` stayed flat, so
+  `adaptiveStream` pauses it. Both are now in `docs/KNOWLEDGE.md`.
+- Still to do by hand: the picker in real Chrome, Firefox and Safari,
+  and a phone watching, on staging after the merge.
+
+Deviations, gathered:
+
+- The "no camera" join test turns the camera off instead. The muted
+  camera stays published and subscribed but sends no frames, which
+  still covers the pending-metadata case the plan review raised.
+- `canvasScreen` and the two cameras share one init function,
+  `canvasMedia(api, width, height)`.
+- `startLobby` calls `clearRemote()`, not `resetRemote()`, so a failed
+  join leaves no stale slot or `screen` class.
+- The local-track events filter on the screen source, because the
+  camera and microphone publish through them at every join.
+- `toggleShare` leaves `refreshStatus` to the publish and unpublish
+  events, so a failure line is not wiped at once.
+- No CSS change: the screenshots at 1280x800 and 720x420 were fine.
+
+What the plan could have specified better: the plan could have run the
+headless `getDisplayMedia` probe through to frames and stats before
+planning, instead of leaving "frames not checked" and "pausing not
+measured" open for the docs.
+
