@@ -275,6 +275,11 @@ in host mode. Two phones on different networks held a call there. See
   `getDisplayMedia` and Android's refuse every call. No server change
   (`e2e/tests/screenshare.spec.js`). Not yet tried in real browsers:
   the picker in Chrome, Firefox and Safari, and a phone watching.
+- Done 2026-10-02: the microphone and the camera can be turned off in
+  the lobby, from two buttons on the preview, and the call starts that
+  way (`docs/plans/2026-10-02-2217-lobby-mic-camera-off.md`). The camera's
+  light goes out while it is off. The choice is not remembered between
+  visits: every lobby starts with both on.
 - Mobile: LiveKit's Swift, Kotlin and React Native SDKs talk to the same
   SFU and the same token endpoint. Native ringing needs APNs and FCM
   signing that let-go does not have; a small Go shim or a hosted push

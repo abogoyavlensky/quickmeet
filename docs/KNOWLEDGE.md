@@ -126,6 +126,16 @@ Verified 2026-09-29, for the two-person rule:
   preview switches cameras without touching the `<video>`. The client
   stops only published tracks on disconnect: preview tracks that never
   got published must be stopped by the page.
+- Verified 2026-10-02 (livekit-client 2.22.3): a local track can be
+  muted before it is published, and `publishTrack` then publishes it
+  muted (the add-track request carries `muted: track.isMuted`). The other
+  side receives nothing from it, and `setCameraEnabled(true)` /
+  `setMicrophoneEnabled(true)` in the call unmute that same track.
+  `mute()` on a camera track stops the capture (the light goes out) and
+  `unmute()` restarts it on the same device, re-attached and with its
+  processor; a microphone track is not stopped on mute. Publishing a
+  stopped camera logs "could not determine track dimensions, using
+  defaults" and assumes 720p, its capture default: harmless.
 - Safari (iOS above all) can block remote audio until a user gesture:
   `RoomEvent.AudioPlaybackStatusChanged` plus `room.canPlaybackAudio`
   say so, and `room.startAudio()` from a click unblocks it.
