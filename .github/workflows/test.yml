@@ -59,6 +59,15 @@ jobs:
       - name: Browser tests
         run: lgx e2e
 
+      # The image around the binary the browser tests just ran, started
+      # with its own defaults and asked for a page.
+      - name: Smoke-test the image
+        run: scripts/docker-smoke.sh
+
+      # deploy/docker as a user runs it, Caddy in front, on that image.
+      - name: Run the Docker Compose setup
+        run: scripts/docker-compose-smoke.sh
+
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
