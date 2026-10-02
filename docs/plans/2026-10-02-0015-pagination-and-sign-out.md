@@ -312,10 +312,12 @@ posts to `/api/rooms`.
 **Files:**
 - Modify: `README.md`
 
-- [ ] **Step 1: Update the API table**
+- [x] **Step 1: Update the API table**
   The `GET /api/rooms` and `GET /api/calls` lines (README.md:218, 224) show
   `?page=N` and the `{"items": [...], "page": n, "more": bool}` shape; the
   paragraph near line 246 says the list comes 20 at a time, newest first.
 
-- [ ] **Step 2: Commit**
+> Deviation: `docs/KNOWLEDGE.md` also records the `:uri`/`:query-string` fact found in Task 2.
+
+- [x] **Step 2: Commit**
   `git commit -m "docs: the list endpoints are paged"`

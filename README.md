@@ -219,13 +219,15 @@ POST /api/auth/signout           -> 200 {} + Set-Cookie clearing the session
 GET  /api/me                     -> 200 {"email", "display_name"} | 401
 POST /api/me                     {"display_name"} -> 200 {"email", "display_name"} | 400 | 401
 POST /api/rooms                  -> 201 {"id": "0123456789ab"} | 401 (needs a session) | 429
-GET  /api/rooms                  -> 200 [{"id", "name", "created_at", "owner": bool, "present": n}] | 401
+GET  /api/rooms?page=N           -> 200 {"items": [{"id", "name", "created_at", "owner": bool, "present": n}],
+                                         "page": n, "more": bool} | 401
 POST /api/rooms/:id              {"name"} (blank clears) -> 200 the room | 400 | 401 | 403 (not the owner) | 404
 DELETE /api/rooms/:id            -> 200 {} | 401 | 403 | 404
 GET  /api/rooms/:id              -> 200 {"id", "name", "created_at", "participants": [{"identity", "name"}]} | 404
 POST /api/rooms/:id/token        {"identity": "alice"}   (the name a guest typed; optional)
                                  -> 200 {"token", "identity", "name", "url"} | 404 | 409 {"error": "full"}
-GET  /api/calls                  -> 200 [{"room_id", "started_at", "ended_at", "seconds", "with"}] | 401
+GET  /api/calls?page=N           -> 200 {"items": [{"room_id", "started_at", "ended_at", "seconds", "with"}],
+                                         "page": n, "more": bool} | 401
 POST /api/webhooks/livekit       the embedded SFU's events, signed with the API key -> 200 | 401
 GET  /room/:id                   the room page
 GET  /history                    the history page
@@ -249,7 +251,9 @@ address and a wrong password take the same time to refuse.
 it); the token endpoint answers 409 once two people are in. Rooms never
 expire. `GET /api/rooms` lists the rooms the caller owns or has joined,
 newest first, with `present` from one question to the SFU; renaming and
-deleting are the owner's. Asking for a token with a session makes the
+deleting are the owner's. Both lists, rooms and calls, come 20 at a time:
+`page` counts from 1 (missing or malformed is 1, past the end is an empty
+`items`), and `more` says an older page exists. Asking for a token with a session makes the
 caller a member of that room.
 
 A participant's `identity`, what the SFU keys on, is `user:<id>` for an
