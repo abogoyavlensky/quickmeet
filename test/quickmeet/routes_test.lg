@@ -207,6 +207,15 @@
       (is (= 404 (:status (call handler :get "/room/not-a-room"))))
       (is (= 404 (:status (call handler :get "/nope")))))))
 
+;; let-go's server puts the query string on :uri too; it must not keep a
+;; page from being found.
+(deftest a-query-string-does-not-change-the-route
+  (with-handler
+    (fn [handler _]
+      (is (= 200 (:status (call handler :get "/?utm_source=x" nil {:query-string "utm_source=x"}))))
+      (is (= 200 (:status (call handler :get "/history?page=2" nil {:query-string "page=2"}))))
+      (is (= 401 (:status (call handler :get "/api/rooms?page=2" nil {:query-string "page=2"})))))))
+
 (deftest pages-and-static
   (with-handler
     (fn [handler _]
@@ -517,7 +526,9 @@
   "A list endpoint's whole answer, as `cookie`'s user, for `query` (nil for
    none)."
   [handler uri cookie query]
-  (:json (call handler :get uri nil (merge (as cookie) {:query-string query}))))
+  ;; As let-go's server hands it over: the query on the :uri and on its own.
+  (:json (call handler :get (cond-> uri query (str "?" query)) nil
+               (merge (as cookie) {:query-string query}))))
 
 (deftest rooms-come-a-page-at-a-time
   (with-handler

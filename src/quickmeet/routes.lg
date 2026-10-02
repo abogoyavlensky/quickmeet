@@ -482,7 +482,10 @@
   [conn livekit lookups auth]
   (let [table (routes conn livekit lookups auth)]
     (fn [req]
-      (r/route table req))))
+      ;; let-go's :uri is the request URI, query string included, and
+      ;; ruuter matches it whole: routes see the path alone. The query
+      ;; stays under :query-string.
+      (r/route table (update req :uri #(str/replace (str %) #"\?.*$" ""))))))
 
 ;; The real lookups are built from the same :livekit map the routes use, so
 ;; a system that moves the SFU port (the tests do) asks the right one.
