@@ -37,11 +37,17 @@
   </section>
 
   <!-- Before joining: a preview (with the blur button in its corner, so
-       the background is hidden before anyone sees it), who is already
-       there, the devices. -->
+       the background is hidden before anyone sees it, and the microphone
+       and camera buttons at its foot, so either can be off before anyone
+       hears or sees it), who is already there, the devices. -->
   <section id="lobby" class="lobby" hidden>
     <div class="preview">
       <video id="preview" autoplay playsinline muted></video>
+      <p class="cam-off-label">Camera is off</p>
+      <div class="preview-controls">
+        <button id="mic-preview" hidden></button>
+        <button id="cam-preview" hidden></button>
+      </div>
       <button id="blur-preview" hidden></button>
     </div>
     <p id="presence"></p>
@@ -257,7 +263,9 @@
     // click still works. poll: the presence interval while in the lobby.
     // joining: set from the click until the call is up or has failed, so a
     // late presence response or a second click cannot start another join.
-    const lobby = { tracks: [], ready: null, poll: null, joining: false };
+    // switching: the promise of turning the microphone or camera off or on,
+    // null when there is none; join() waits for it.
+    const lobby = { tracks: [], ready: null, poll: null, joining: false, switching: null };
     const trackOfKind = kind => lobby.tracks.find(t => t.kind === kind) || null;
 
     // Every lobby start begins from no tracks: whatever the previous lobby
@@ -295,6 +303,8 @@
       showNotice(notice);
       $('error').hidden = true;
       $('join').disabled = false;
+      lobby.switching = null;
+      drawMedia();
       drawBlur();
       lobby.ready = acquireTracks().then(fillDevices).then(restoreBlur);
       startPolling();
@@ -341,8 +351,8 @@
           option.selected = d.deviceId === current;
           select.append(option);
         });
-        select.disabled = devices.length === 0 || !track;
       }
+      drawMedia();
     }
 
     async function onDeviceChange(trackKind, deviceId) {
@@ -356,6 +366,45 @@
     }
     $('cam-select').addEventListener('change', e => onDeviceChange(Track.Kind.Video, e.target.value));
     $('mic-select').addEventListener('change', e => onDeviceChange(Track.Kind.Audio, e.target.value));
+
+    // The microphone and the camera can be off before joining: the track is
+    // muted, and the call publishes it muted. The track is the truth, as
+    // with blur: a device is off while its track is muted. Muting the camera
+    // stops the capture (its light goes out) and unmuting restarts it on the
+    // same device, re-attached to the preview, blur and all.
+    //
+    // A button is absent with no track of its kind. It waits while a switch
+    // is in flight, from the Join click, and, the camera's, while blur is
+    // switching, so one thing at a time works on a track. A device's select
+    // waits while it is off: another device would restart the capture
+    // behind the mute.
+    const mediaSwitches = [['mic-preview', 'mic-select', Track.Kind.Audio],
+                           ['cam-preview', 'cam-select', Track.Kind.Video]];
+    function drawMedia() {
+      for (const [id, selectId, kind] of mediaSwitches) {
+        const track = trackOfKind(kind), off = !!(track && track.isMuted);
+        const button = $(id), select = $(selectId);
+        button.hidden = !track;
+        button.disabled = !!lobby.switching || lobby.joining || (kind === Track.Kind.Video && !!blurBusy);
+        drawSwitch(button, kind, !off);
+        select.disabled = select.options.length === 0 || !track || off || !!lobby.switching;
+      }
+      $('preview').parentElement.classList.toggle('cam-off', !!(camTrack() && camTrack().isMuted));
+    }
+    async function switchMedia(kind) {
+      const track = trackOfKind(kind);
+      if (!track || lobby.switching || lobby.joining || (kind === Track.Kind.Video && blurBusy)) return;
+      // A camera that cannot start again (unplugged, taken by another app)
+      // stays off and says why; the promise join() waits for never fails.
+      lobby.switching = (track.isMuted ? track.unmute() : track.mute()).catch(showError);
+      drawMedia();
+      drawBlur();
+      await lobby.switching;
+      lobby.switching = null;
+      drawMedia();
+      drawBlur();
+    }
+    for (const [id, , kind] of mediaSwitches) $(id).addEventListener('click', () => switchMedia(kind));
 
     async function pollPresence() {
       try {
@@ -415,7 +464,7 @@
       const publishing = lobby.joining && !window.call.joined;
       for (const button of blurButtons) {
         button.hidden = !track || !blurSupported();
-        button.disabled = !!blurBusy || publishing || !!(track && track.isMuted);
+        button.disabled = !!blurBusy || !!lobby.switching || publishing || !!(track && track.isMuted);
         setIcon(button, 'blur', on ? 'Stop blurring' : 'Blur background');
         button.setAttribute('aria-pressed', String(on));
         button.toggleAttribute('data-on', on);
@@ -458,10 +507,12 @@
         return track === camTrack() ? 'failed' : 'gone';
       })();
       drawBlur();
+      drawMedia();
       const result = await blurBusy;
       blurBusy = null;
       if (result === 'failed') { remember(false); blurFailed(); }
       drawBlur();
+      drawMedia();
       return result === 'done';
     }
     function blurFailed() {
@@ -545,15 +596,19 @@
       $('remote-name').textContent = nameOf(participant);
       startClock();
     }
-    // The buttons show what the microphone and camera are doing now; off is
-    // the solid one. With the camera off there is no self view to show.
-    function showMic(on) {
-      setIcon($('mic'), on ? 'mic' : 'mic-off', on ? 'Mute' : 'Unmute');
-      $('mic').toggleAttribute('data-off', !on);
+    // The buttons show what the microphone and camera are doing now, in
+    // the lobby and in the call; off is the solid one. With the camera off
+    // there is no self view to show.
+    function drawSwitch(button, kind, on) {
+      const [name, label] = kind === Track.Kind.Audio
+        ? (on ? ['mic', 'Mute'] : ['mic-off', 'Unmute'])
+        : (on ? ['video', 'Stop video'] : ['video-off', 'Start video']);
+      setIcon(button, name, label);
+      button.toggleAttribute('data-off', !on);
     }
+    function showMic(on) { drawSwitch($('mic'), Track.Kind.Audio, on); }
     function showCam(on) {
-      setIcon($('cam'), on ? 'video' : 'video-off', on ? 'Stop video' : 'Start video');
-      $('cam').toggleAttribute('data-off', !on);
+      drawSwitch($('cam'), Track.Kind.Video, on);
       $('local').parentElement.hidden = !on;
       drawBlur();
     }
