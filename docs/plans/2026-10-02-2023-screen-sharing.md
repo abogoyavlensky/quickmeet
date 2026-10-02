@@ -355,15 +355,17 @@ Work on a branch (`screen-sharing`), not on master.
 
 ### Task 3: The whole suite
 
-- [ ] **Step 1: Run everything**
+- [x] **Step 1: Run everything**
   Run: `lgx e2e`
   Expected: PASS, every spec. Then repeat the new spec for flakiness:
   `cd e2e && npx playwright test screenshare --repeat-each 5`
   Expected: PASS, 5 of 5 for each test. Fix what is flaky in the test
   or the page; do not raise timeouts to hide a race.
 
-- [ ] **Step 2: Commit any fixes**
+- [x] **Step 2: Commit any fixes**
   Only if step 1 changed something.
+
+> Result: `lgx e2e` passed 55 of 55; `screenshare --repeat-each 5` passed 50 of 50; `lgx test` passed 67 tests with 0 failures. Nothing to fix, so step 2 had no commit.
 
 ### Task 4: Docs
 
@@ -372,7 +374,7 @@ Work on a branch (`screen-sharing`), not on master.
 - Modify: `docs/KNOWLEDGE.md`
 - Modify: `README.md`
 
-- [ ] **Step 1: ROADMAP**
+- [x] **Step 1: ROADMAP**
   In "Non-goals for v1", take "screen sharing" out of the first bullet
   and say in a short clause where it went. Under "After v1", add a
   dated "Done" entry in the style of the PWA one: screen sharing from
@@ -384,7 +386,7 @@ Work on a branch (`screen-sharing`), not on master.
   chat over LiveKit data channels" bullet to what is still open, and
   point at the backlog entry of Task 5 for the face tile.
 
-- [ ] **Step 2: KNOWLEDGE**
+- [x] **Step 2: KNOWLEDGE**
   A new section, "Screen sharing, verified <the date>", with the facts
   from "What was verified before planning" above plus whatever the
   implementation taught (whether the object form of `video` exists in
@@ -393,12 +395,12 @@ Work on a branch (`screen-sharing`), not on master.
   `adaptiveStream`, if the stats showed it). Only what was checked.
   Extend the "Verify against" footer if a new upstream file was read.
 
-- [ ] **Step 3: README**
+- [x] **Step 3: README**
   Read the README's feature and "Browser tests" parts; add screen
   sharing where features are listed and the new spec where specs are,
   if those lists exist. Change nothing otherwise.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
   `git commit -m "Docs: screen sharing"`
 
 ### Task 5: Backlog the face tile
