@@ -1,5 +1,7 @@
 # Installable App, Back Button, Sticky Top and Favicon Implementation Plan
 
+**Status: completed 2026-10-02**
+
 > **For agentic workers:** Use executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make quickmeet installable to a home screen (a PWA), and make it usable there without browser chrome: a Back button in the lobby, History and Settings, a top bar and "New call" button that stay in view on the room list, and a real favicon.
@@ -388,8 +390,53 @@ Work on branch `pwa-back-sticky` (already created from `master`).
 
 ### Task 6: Final check
 
-- [ ] **Step 1:** `lgx test` and `lgx e2e` both pass from a clean build.
-- [ ] **Step 2:** `git status` is clean; no screenshots or scratch scripts
+- [x] **Step 1:** `lgx test` and `lgx e2e` both pass from a clean build.
+- [x] **Step 2:** `git status` is clean; no screenshots or scratch scripts
   left in the tree.
-- [ ] **Step 3:** Report to the user what to check on a phone after deploy
+- [x] **Step 3:** Report to the user what to check on a phone after deploy
   (the "On a device" list in Testing). Do not push or open a PR unless asked.
+
+---
+
+## Completion summary
+
+Implemented on branch `pwa-back-sticky`, six commits from `8fc8050` to
+`6cdf1c3`. All tasks as planned; codex reviewed every task's commit and
+found nothing to fix.
+
+- Installable: `manifest.webmanifest` (no service worker), linked from all
+  six pages with the home-screen icon, the favicon and light and dark
+  `theme-color`s. The server serves `png`, `ico` and `webmanifest`, and
+  `/favicon.ico` has a route of its own.
+- Icons: `scripts/make-icons.mjs` (`lgx icons`) writes `icon-192.png`,
+  `icon-512.png`, `apple-touch-icon.png` and `favicon.ico`; two runs give
+  identical bytes.
+- Back: a chevron link to `/` in the lobby, History and Settings, hidden
+  in a call.
+- Sticky: the bar on every app page and "New call" under it on the room
+  list.
+- Tests: `lgx test` 64 tests, 0 failures; `lgx e2e` 43 passed from a
+  clean build (four new tests in `e2e/tests/app.spec.js`). Checked by
+  screenshot at 390 px and 1280 px, light and dark.
+
+Issues met: `lgx build` failed with "text file busy" while a screenshot
+server was still running from `bin/quickmeet`; with the server stopped
+it built.
+
+Deviations:
+- `lgx` runs as `mise exec -- lgx`: the `lgx` on `PATH` is 0.2.0 and the
+  project pins 0.4.2.
+- `.pinned` also has 8 px of top padding, offset by a -8 px margin, so
+  the stuck button does not touch the bar; the list's top margin went
+  from 20 to 12 px to keep the resting layout.
+- The `z-index` note in `KNOWLEDGE.md` was checked before it was written:
+  with both set to `auto`, `elementFromPoint` finds a disc over the bar
+  and over the button.
+- `README.md` lists the new script and the manifest (the plan allowed
+  this).
+- No session task list: TaskCreate is not available in this environment,
+  so this document was the only tracker.
+
+What the plan could have specified better: a warning to stop any app
+started from `bin/quickmeet` (the screenshot server) before rebuilding,
+and the screenshot setup itself (ports, env), which had to be worked out.
