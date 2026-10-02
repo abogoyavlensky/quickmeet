@@ -248,16 +248,21 @@ in host mode. Two phones on different networks held a call there. See
 
 ## After v1
 
-- Ringing via Web Push and an installable web app (PWA). Browser push
-  works on desktop, Android and iOS (installed to the home screen, iOS
-  16.4+) and needs no SMTP and no third-party account: the app holds a
-  VAPID key pair, stores each device's push subscription, and sends one
-  HTTPS request per notification to the browser vendor's endpoint. A Go
-  web-push library goes in as a `:go/interop` coord the way bcrypt did.
-  What it costs: a service worker and manifest, a subscriptions table,
-  a per-device permission prompt, and a "call" action on a room that
-  notifies its other members. This fits "one binary"; it is after v1
-  only because it is not small.
+- Done 2026-10-02: an installable web app (PWA), without a service
+  worker: a manifest, home-screen icons and a favicon
+  (`resources/public/manifest.webmanifest`, `scripts/make-icons.mjs`),
+  and a Back link and a sticky top bar for when there is no browser
+  chrome. Not yet tried installed on a phone.
+- Ringing via Web Push. Browser push works on desktop, Android and iOS
+  (installed to the home screen, iOS 16.4+) and needs no SMTP and no
+  third-party account: the app holds a VAPID key pair, stores each
+  device's push subscription, and sends one HTTPS request per
+  notification to the browser vendor's endpoint. A Go web-push library
+  goes in as a `:go/interop` coord the way bcrypt did. What it costs: a
+  service worker, a subscriptions table, a per-device permission
+  prompt, and a "call" action on a room that notifies its other
+  members. This fits "one binary"; it is after v1 only because it is
+  not small.
 - Mobile: LiveKit's Swift, Kotlin and React Native SDKs talk to the same
   SFU and the same token endpoint. Native ringing needs APNs and FCM
   signing that let-go does not have; a small Go shim or a hosted push

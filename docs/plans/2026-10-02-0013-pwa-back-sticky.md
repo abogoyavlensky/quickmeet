@@ -369,7 +369,7 @@ Work on branch `pwa-back-sticky` (already created from `master`).
 - Modify: `docs/KNOWLEDGE.md`, `docs/ROADMAP.md`, `README.md` (only if it
   lists the lgx tasks)
 
-- [ ] **Step 1: KNOWLEDGE.md**
+- [x] **Step 1: KNOWLEDGE.md**
   Under "The pages", dated today, only what was verified while doing this:
   installable through a manifest with no service worker; where the icons
   come from (`lgx icons`, pure Node, deterministic) and that the favicon is
@@ -378,12 +378,12 @@ Work on branch `pwa-back-sticky` (already created from `master`).
   "The pages" that says "the favicon is an `.svg`". Add `scripts/make-icons.mjs`
   to the "Verify against" footer if it fits the list's style.
 
-- [ ] **Step 2: ROADMAP.md**
+- [x] **Step 2: ROADMAP.md**
   In "After v1", split the first item: the installable half is done
   (date, one sentence, pointing at this plan's files); ringing via Web Push,
   with the service worker it needs, remains.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
   `git commit -m "docs: the installable app, the favicon and what is left for push"`
 
 ### Task 6: Final check
