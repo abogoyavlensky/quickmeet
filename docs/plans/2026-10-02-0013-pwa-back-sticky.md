@@ -275,7 +275,7 @@ Work on branch `pwa-back-sticky` (already created from `master`).
   `resources/public/room.html`, `history.html`, `settings.html`
 - Test: `e2e/tests/app.spec.js` (new)
 
-- [ ] **Step 1: Write the e2e tests**
+- [x] **Step 1: Write the e2e tests**
   Create `e2e/tests/app.spec.js` (header comment: the app as installed: the
   manifest, Back, and what stays in view). Tests, using `helpers.js`:
   - "Back leads to the room list from the lobby, history and settings":
@@ -290,30 +290,30 @@ Work on branch `pwa-back-sticky` (already created from `master`).
     `display: 'standalone'`; each `icons[].src` → 200 with content type
     `image/png`; `/favicon.ico` → 200.
 
-- [ ] **Step 2: Add the `back` icon to `ui.js`**
+- [x] **Step 2: Add the `back` icon to `ui.js`**
   A chevron pointing left in the existing 24x24 outline style, e.g.
   `back: '<path d="M15 5l-7 7 7 7"/>'`.
 
-- [ ] **Step 3: Add the link to the three pages**
+- [x] **Step 3: Add the link to the three pages**
   First child of `<header class="bar">`, before the brand:
   `<a id="back" class="back" href="/"></a>`; in each page's inline script,
   `setIcon($('back'), 'back', 'Back');` (in `room.html`, next to the other
   `setIcon` calls near the top of the script). Add
   `<script src="/static/ui.js"></script>` to `settings.html`'s head.
 
-- [ ] **Step 4: Style it in `app.css`**
+- [x] **Step 4: Style it in `app.css`**
   In the top-bar block: `.back` as described in Design section 3 (36 px
   square, centred icon, muted, hover like `button.icon`, pulled left, close
   to the brand). Add `.in-call .back` to the existing rule that hides
   `.in-call .brand`. Update the bar's comment to mention Back.
 
-- [ ] **Step 5: Run the browser tests**
+- [x] **Step 5: Run the browser tests**
   Run: `lgx e2e` (first time on this machine, if the browser is missing:
   `PLAYWRIGHT_HOST_PLATFORM_OVERRIDE=ubuntu24.04-x64 lgx e2e-setup`).
   Expected: the three new tests and the existing suite PASS. The "sticky"
   test does not exist yet.
 
-- [ ] **Step 6: Look at it**
+- [x] **Step 6: Look at it**
   With the binary from the e2e build, take Playwright screenshots of the
   lobby, History and Settings at 390x844 and at desktop width, light and
   dark (`colorScheme`), and check the bar: Back, brand and the right-hand
@@ -321,7 +321,7 @@ Work on branch `pwa-back-sticky` (already created from `master`).
   left edge. Adjust the CSS if not. (A throwaway script under `e2e/.tmp/` or
   similar, not committed.)
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
   `git commit -m "Back to the room list from the lobby, history and settings"`
 
 ### Task 4: Sticky bar and "New call"

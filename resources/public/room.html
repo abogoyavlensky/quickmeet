@@ -16,9 +16,11 @@
   <script src="/static/ui.js"></script>
 </head>
 <body class="room">
-  <!-- Before the call: the brand and the link to send. In the call: the
-       other person, how long it has been, and the same link as an icon. -->
+  <!-- Before the call: back to the list, the brand and the link to send.
+       In the call: the other person, how long it has been, and the same
+       link as an icon. -->
   <header class="bar">
+    <a id="back" class="back" href="/"></a>
     <a class="brand" href="/">quickmeet</a>
     <span class="who"><span class="dot"></span><span id="remote-name">waiting for the other side…</span><span id="timer"></span></span>
     <span class="end">
@@ -92,6 +94,7 @@
       $(id).addEventListener('click', () => copyLink($(id), location.href));
     }
     setIcon($('leave'), 'hang', 'Leave');
+    setIcon($('back'), 'back', 'Back');
 
     const showError = e => { $('error').textContent = String(e.message || e); $('error').hidden = false; };
     const showNotice = text => { $('notice').textContent = text || ''; $('notice').hidden = !text; };

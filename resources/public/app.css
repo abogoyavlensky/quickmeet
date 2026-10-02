@@ -33,10 +33,16 @@ p { margin: 0; }
 .notice { color: var(--call); }
 .muted { color: var(--muted); }
 
-/* The top bar: the name with the dot that means "here" everywhere else,
-   and whatever the page puts on the right. */
+/* The top bar: Back where a page leads off the room list, the name with
+   the dot that means "here" everywhere else, and whatever the page puts on
+   the right. */
 .bar { display: flex; align-items: center; gap: 18px; height: 56px; padding: 0 20px; }
 body:not(.room) .bar, .page { max-width: 600px; margin: 0 auto; }
+/* Installed to a home screen there is no browser Back, so the pages off
+   the list have their own. The negative margins line the chevron up with
+   the page's left edge and keep it close to the brand. */
+.back { display: grid; place-items: center; flex: none; width: 36px; height: 36px; margin: 0 -12px 0 -14px; border-radius: 10px; color: var(--muted); }
+.back:hover { background: var(--line); color: var(--fg); }
 .brand { display: inline-flex; align-items: center; gap: 8px; font-weight: 650; letter-spacing: -0.02em; text-decoration: none; }
 .brand::before, .dot { content: ''; width: 9px; height: 9px; border-radius: 50%; background: var(--call); flex: none; }
 .bar nav, .bar .end { margin-left: auto; display: flex; align-items: center; gap: 18px; font-size: 15px; }
@@ -130,7 +136,7 @@ body:not(.in-call) .bar #copy { height: 36px; padding: 0 12px; border-radius: 10
    the controls below it. */
 body.in-call { min-height: 0; height: 100vh; height: 100dvh; overflow: hidden; }
 .in-call .bar { position: absolute; z-index: 2; top: 0; left: 0; right: 0; padding: 0 calc(16px + env(safe-area-inset-right)) 0 calc(16px + env(safe-area-inset-left)); }
-.in-call .brand, .in-call #copy span, body:not(.in-call) .who, body:not(.in-call) #full { display: none; }
+.in-call .back, .in-call .brand, .in-call #copy span, body:not(.in-call) .who, body:not(.in-call) #full { display: none; }
 .who { display: flex; align-items: center; gap: 8px; min-width: 0; font-weight: 500; }
 .who #remote-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .who #timer { color: var(--muted); font-weight: 400; font-variant-numeric: tabular-nums; }
