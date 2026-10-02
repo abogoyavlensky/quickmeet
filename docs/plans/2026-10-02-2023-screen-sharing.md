@@ -281,7 +281,7 @@ Work on a branch (`screen-sharing`), not on master.
 - Modify: `resources/public/app.css` (only if step 4 says so)
 - Modify: `e2e/tests/screenshare.spec.js`
 
-- [ ] **Step 1: Write the failing sharer tests**
+- [x] **Step 1: Write the failing sharer tests**
   Add to `screenshare.spec.js`, all at a desktop viewport
   (`{ viewport: { width: 1280, height: 800 } }`):
 
@@ -311,11 +311,11 @@ Work on a branch (`screen-sharing`), not on master.
      `#share` is hidden. The same test, or the first one, already shows
      a desktop has it.
 
-- [ ] **Step 2: Run them and see them fail**
+- [x] **Step 2: Run them and see them fail**
   Run: `lgx build && (cd e2e && npx playwright test screenshare)`
   Expected: the Task 1 tests PASS, the new ones FAIL (no `#share`).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
   `ui.js`: add `screen` to `ICONS`, in the set's style (24x24, outline,
   1.75 stroke): a monitor on a stand with an arrow pointing up inside
   it; extend the comment above `ICONS` only if it stops being true.
@@ -330,7 +330,7 @@ Work on a branch (`screen-sharing`), not on master.
   the room. Check the object form of `video` in the bundle, as the
   design says.
 
-- [ ] **Step 4: Look at the controls with five buttons**
+- [x] **Step 4: Look at the controls with five buttons**
   The controls are 56 px buttons with a 14 px gap (`app.css:182-196`);
   five of them plus the wider Leave need about 370 px, so a desktop
   window has room and a phone never has five. Take a headless
@@ -340,13 +340,18 @@ Work on a branch (`screen-sharing`), not on master.
   one row, nothing clipped, the status line readable. Change `app.css`
   only if something is wrong; if so, describe it in the commit.
 
-- [ ] **Step 5: Run the spec and its neighbours**
+- [x] **Step 5: Run the spec and its neighbours**
   Run: `lgx build && (cd e2e && npx playwright test screenshare call mobile blur --workers 1)`
   Expected: PASS. (`--workers 1` because blurring pages starve each
   other in parallel; see "Background blur" in `docs/KNOWLEDGE.md`.)
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
   `git commit -m "Room page: share your screen from a desktop browser"`
+
+> Deviation: the object form of `video` exists in 2.22.3 (`Aa` in the bundle merges the resolution into it), so the `displaySurface` hint stays.
+> Deviation: the local-track events filter on the screen source before redrawing; the camera and microphone publish through the same events at every join.
+> Deviation: `toggleShare` does not call `refreshStatus` itself. The publish and unpublish events do, and calling it after a failure would wipe the four-second failure line.
+> Step 4: screenshots at 1280x800 and 720x420 showed one row of five buttons, the status line readable, and the viewer's 4:3 screen letterboxed. No CSS change.
 
 ### Task 3: The whole suite
 

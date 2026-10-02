@@ -15,6 +15,8 @@ const ICONS = {
   shrink: '<path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/>',
   check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
   back: '<path d="M15 5l-7 7 7 7"/>',
+  // A monitor on its stand, an arrow going up out of it.
+  screen: '<rect x="2.5" y="4" width="19" height="13" rx="2"/><path d="M8 21h8M12 17v4M12 14V8M9 11l3-3 3 3"/>',
   // A person, sharp, with the background around them in dots. The dots
   // are filled: as zero-length strokes they vanish at 20px.
   blur: '<circle cx="12" cy="9" r="3.5"/><path d="M5.5 20a6.5 6.5 0 0 1 13 0"/><g fill="currentColor" stroke="none"><circle cx="3" cy="6" r="1.1"/><circle cx="3" cy="11.5" r="1.1"/><circle cx="3" cy="17" r="1.1"/><circle cx="21" cy="6" r="1.1"/><circle cx="21" cy="11.5" r="1.1"/><circle cx="21" cy="17" r="1.1"/><circle cx="7.5" cy="3" r="1.1"/><circle cx="16.5" cy="3" r="1.1"/></g>',

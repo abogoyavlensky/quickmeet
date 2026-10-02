@@ -72,6 +72,7 @@
       <button id="blur" hidden></button>
       <button id="mic"></button>
       <button id="cam"></button>
+      <button id="share" hidden></button>
       <button id="leave" class="danger"></button>
     </footer>
   </section>
@@ -506,13 +507,66 @@
       });
     }
 
+    // ---- screen sharing -------------------------------------------------
+
+    // The browser's own picker chooses what is shared, a monitor, a window
+    // or a tab; the page only asks it to open on the whole screen. Phones
+    // cannot share: iPhone browsers have no getDisplayMedia, and Android's
+    // have one that refuses every call, so the device decides, not the
+    // window's size. The track is the truth, as with blur: we are sharing
+    // while a screen track is published. The browser's own "Stop sharing"
+    // ends that track, the client unpublishes it, and the button follows
+    // (LocalTrackUnpublished, in join()).
+    const SHARING = 'You are sharing your screen.';
+    const SHARE_FAILED = 'Screen sharing is not available here.';
+    const canShare = !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia)
+      && !/Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
+      && !(navigator.userAgentData && navigator.userAgentData.mobile);
+    const sharing = () => !!(window.call.room && window.call.room.localParticipant.isScreenShareEnabled);
+    Object.defineProperty(window.call, 'sharing', { get: sharing });
+    // Set while the picker is open, so a second click cannot start a
+    // second capture.
+    let shareBusy = false;
+
+    function drawShare() {
+      const on = sharing();
+      $('share').hidden = !canShare;
+      $('share').disabled = shareBusy;
+      setIcon($('share'), 'screen', on ? 'Stop sharing' : 'Share screen');
+      $('share').setAttribute('aria-pressed', String(on));
+      $('share').toggleAttribute('data-on', on);
+    }
+
+    // Closing the picker rejects with NotAllowedError: a decision, not a
+    // failure, so nothing is said.
+    async function toggleShare(room) {
+      if (shareBusy) return;
+      shareBusy = true;
+      drawShare();
+      try {
+        await room.localParticipant.setScreenShareEnabled(!sharing(), { audio: false, video: { displaySurface: 'monitor' } });
+      } catch (e) {
+        if (e.name !== 'NotAllowedError') shareFailed();
+      }
+      shareBusy = false;
+      drawShare();
+    }
+    function shareFailed() {
+      setStatus(SHARE_FAILED);
+      setTimeout(() => {
+        if (window.call.room && $('status').textContent === SHARE_FAILED) refreshStatus(window.call.room);
+      }, 4000);
+    }
+
     // ---- call -----------------------------------------------------------
 
     // Presence drives the banner, not media: a receive-only participant
-    // publishes nothing, and is still someone to talk to.
+    // publishes nothing, and is still someone to talk to. With someone here,
+    // the line says whether we are sharing, which also keeps the controls
+    // (and the way to stop) from fading.
     function refreshStatus(room) {
       const alone = room.remoteParticipants.size === 0;
-      setStatus(alone ? WAITING : null, alone);
+      setStatus(alone ? WAITING : sharing() ? SHARING : null, alone);
     }
     // The other person is here: their name goes in the bar, the clock runs.
     function arrived(participant) {
@@ -577,7 +631,7 @@
           remoteVideo[slot] = null;
           showRemote();
         });
-        room.on(RoomEvent.ParticipantConnected, participant => { arrived(participant); setStatus(null); });
+        room.on(RoomEvent.ParticipantConnected, participant => { arrived(participant); refreshStatus(room); });
         room.on(RoomEvent.ParticipantDisconnected, () => {
           $('remote-name').textContent = 'the other side left';
           // The element can keep the last frame's size after the track
@@ -594,6 +648,14 @@
         room.on(RoomEvent.SignalReconnecting, reconnecting);
         room.on(RoomEvent.Reconnecting, reconnecting);
         room.on(RoomEvent.Reconnected, () => { document.body.classList.remove('reconnecting'); refreshStatus(room); });
+        // Our screen track came or went, by the button or by the browser.
+        const shareChanged = pub => {
+          if (pub.source !== Track.Source.ScreenShare) return;
+          drawShare();
+          refreshStatus(room);
+        };
+        room.on(RoomEvent.LocalTrackPublished, shareChanged);
+        room.on(RoomEvent.LocalTrackUnpublished, shareChanged);
         room.on(RoomEvent.AudioPlaybackStatusChanged, () => { $('sound').hidden = room.canPlaybackAudio; });
         room.on(RoomEvent.Disconnected, reason => {
           // A failed join tears itself down in join()'s catch; only a call
@@ -620,6 +682,7 @@
         window.call.joined = true;
         showMic(room.localParticipant.isMicrophoneEnabled);
         showCam(room.localParticipant.isCameraEnabled);
+        drawShare();
         // Someone who was here first raises no ParticipantConnected.
         for (const p of room.remoteParticipants.values()) arrived(p);
         refreshStatus(room);
@@ -640,6 +703,7 @@
           await room.localParticipant.setCameraEnabled(on);
           showCam(on);
         };
+        $('share').onclick = () => toggleShare(room);
         $('leave').onclick = () => room.disconnect();
       } catch (e) {
         // Whatever got as far as connecting is torn down, then the lobby
