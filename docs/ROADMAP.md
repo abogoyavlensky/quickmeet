@@ -29,7 +29,7 @@ the SFU handles more, and the UI is what would need to change.
   "After v1".
 - Federation, multi-node LiveKit, or any deployment larger than one box.
 - Push notifications and call ringing. Calls are joined from a link; see
-  "After v1" for Web Push.
+  "After v1" for Web Push, which shipped after the release.
 
 ## Milestones
 
@@ -253,16 +253,19 @@ in host mode. Two phones on different networks held a call there. See
   (`resources/public/manifest.webmanifest`, `scripts/make-icons.mjs`),
   and a Back link and a sticky top bar for when there is no browser
   chrome. Not yet tried installed on a phone.
-- Ringing via Web Push. Browser push works on desktop, Android and iOS
-  (installed to the home screen, iOS 16.4+) and needs no SMTP and no
-  third-party account: the app holds a VAPID key pair, stores each
-  device's push subscription, and sends one HTTPS request per
-  notification to the browser vendor's endpoint. A Go web-push library
-  goes in as a `:go/interop` coord the way bcrypt did. What it costs: a
-  service worker, a subscriptions table, a per-device permission
-  prompt, and a "call" action on a room that notifies its other
-  members. This fits "one binary"; it is after v1 only because it is
-  not small.
+- Done 2026-10-02: ringing via Web Push, the minimal version
+  (`docs/plans/2026-10-02-2050-ring-web-push.md`). A signed-in person
+  waiting alone in a room presses "Ring Anna"; every device the room's
+  other members turned ringing on for shows "Anna wants to talk", and
+  tapping it opens the room's lobby, where Join is the answer. Permission
+  is asked only from a tap: a banner on the list page or a switch in
+  Settings (on an iPhone in Safari, a hint to add the app to the home
+  screen). The VAPID keys are made on the first start; subscriptions
+  belong to sessions; one ring per caller and room every 30 s. Not a
+  `:go/interop` coord after all: webpush-go takes structs, so it has a
+  small shim in `webpush/`. Left for later, each in the backlog: a ring
+  from the list, ring state (decline, cancel, missed calls in history),
+  rings from guests. Not yet tried on a real phone.
 - Mobile: LiveKit's Swift, Kotlin and React Native SDKs talk to the same
   SFU and the same token endpoint. Native ringing needs APNs and FCM
   signing that let-go does not have; a small Go shim or a hosted push

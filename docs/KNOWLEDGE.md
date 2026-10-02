@@ -28,6 +28,7 @@ not enough:
 | livekit-client (JS) | 2.22.3 | the browser side, vendored into `resources/public/` (`lgx vendor-livekit-client`) |
 | @livekit/track-processors (JS) | 0.8.1 | background blur, bundled into `resources/public/track-processors.js` (`lgx vendor-blur`) |
 | @mediapipe/tasks-vision | 0.10.14 | the segmentation under the blur: its wasm, plus `selfie_segmenter.tflite` pinned by SHA-256 (`scripts/vendor-blur.mjs`) |
+| webpush-go | v1.4.0 | Web Push encryption and VAPID signing, behind the hand-written shim in `webpush/` |
 | @playwright/test | 1.56.0 | the browser tests in `e2e/`, on `chromium_headless_shell-1194` |
 | uc (uncloud) | 0.20.0 | deploys `compose.yaml` to the staging cluster; bundles Caddy |
 
@@ -443,6 +444,57 @@ Why the stock blur ripples, and the patch, 2026-10-01:
 - MediaPipe's own mask helpers keep `mediump`; the patch touches only
   the library's shaders.
 
+## Ringing (Web Push), verified 2026-10-02
+
+- `github.com/SherClockHolmes/webpush-go` v1.4.0 cannot be a `:go/interop`
+  coord: its one entry point is `SendNotification(message []byte, s
+  *Subscription, options *Options)`, two structs, and lgx generates no
+  struct constructors. The shim in `webpush/` (module
+  `github.com/abogoyavlensky/quickmeet/webpush`, namespace
+  `webpush.shim`, linked with `:go/local`) takes plain strings and builds
+  them. A nine-argument Go function returning `(int, error)` boxes with
+  `vm.MustBox` as it is; the error becomes an exception. The first build
+  with the coord took about half a minute with a warm module cache. The
+  CI runtime cache key hashes `webpush/**` with `lgx.edn`.
+- A VAPID public key and a subscription's `p256dh` are the same kind of
+  value, an uncompressed P-256 point in unpadded base64url (87
+  characters), so a generated VAPID key stands in for a browser's in tests.
+  `push_test.lg` sends for real to a let-go server on loopback: the request
+  carries `ttl`, `content-encoding: aes128gcm`, `urgency`, `topic` and an
+  `authorization: vapid t=..., k=<public key>` header, and the plain text
+  is not in the body. A `p256dh` that is not a point on the curve (`AAAA`)
+  fails in the shim before any network, which is how the browser tests
+  store a subscription whose rings go nowhere.
+- The library prefixes the VAPID subject with `mailto:` unless it starts
+  with `https:`. The app sends `https://<host>` behind TLS and
+  `quickmeet@localhost` otherwise; the shim strips a `mailto:` it is given
+  so it is not doubled. Whether Apple accepts the subject is checked on a
+  device.
+- The keys are made on the first start and stored in `settings` as one
+  string, `"<private> <public>"`. Every subscription is bound to the public
+  key it was made with; a page compares the browser's
+  `options.applicationServerKey` with `/api/push/key` and drops a
+  subscription made with another (a lost database).
+- The server posts to whatever endpoint a signed-in person hands it, so
+  endpoints are limited to `fcm.googleapis.com` and hosts ending in
+  `.push.services.mozilla.com`, `.push.apple.com` and
+  `.notify.windows.com`: https, no user info, no port, at most 2048
+  characters. A push service's 404 or 410 deletes the subscription.
+- A service worker's scope cannot reach above its own file's path, so it
+  is served at `/sw.js`, not under `/static/`. It has no `fetch` handler.
+- Headless Chromium has a `PushManager` but no push service, so a real
+  subscription cannot be made in the browser tests. It also reports
+  `Notification.permission` as `denied` whatever the context grants (the
+  Permissions API shows the grant); `ring.spec.js` overrides the getter.
+  For the same reason the list page's banner never shows in the other
+  specs.
+- Safari shows the notification prompt only while the tap that asked is
+  the current gesture, so `push.on` calls `Notification.requestPermission()`
+  before awaiting anything else. Not yet tried on a device.
+- What a real iPhone does (the tap opening the installed app at the room,
+  a same-tag ring replacing the earlier one, the sound) is the device
+  checklist in `docs/plans/2026-10-02-2050-ring-web-push.md`, Task 9.
+
 ## Restarts and shutdown, verified 2026-09-30
 
 - A call survives the server process being killed. Two headless
@@ -584,7 +636,8 @@ The first deploy, 2026-09-28 to 2026-09-29:
 ---
 
 > **Verify against:** `lgx.edn`, `compose.yaml`,
-> `scripts/make-icons.mjs` and `.github/workflows/deploy.yml` in this repo;
+> `scripts/make-icons.mjs`, `webpush/shim.go` and `.github/workflows/deploy.yml` in this repo;
+> in webpush-go v1.4.0, `webpush.go` and `vapid.go`;
 > in uncloud v0.20.0, `pkg/client/compose/` and `internal/machine/caddyconfig/template.go`; in lgx,
 > `lgx/gobuild.lg` (runtime build, `:go/replace`, the stamp) and
 > `docs/knowledge-base/lgx-go-runtimes.md`; in letgo-packages,

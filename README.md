@@ -183,7 +183,7 @@ main.lg                        starts the system, waits on the http server, shut
 src/quickmeet/system.lg        the integrant config from the environment
 src/quickmeet/db.lg            ::conn (open + migrate), queries
 src/quickmeet/migrations.lg    the schema history (ragtime over sqlite)
-src/quickmeet/routes.lg        ::handler: pages, accounts, rooms, join tokens, the two-person rule, the webhook, rate limits
+src/quickmeet/routes.lg        ::handler: pages, accounts, rooms, join tokens, the two-person rule, ringing, the webhook, rate limits
 src/quickmeet/ratelimit.lg     fixed-window rate limits in memory
 src/quickmeet/history.lg       call history from the SFU's webhook events
 src/quickmeet/auth.lg          sign-up, sign-in, sessions, the allowlist, the session cookie
@@ -191,7 +191,9 @@ src/quickmeet/password.lg      bcrypt (golang.org/x/crypto/bcrypt as a :go/inter
 src/quickmeet/id.lg            random ids for rooms, users and sessions
 src/quickmeet/sfu.lg           asks the embedded SFU who is in a room, and which rooms are live (twirp over loopback)
 src/quickmeet/server.lg        ::http: http/start on init, http/stop on halt
-resources/public/              index, room, history, signup, signin, settings pages; app.css; ui.js (icons, avatars); the manifest and app icons; vendored livekit-client, font and background blur
+src/quickmeet/push.lg          ringing: the VAPID keys, the push-service allowlist, delivery
+webpush/                       the Go shim over webpush-go (a :go/local coord): encrypt, sign, send
+resources/public/              index, room, history, signup, signin, settings pages; app.css; ui.js (icons, avatars, push); sw.js (rings); the manifest and app icons; vendored livekit-client, font and background blur
 scripts/vendor-fonts.mjs       writes resources/public/fonts.css from the pinned Onest release
 scripts/vendor-blur.mjs        writes the blur bundle, MediaPipe's wasm and the model into resources/public
 scripts/make-icons.mjs         writes the home-screen icons and favicon.ico into resources/public
@@ -225,10 +227,17 @@ POST /api/rooms/:id              {"name"} (blank clears) -> 200 the room | 400 |
 DELETE /api/rooms/:id            -> 200 {} | 401 | 403 | 404
 GET  /api/rooms/:id              -> 200 {"id", "name", "created_at", "participants": [{"identity", "name"}]} | 404
 POST /api/rooms/:id/token        {"identity": "alice"}   (the name a guest typed; optional)
-                                 -> 200 {"token", "identity", "name", "url"} | 404 | 409 {"error": "full"}
+                                 -> 200 {"token", "identity", "name", "url", "ring": ["Anna"]} | 404 | 409 {"error": "full"}
+POST /api/rooms/:id/ring         -> 200 {"devices": n} | 401 | 403 (not in the room now) | 404
+                                  | 409 {"error": "nobody to ring"} | 429
+GET  /api/push/key               -> 200 {"key": "<VAPID public key>"}
+POST /api/push/subscriptions     the browser's PushSubscription.toJSON(): {"endpoint", "keys": {"p256dh", "auth"}}
+                                 -> 200 {} | 400 | 401 | 415
+POST /api/push/unsubscribe       {"endpoint"} -> 200 {} | 401 | 415
 GET  /api/calls?page=N           -> 200 {"items": [{"room_id", "started_at", "ended_at", "seconds", "with"}],
                                          "page": n, "more": bool} | 401
 POST /api/webhooks/livekit       the embedded SFU's events, signed with the API key -> 200 | 401
+GET  /sw.js                      the service worker that shows rings
 GET  /room/:id                   the room page
 GET  /history                    the history page
 GET  /signup, /signin, /settings the account pages
@@ -262,6 +271,19 @@ display name, or what a guest typed). History is written from the SFU's
 webhooks (`participant_joined`, `participant_left`, `room_finished`),
 which it posts to `/api/webhooks/livekit` on loopback; `ended_at` and
 `seconds` are null while a call is on, and `with` names the others.
+
+Ringing is Web Push. A signed-in person waiting alone in a room can ring
+its other members: every device they turned ringing on for (the banner on
+the list page, or Settings) shows "<name> wants to talk", and tapping it
+opens the room's lobby. `ring` in the token response names whom a ring
+would reach, and the call page shows its Ring button from it. One ring per
+caller and room every 30 seconds; a push service may hold a ring for an
+offline device for an hour, and a newer ring for the room replaces it. A
+subscription belongs to the session that made it, so signing out stops
+that device, and only the browser vendors' push services are accepted as
+endpoints. The VAPID key pair is made on the first start and kept in the
+database. On an iPhone, push works only in quickmeet added to the home
+screen (iOS 16.4 or later).
 
 The token is a LiveKit join token for that room only, valid for an hour.
 `url` is the signalling address the browser should connect to:
