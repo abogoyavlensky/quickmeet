@@ -5,7 +5,7 @@
 // adopt, and the Ring button on the call page (against a stored
 // subscription whose sends fail harmlessly in the shim).
 import { test, expect } from '@playwright/test';
-import { signUp } from './helpers.js';
+import { signUp, newRoom, joinAs } from './helpers.js';
 
 // A browser that has not been asked about notifications yet. The headless
 // shell reports Notification.permission as "denied" whatever the context
@@ -122,5 +122,60 @@ test.describe('a subscription already in the browser', () => {
     await expect.poll(() => page.evaluate(() => window.unsubscribed)).toBe(true);
     expect(seen).toEqual([]);
     expect(await page.evaluate(() => localStorage.getItem('quickmeet.push.user'))).toBeNull();
+  });
+});
+
+test.describe('the Ring button', () => {
+  const contexts = [];
+  test.afterEach(async () => {
+    await Promise.all(contexts.splice(0).map(c => c.close()));
+  });
+
+  // The person at `page` joins the call they are in the lobby of.
+  async function join(page) {
+    await page.click('#join');
+    await page.waitForFunction(() => window.call.joined === true, null, { timeout: 15_000 });
+  }
+
+  test('rings the other member while alone, then rests', async ({ browser, page }) => {
+    const roomUrl = await newRoom(page);
+    const id = roomUrl.split('/').pop();
+
+    // Bob signs up, joins the room once (which makes him a member) and has
+    // a device. Its key is not a point on the curve, so the server's send
+    // fails before any network: nothing leaves the machine.
+    const bobContext = await browser.newContext();
+    contexts.push(bobContext);
+    const bob = await bobContext.newPage();
+    const bobEmail = await signUp(bob, 'bob');
+    expect((await bob.request.post(`/api/rooms/${id}/token`, { data: {} })).ok()).toBe(true);
+    expect((await bob.request.post('/api/push/subscriptions', {
+      data: { endpoint: 'https://fcm.googleapis.com/fcm/send/e2e-' + Date.now(), keys: { p256dh: 'AAAA', auth: 'AAAA' } },
+    })).ok()).toBe(true);
+
+    await join(page);
+    const ring = page.locator('#ring');
+    await expect(ring).toBeVisible();
+    await expect(ring).toHaveText('Ring ' + bobEmail.split('@')[0]);
+    await expect(ring).toBeEnabled();
+
+    const rung = page.waitForResponse(r => r.url().endsWith(`/api/rooms/${id}/ring`));
+    await ring.click();
+    expect((await rung).status()).toBe(200);
+    await expect(ring).toHaveText('Rung');
+    await expect(ring).toBeDisabled();
+
+    // Someone arrives: the waiting state, and the button with it, is gone.
+    await joinAs(browser, contexts, roomUrl, 'guest');
+    await expect(ring).toBeHidden({ timeout: 15_000 });
+  });
+
+  test('is absent when nobody could be rung', async ({ page }) => {
+    await newRoom(page);
+    await join(page);
+    await expect(page.locator('#status')).toHaveText('Waiting for the other person.');
+    expect(await page.evaluate(() => window.call.ring)).toEqual([]);
+    await expect(page.locator('#ring')).toBeHidden();
+    await expect(page.locator('#invite')).toBeVisible();
   });
 });
