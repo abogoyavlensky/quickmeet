@@ -75,6 +75,8 @@ button.icon:hover { background: var(--line); color: var(--fg); }
 
 .form { display: grid; gap: 16px; max-width: 360px; margin: 0 0 24px; }
 .form button { justify-self: start; }
+.form h2 { font-size: 17px; font-weight: 600; margin: 0; }
+.form + .form { padding-top: 24px; border-top: 1px solid var(--line); }
 label { display: grid; gap: 6px; font-size: 14px; color: var(--muted); }
 input, select {
   height: 44px; padding: 0 12px; border-radius: 12px; border: 1px solid var(--line);
@@ -113,6 +115,13 @@ input::placeholder { color: var(--muted); }
 }
 .actions { display: flex; gap: 2px; }
 .empty { margin-top: 20px; color: var(--muted); }
+
+/* The offer to be rung on this device, above the list: a quiet card, the
+   sentence above its buttons so it reads the same on a phone. */
+.banner { display: grid; gap: 12px; margin: 0 0 20px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); }
+.banner .row { gap: 12px 20px; }
+.banner button.link { color: var(--muted); }
+.banner button.link:hover { color: var(--fg); }
 .account { margin-top: 28px; font-size: 14px; color: var(--muted); }
 
 /* History: a table without the furniture. */
@@ -200,7 +209,7 @@ body.in-call { min-height: 0; height: 100vh; height: 100dvh; overflow: hidden; }
 .status { padding: 6px 14px; border-radius: 999px; background: rgba(0,0,0,.6); color: #fff; font-size: 14px; }
 .waiting .overlay { top: 50%; transform: translateY(-50%); }
 .waiting .status { padding: 0; background: none; color: var(--fg); font-size: 20px; font-weight: 500; letter-spacing: -0.01em; }
-body:not(.waiting) #invite { display: none; }
+body:not(.waiting) #invite, body:not(.waiting) #ring { display: none; }
 
 /* Immersive: a phone, or any screen in full screen (set by the page). The
    video is the whole stage, edge to edge; the bar and the controls lie

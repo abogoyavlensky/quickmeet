@@ -1,0 +1,110 @@
+(ns quickmeet.push
+  (:require [quickmeet.db :as db]
+            [string :as str]
+            [webpush.shim :as shim]))
+
+;; Ringing over Web Push. The browser vendors run the push services; this
+;; app holds a VAPID key pair that identifies it to them, keeps each
+;; device's subscription, and posts one encrypted message per device per
+;; ring. The encryption and the VAPID signature are webpush-go's, behind
+;; the shim in webpush/.
+;;
+;; Nothing here binds dynamic vars (no HoneySQL format at call time): the
+;; sends run on futures, and the database calls use SQL rendered at load.
+
+(defn generate-keys
+  "A new VAPID key pair, {:public .. :private ..}, unpadded base64url."
+  []
+  (let [[private public] (str/split (shim/GenerateVAPIDKeys) " ")]
+    {:public public :private private}))
+
+;; The pair lives in the settings table, as the shim's one string, so it is
+;; made on the first start and survives restarts: every subscription is
+;; bound to the public key it was made with.
+(def ^:private keys-setting "vapid-keys")
+
+(defn keys!
+  "The app's VAPID key pair, made and stored on first use."
+  [conn]
+  (when-not (db/setting conn keys-setting)
+    (let [{:keys [public private]} (generate-keys)]
+      (db/add-setting! conn keys-setting (str private " " public))))
+  ;; Read back: a concurrent first start may have stored its pair first.
+  (let [[private public] (str/split (db/setting conn keys-setting) " ")]
+    {:public public :private private}))
+
+;; How long a push service may hold a ring for a device that is offline:
+;; an hour, so a ring can still arrive as a trace of a missed call, but
+;; not the next morning.
+(def ttl-seconds 3600)
+
+(defn send!
+  "Post `message` to one subscription. `vapid` is the key pair, `target`
+   {:endpoint :p256dh :auth}, `message` {:payload json-string :topic
+   string :subject string}. The push service's status; throws when nothing
+   was sent."
+  [vapid {:keys [endpoint p256dh auth]} {:keys [payload topic subject]}]
+  (shim/Send endpoint p256dh auth payload subject (:public vapid) (:private vapid)
+             (or topic "") ttl-seconds))
+
+;; ---- endpoints ----------------------------------------------------------
+
+;; The server posts to whatever endpoint a signed-in person hands it, so
+;; only the browser vendors' push services are accepted: without the list,
+;; any account could make this server send requests into its own network.
+;; Chrome and Edge's Android side use FCM; Firefox, Mozilla's autopush;
+;; Safari, Apple's; Edge on Windows, WNS.
+(def ^:private push-hosts #{"fcm.googleapis.com"})
+(def ^:private push-domains [".push.services.mozilla.com" ".push.apple.com" ".notify.windows.com"])
+
+(defn- host-of
+  "The host of an https URL with no user info and no port, or nil."
+  [url]
+  (second (re-matches #"https://([a-z0-9.-]+)(?:[/?#].*)?" (str url))))
+
+(defn endpoint-problem
+  "Why `endpoint` cannot be a push subscription's, or nil if it can."
+  [endpoint]
+  (let [host (host-of endpoint)]
+    (cond
+      (> (count (str endpoint)) 2048) "The endpoint is too long."
+      (nil? host) "The endpoint must be an https URL."
+      (not (or (push-hosts host) (some #(str/ends-with? host %) push-domains)))
+      "The endpoint is not a known push service."
+      :else nil)))
+
+;; ---- delivery -----------------------------------------------------------
+
+;; A push service answers 404 or 410 for a subscription that is gone for
+;; good (the person turned notifications off, or the browser dropped it).
+(def ^:private gone #{404 410})
+
+(defn- deliver-one! [{:keys [send!]} conn target message]
+  (let [host (or (host-of (:endpoint target)) "?")]
+    (try
+      (let [status (send! target message)]
+        (cond
+          (gone status) (db/delete-subscription! conn (:endpoint target))
+          (<= 200 status 299) nil
+          :else (println (str "quickmeet: push to " host " failed: status " status))))
+      (catch Exception e
+        (println (str "quickmeet: push to " host " failed: " (ex-message e)))))))
+
+(defn deliver!
+  "Send `message` to every target, each on its own through `(:spawn push)`,
+   so neither the request nor another device waits for a slow push
+   service. A subscription that is gone is deleted; any other failure is a
+   line in the log."
+  [push conn targets message]
+  (doseq [target targets]
+    ((:spawn push) #(deliver-one! push conn target message))))
+
+(defn service
+  "The handler's `push` map over the database: the public key the pages
+   subscribe with, a sender holding the VAPID pair, and a future to send
+   from."
+  [conn]
+  (let [vapid (keys! conn)]
+    {:public-key (:public vapid)
+     :send! (fn [target message] (send! vapid target message))
+     :spawn (fn [f] (future (f)))}))

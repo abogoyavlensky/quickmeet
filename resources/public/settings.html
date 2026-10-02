@@ -34,19 +34,72 @@
       <p id="status" class="notice" hidden>Name saved.</p>
       <p id="error" class="error" hidden></p>
     </form>
+    <!-- Ringing on this device, on or off. The browser's subscription is
+         the state; see push in ui.js. -->
+    <section id="ringing" class="form">
+      <h2>Notifications</h2>
+      <p class="muted">When someone rings you from a call, this device shows it.</p>
+      <button id="ring-toggle" hidden></button>
+      <p id="ring-status" class="muted" hidden></p>
+      <p id="ring-error" class="error" hidden></p>
+    </section>
   </main>
   <script>
     const $ = id => document.getElementById(id);
     setIcon($('back'), 'back', 'Back');
 
     // Settings are for a signed-in person; anyone else goes to sign in.
+    let email = null;
     async function load() {
       const res = await fetch('/api/me');
       if (!res.ok) { location.href = '/signin'; return; }
-      const { email, display_name } = await res.json();
+      const me = await res.json();
+      email = me.email;
       $('email').textContent = email;
-      $('display-name').value = display_name;
+      $('display-name').value = me.display_name;
+      try { await push.sync(email); } catch (e) { /* offline: shown as it is */ }
+      drawRinging();
     }
+
+    // ---- ringing --------------------------------------------------------
+
+    // One button, by whether this device is subscribed, or one line saying
+    // why it cannot be: not installed (iPhone), refused, or unsupported.
+    async function drawRinging() {
+      const say = text => { $('ring-status').textContent = text; $('ring-status').hidden = false; $('ring-toggle').hidden = true; };
+      $('ring-status').hidden = true;
+      if (!push.supported()) {
+        say(push.needsInstall()
+          ? 'To be rung on this iPhone, add quickmeet to your home screen (Share, then Add to Home Screen) and open it from there.'
+          : 'This browser cannot receive rings.');
+        return;
+      }
+      if (Notification.permission === 'denied') {
+        say("Notifications are blocked for this site in the browser's settings.");
+        return;
+      }
+      const on = !!(await push.subscription().catch(() => null));
+      $('ring-toggle').textContent = on ? 'Stop ringing this device' : 'Let people ring me on this device';
+      $('ring-toggle').className = on ? '' : 'primary';
+      $('ring-toggle').dataset.on = on ? '1' : '';
+      $('ring-toggle').hidden = false;
+    }
+
+    // Turning on asks for permission first thing (push.on), inside the tap.
+    $('ring-toggle').addEventListener('click', async () => {
+      $('ring-toggle').disabled = true;
+      $('ring-error').hidden = true;
+      try {
+        if ($('ring-toggle').dataset.on) await push.off();
+        else await push.on(email);
+      } catch (e) {
+        $('ring-error').textContent = String(e.message || e);
+        $('ring-error').hidden = false;
+      } finally {
+        $('ring-toggle').disabled = false;
+        await drawRinging();
+      }
+    });
 
     $('form').addEventListener('submit', async event => {
       event.preventDefault();

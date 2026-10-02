@@ -61,10 +61,12 @@
     <div class="tile empty"><video id="remote" autoplay playsinline></video></div>
     <div class="tile self"><video id="local" autoplay playsinline muted></video></div>
     <!-- One line for the call's state, shown only when something needs
-         attention; the link again while alone; the sound button for
-         browsers that block remote audio until a tap (iOS Safari). -->
+         attention; while alone, Ring for the other members who can be
+         rung and the link to send; the sound button for browsers that
+         block remote audio until a tap (iOS Safari). -->
     <div class="overlay">
       <p id="status" class="status" hidden></p>
+      <button id="ring" class="primary" hidden></button>
       <button id="invite" class="primary"></button>
       <button id="sound" class="primary" hidden>Tap to enable sound</button>
     </div>
@@ -88,6 +90,7 @@
     const roomId = location.pathname.split('/').pop();
     const FULL = 'This call already has two people in it.';
     const WAITING = 'Waiting for the other person.';
+    const RING_FAILED = 'Could not ring.';
 
     for (const id of ['copy', 'invite']) {
       $(id).innerHTML = icon('link') + '<span>Copy link</span>';
@@ -120,7 +123,8 @@
     // remote tracks so `stats()` can read their inbound RTP counters.
     // `blur` (defined with the blur logic below) says whether the camera is
     // blurred now.
-    window.call = { room: null, remote: null, joined: false, tracks: { video: null, audio: null } };
+    // `ring` lists whom Ring would reach (names), from the token response.
+    window.call = { room: null, remote: null, joined: false, ring: [], tracks: { video: null, audio: null } };
 
     // Inbound RTP stats for the remote video and audio: null for a kind that
     // is not subscribed. Video: framesDecoded, packetsReceived, packetsLost;
@@ -294,6 +298,8 @@
       drawBlur();
       lobby.ready = acquireTracks().then(fillDevices).then(restoreBlur);
       startPolling();
+      window.call.ring = [];
+      resetRing();
     }
 
     // Camera and microphone; failing that, one of them; failing that, join
@@ -479,6 +485,53 @@
       });
     }
 
+    // ---- ringing --------------------------------------------------------
+
+    // While alone, a signed-in person can ring the room's other members on
+    // the devices they turned ringing on for; the token response says who
+    // that would reach. One ring, then the button rests for as long as the
+    // server would refuse another (30 s); a refusal for that reason reads
+    // as rung too. The notification opens this room's lobby on their side.
+    const RING_REST_MS = 30_000;
+    let ringRest = null;
+    function drawRing() {
+      const names = window.call.ring;
+      const resting = !!ringRest;
+      $('ring').hidden = names.length === 0;
+      $('ring').disabled = resting;
+      const label = document.createElement('span');
+      label.textContent = resting ? 'Rung' : names.length === 1 ? 'Ring ' + names[0] : 'Ring them';
+      $('ring').innerHTML = icon('bell');
+      $('ring').append(label);
+      // One green button at a time: with Ring there, the link steps back.
+      $('invite').classList.toggle('primary', names.length === 0);
+    }
+    function resetRing() {
+      clearTimeout(ringRest);
+      ringRest = null;
+      drawRing();
+    }
+    $('ring').addEventListener('click', async () => {
+      $('ring').disabled = true;
+      let res = null;
+      try { res = await fetch(`/api/rooms/${roomId}/ring`, { method: 'POST' }); } catch (e) { /* offline */ }
+      if (res && (res.ok || res.status === 429)) {
+        ringRest = setTimeout(resetRing, RING_REST_MS);
+        drawRing();
+        return;
+      }
+      drawRing();
+      // Said only while still alone: someone may have arrived, or the
+      // connection dropped, while the request was out.
+      const room = window.call.room;
+      const alone = room && room.remoteParticipants.size === 0 && !document.body.classList.contains('reconnecting');
+      if (!alone) return;
+      setStatus(RING_FAILED, true);
+      setTimeout(() => {
+        if (window.call.room && $('status').textContent === RING_FAILED) refreshStatus(window.call.room);
+      }, 4000);
+    });
+
     // ---- call -----------------------------------------------------------
 
     // Presence drives the banner, not media: a receive-only participant
@@ -533,7 +586,9 @@
         });
         if (res.status === 409) throw new Error(FULL);
         if (!res.ok) throw new Error('could not get a token (' + res.status + ')');
-        const { token, url } = await res.json();
+        const { token, url, ring } = await res.json();
+        window.call.ring = ring || [];
+        drawRing();
 
         const room = new Room({ adaptiveStream: true, dynacast: true });
         window.call.room = room;

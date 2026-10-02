@@ -36,18 +36,29 @@
                                         {:sha256 (io/encode :base64 (io/decode :hex (hash/sha256 body)))})
               "content-type" "application/json"}}))
 
+;; The handler's push service, with nothing leaving the machine: sends are
+;; recorded in `sent` as [target message] and answer `status`, and spawning
+;; runs at once, so a test sees a ring's sends when the response is back.
+(defn- recording-push
+  ([sent] (recording-push sent 201))
+  ([sent status]
+   {:public-key "test-public-key"
+    :send! (fn [target message] (swap! sent conj [target message]) status)
+    :spawn (fn [f] (f))}))
+
 ;; `lookups` is the handler's map of SFU questions, or just the
 ;; :participants function for the tests that only care about one room.
 (defn- with-handler
   ([f] (with-handler livekit f))
   ([lk f] (with-handler lk nobody-anywhere f))
   ([lk lookups f] (with-handler lk lookups anyone f))
-  ([lk lookups auth f]
+  ([lk lookups auth f] (with-handler lk lookups auth (recording-push (atom [])) f))
+  ([lk lookups auth push f]
    (let [path (str "/tmp/quickmeet-routes-" (rand-int 100000000) ".db")
          system (ig/init {:quickmeet.db/conn {:path path}})
          lookups (if (fn? lookups) (assoc nobody-anywhere :participants lookups) lookups)]
      (try
-       (f (routes/handler (:quickmeet.db/conn system) lk lookups auth)
+       (f (routes/handler (:quickmeet.db/conn system) lk lookups auth push)
           (:quickmeet.db/conn system))
        (finally
          (ig/halt! system)
@@ -243,7 +254,14 @@
       (is (= 404 (:status (call handler :get "/static/nope.js"))))
       ;; The account pages, the script they share, and history.
       (doseq [page ["/signup" "/signin" "/settings" "/history" "/static/account.js"]]
-        (is (= 200 (:status (call handler :get page))) page)))))
+        (is (= 200 (:status (call handler :get page))) page))
+      ;; The service worker, at the root: a worker controls only the paths
+      ;; under its own file's. Never cached, so a change reaches browsers.
+      (let [sw (call handler :get "/sw.js")]
+        (is (= 200 (:status sw)))
+        (is (= "text/javascript; charset=utf-8" (get-in sw [:headers "Content-Type"])))
+        (is (= "no-cache" (get-in sw [:headers "Cache-Control"])))
+        (is (str/includes? (:body sw) "notificationclick"))))))
 
 ;; Background blur: the bundle names where its wasm and model live, and
 ;; that path is the one the server answers, with a year's cache. The model
@@ -408,7 +426,7 @@
   (let [path (str "/tmp/quickmeet-allow-" (rand-int 100000000) ".db")
         system (ig/init {:quickmeet.db/conn {:path path}})
         conn (:quickmeet.db/conn system)
-        handler-for (fn [auth] (routes/handler conn livekit (constantly []) auth))]
+        handler-for (fn [auth] (routes/handler conn livekit (constantly []) auth (recording-push (atom []))))]
     (try
       (let [only-ok (handler-for {:allowed-emails #{"ok@example.com"}})
             refused (signup only-ok "no@example.com")
@@ -649,3 +667,158 @@
       (fn [handler _]
         (is (= 201 (:status (signup handler))))
         (is (= 401 (:status (call handler :post "/api/auth/signin" credentials))))))))
+
+;; ---- ringing ------------------------------------------------------------
+
+(def ^:private fcm "https://fcm.googleapis.com/fcm/send/")
+
+(defn- subscription [endpoint]
+  (json/write-json {:endpoint endpoint :keys {:p256dh "BPdh" :auth "au"}}))
+
+(defn- subscribe [handler cookie endpoint]
+  (call handler :post "/api/push/subscriptions" (subscription endpoint) (as cookie)))
+
+(defn- user-id [conn email]
+  (:id (sqlite/execute-one! conn ["select id from users where email = ?" email])))
+
+(defn- stored [conn]
+  (sqlite/query conn ["select endpoint, session_id, p256dh, auth from push_subscriptions order by endpoint"]))
+
+(deftest devices-subscribe-and-unsubscribe
+  (with-handler
+    (fn [handler conn]
+      (is (= {:key "test-public-key"} (:json (call handler :get "/api/push/key"))))
+      (let [alice (:cookie (signup handler "alice@example.com"))
+            bob (:cookie (signup handler "bob@example.com"))]
+        (is (= 401 (:status (subscribe handler nil (str fcm "a")))))
+        (is (= 415 (:status (call handler :post "/api/push/subscriptions" (subscription (str fcm "a"))
+                                  (assoc-in (as alice) [:headers "content-type"] "text/plain")))))
+        (doseq [body [(subscription "https://evil.example/x")
+                      (json/write-json {:endpoint (str fcm "a") :keys {:p256dh "" :auth "au"}})
+                      (json/write-json {:endpoint (str fcm "a") :keys {:p256dh "BPdh"}})
+                      (json/write-json {:endpoint (str fcm "a") :keys {:p256dh (apply str (repeat 257 "a")) :auth "au"}})
+                      (json/write-json {:endpoint (str fcm "a")})]]
+          (let [res (call handler :post "/api/push/subscriptions" body (as alice))]
+            (is (= 400 (:status res)) body)
+            (is (string? (:error (:json res))) body)))
+        (is (= [] (stored conn)))
+        (is (= 200 (:status (subscribe handler alice (str fcm "a")))))
+        (is (= 200 (:status (subscribe handler bob (str fcm "b")))))
+        (is (= [{:endpoint (str fcm "a") :session_id alice :p256dh "BPdh" :auth "au"}
+                {:endpoint (str fcm "b") :session_id bob :p256dh "BPdh" :auth "au"}]
+               (stored conn)))
+        ;; Unsubscribing takes only one's own device; an unknown one is fine.
+        (let [off (fn [cookie endpoint]
+                    (call handler :post "/api/push/unsubscribe" (json/write-json {:endpoint endpoint}) (as cookie)))]
+          (is (= 401 (:status (off nil (str fcm "a")))))
+          (is (= 200 (:status (off alice (str fcm "b")))))
+          (is (= 2 (count (stored conn))))
+          (is (= 200 (:status (off alice (str fcm "a")))))
+          (is (= 200 (:status (off alice (str fcm "nope")))))
+          (is (= [(str fcm "b")] (mapv :endpoint (stored conn)))))))))
+
+(defn- token-of [handler id cookie]
+  (:json (call handler :post (str "/api/rooms/" id "/token") "{}" (as cookie))))
+
+(defn- ring [handler id cookie & [extra]]
+  (call handler :post (str "/api/rooms/" id "/ring") nil (merge-with merge (as cookie) extra)))
+
+(deftest ringing-the-other-members
+  (let [present (atom [])
+        sent (atom [])]
+    (with-handler livekit (fn [_] @present) anyone (recording-push sent)
+      (fn [handler conn]
+        (let [alice (:cookie (signup handler "alice@example.com"))
+              bob (:cookie (signup handler "bob@example.com"))
+              carol (:cookie (signup handler "carol@example.com"))
+              id (:id (:json (call handler :post "/api/rooms" nil (as alice))))
+              alice-in [{:identity (str "user:" (user-id conn "alice@example.com")) :name "alice"}]]
+          ;; Bob joins once, which makes him a member; Carol never does.
+          (token-of handler id bob)
+          (subscribe handler bob (str fcm "bob"))
+          (subscribe handler carol (str fcm "carol"))
+          (subscribe handler alice (str fcm "alice"))
+          ;; The token says whom a ring would reach: the other members with a
+          ;; device, by name. A guest rings nobody.
+          (is (= ["bob"] (:ring (token-of handler id alice))))
+          (is (= ["alice"] (:ring (token-of handler id bob))))
+          (is (= [] (:ring (:json (call handler :post (str "/api/rooms/" id "/token") "{}")))))
+          ;; Who may ring: someone signed in, in an existing room, in it now.
+          (is (= 401 (:status (ring handler id nil))))
+          (is (= 404 (:status (ring handler "0123456789ab" alice))))
+          (is (= 404 (:status (ring handler "nope" alice))))
+          (is (= 403 (:status (ring handler id alice))))
+          (is (= [] @sent))
+          (reset! present alice-in)
+          ;; Bob is not in the room, whatever Alice is.
+          (is (= 403 (:status (ring handler id bob))))
+          (let [res (ring handler id alice {:headers {"x-forwarded-proto" "https"}})
+                [[target message]] @sent
+                payload (json/read-json (:payload message) {:keywords? true})]
+            (is (= 200 (:status res)))
+            (is (= {:devices 1} (:json res)))
+            ;; Bob's device only: not Alice's own, not Carol's.
+            (is (= 1 (count @sent)))
+            (is (= {:endpoint (str fcm "bob") :p256dh "BPdh" :auth "au"}
+                   (select-keys target [:endpoint :p256dh :auth])))
+            (is (= {:title "alice wants to talk" :body "Tap to join the call."
+                    :url (str "/room/" id) :tag (str "room-" id)}
+                   payload))
+            (is (= id (:topic message)))
+            (is (= "https://meet.example:8080" (:subject message))))
+          ;; Over plain http (development) the subject is an address.
+          (reset! sent [])
+          (ring handler id alice)
+          (is (= "quickmeet@localhost" (:subject (second (first @sent)))))
+          ;; Bob signs out: his device goes with the session, and there is
+          ;; nobody left to ring.
+          (call handler :post "/api/auth/signout" nil (as bob))
+          (is (= [] (:ring (token-of handler id alice))))
+          (reset! sent [])
+          (let [res (ring handler id alice)]
+            (is (= 409 (:status res)))
+            (is (= {:error "nobody to ring"} (:json res)))
+            (is (= [] @sent))))))))
+
+(deftest a-removed-address-is-not-rung
+  (let [present (atom [])
+        sent (atom [])]
+    (with-handler livekit (fn [_] @present) anyone (recording-push sent)
+      (fn [handler conn]
+        (let [alice (:cookie (signup handler "alice@example.com"))
+              bob (:cookie (signup handler "bob@example.com"))
+              id (:id (:json (call handler :post "/api/rooms" nil (as alice))))]
+          (token-of handler id bob)
+          (subscribe handler bob (str fcm "bob"))
+          (reset! present [{:identity (str "user:" (user-id conn "alice@example.com")) :name "alice"}])
+          ;; The operator takes Bob's address off the allowlist.
+          (let [only-alice (routes/handler conn livekit {:participants (fn [_] @present)
+                                                         :active-rooms (constantly {})
+                                                         :verify verify}
+                                           {:allowed-emails #{"alice@example.com"}}
+                                           (recording-push sent))]
+            (is (= [] (:ring (token-of only-alice id alice))))
+            (is (= 409 (:status (ring only-alice id alice))))
+            (is (= [] @sent))))))))
+
+(deftest ringing-is-limited-per-caller-and-room
+  (let [seen (atom [])
+        present (atom [])]
+    (with-handler livekit (fn [_] @present) (limited seen :ring) (recording-push (atom []))
+      (fn [handler conn]
+        (let [alice (:cookie (signup handler "alice@example.com"))
+              bob (:cookie (signup handler "bob@example.com"))
+              id (:id (:json (call handler :post "/api/rooms" nil (as alice))))
+              alice-id (user-id conn "alice@example.com")]
+          ;; Refused before the limit (not in the room, nobody to ring): the
+          ;; limiter is not asked, so no window starts.
+          (ring handler id alice)
+          (reset! present [{:identity (str "user:" alice-id) :name "alice"}])
+          (ring handler id alice)
+          (is (not-any? #(= :ring (first %)) @seen))
+          (token-of handler id bob)
+          (subscribe handler bob (str fcm "bob"))
+          (let [res (ring handler id alice)]
+            (is (= 429 (:status res)))
+            (is (= "42" (str (get-in res [:headers "Retry-After"]))))
+            (is (= [:ring (str alice-id ":" id)] (last @seen)))))))))

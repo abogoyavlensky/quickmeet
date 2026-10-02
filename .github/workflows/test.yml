@@ -26,8 +26,8 @@ jobs:
       - uses: jdx/mise-action@v3
 
       # The app runs on a custom lg that lgx builds with the Go toolchain
-      # (:lg-runtime :built). The build is keyed on lgx.edn, so a run that
-      # does not change the Go coord set reuses the cached runtime. "static"
+      # (:lg-runtime :built). The build is keyed on lgx.edn and the Go shim
+      # in webpush/, so a run that changes neither reuses the cached runtime. "static"
       # in the key: lgx keys runtimes on CGO_ENABLED too, and an exact key hit
       # never saves, so the old key would never cache the static runtime.
       - uses: actions/cache@v4
@@ -36,7 +36,7 @@ jobs:
             ~/.cache/go-build
             ~/go/pkg/mod
             ~/.lgx/runtimes
-          key: runtimes-static-${{ runner.os }}-${{ hashFiles('lgx.edn') }}
+          key: runtimes-static-${{ runner.os }}-${{ hashFiles('lgx.edn', 'webpush/**') }}
           restore-keys: runtimes-static-${{ runner.os }}-
 
       - uses: actions/cache@v4

@@ -36,7 +36,7 @@ jobs:
             ~/.cache/go-build
             ~/go/pkg/mod
             ~/.lgx/runtimes
-          key: runtimes-static-${{ runner.os }}-${{ hashFiles('lgx.edn') }}
+          key: runtimes-static-${{ runner.os }}-${{ hashFiles('lgx.edn', 'webpush/**') }}
           restore-keys: runtimes-static-${{ runner.os }}-
 
       - name: Build the binary
