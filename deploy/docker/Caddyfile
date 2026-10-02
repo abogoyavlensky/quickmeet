@@ -1,0 +1,11 @@
+# Caddy in front of quickmeet in deploy/docker/compose.yaml: TLS for the
+# domain in .env, the SFU's signalling WebSocket on /rtc*, everything else
+# to the app.
+{$QUICKMEET_DOMAIN} {
+	handle /rtc* {
+		reverse_proxy quickmeet:7880
+	}
+	handle {
+		reverse_proxy quickmeet:8080
+	}
+}
