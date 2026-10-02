@@ -23,7 +23,8 @@ the SFU handles more, and the UI is what would need to change.
 
 ## Non-goals for v1
 
-- Group calls, screen sharing, chat, recording, transcription.
+- Group calls, chat, recording, transcription. Screen sharing was on
+  this list too; it came after v1 (see "After v1").
 - Native or React Native apps. The backend is already an HTTP API plus a
   LiveKit server, which is what LiveKit's mobile SDKs need; see
   "After v1".
@@ -266,11 +267,21 @@ in host mode. Two phones on different networks held a call there. See
   small shim in `webpush/`. Left for later, each in the backlog: a ring
   from the list, ring state (decline, cancel, missed calls in history),
   rings from guests. Not yet tried on a real phone.
+- Done 2026-10-02: screen sharing from desktop browsers. A button in
+  the call's controls opens the browser's own picker (a monitor, a
+  window or a tab); on the other side the screen takes the stage in
+  place of the camera, always shown whole, and the camera comes back
+  when it ends. The button is hidden on phones: iPhone browsers have no
+  `getDisplayMedia` and Android's refuse every call. No server change
+  (`e2e/tests/screenshare.spec.js`). Not yet tried in real browsers:
+  the picker in Chrome, Firefox and Safari, and a phone watching.
 - Mobile: LiveKit's Swift, Kotlin and React Native SDKs talk to the same
   SFU and the same token endpoint. Native ringing needs APNs and FCM
   signing that let-go does not have; a small Go shim or a hosted push
   service. The PWA above covers phones without any of that.
-- More than two people, screen sharing, chat over LiveKit data channels.
+- More than two people, chat over LiveKit data channels. While a screen
+  is shared, the sharer's face in a small tile beside it
+  (`docs/backlog/screen-share-face-tile.md`).
 - macOS builds. Cross-building from linux fails (a stats dependency of
   livekit-server needs cgo on darwin), so a release would need a macOS
   runner building natively. Dropped from v1 on 2026-09-30.
