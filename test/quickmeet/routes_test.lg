@@ -283,7 +283,11 @@
           (is (str/starts-with? (io/encode :hex (:body png)) "89504e470d0a1a0a") uri)))
       (let [ico (call handler :get "/favicon.ico")]
         (is (= 200 (:status ico)))
-        (is (= "image/x-icon" (get-in ico [:headers "Content-Type"])))))))
+        (is (= "image/x-icon" (get-in ico [:headers "Content-Type"]))))
+      ;; Every page links them.
+      (doseq [uri ["/" "/signup" "/signin" "/settings" "/history" (str "/room/" (new-room handler))]
+              link ["/static/manifest.webmanifest" "/static/apple-touch-icon.png" "href=\"/favicon.ico\""]]
+        (is (str/includes? (:body (call handler :get uri)) link) (str uri " " link))))))
 
 (deftest accounts-and-sessions
   (with-handler

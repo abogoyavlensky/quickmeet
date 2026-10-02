@@ -237,13 +237,13 @@ Work on branch `pwa-back-sticky` (already created from `master`).
   `settings.html`, `signin.html`, `signup.html`
 - Test: `test/quickmeet/routes_test.lg`
 
-- [ ] **Step 1: Extend the route test**
+- [x] **Step 1: Extend the route test**
   In `the-installable-app`: for `/`, `/signup`, `/signin`, `/settings`,
   `/history` and a room page, the body includes
   `/static/manifest.webmanifest`, `/static/apple-touch-icon.png` and
   `href="/favicon.ico"`. Run `lgx test`: fails.
 
-- [ ] **Step 2: Edit the six heads**
+- [x] **Step 2: Edit the six heads**
   Replace the single `<link rel="icon" href="/static/icon.svg">` with this
   block, identical on every page:
 
@@ -261,11 +261,11 @@ Work on branch `pwa-back-sticky` (already created from `master`).
   <meta name="theme-color" content="#111312" media="(prefers-color-scheme: dark)">
   ```
 
-- [ ] **Step 3: Run the tests**
+- [x] **Step 3: Run the tests**
   Run: `lgx test`
   Expected: PASS.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
   `git commit -m "Every page links the manifest, the home-screen icon and the favicon"`
 
 ### Task 3: Back button
