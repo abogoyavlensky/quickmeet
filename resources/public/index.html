@@ -178,11 +178,6 @@
       }
     });
 
-    $('signout').addEventListener('click', async () => {
-      await fetch('/api/auth/signout', { method: 'POST' });
-      location.reload();
-    });
-
     load();
   </script>
 </body>

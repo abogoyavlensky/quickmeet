@@ -89,3 +89,16 @@ function setPager(nav, page, more, go) {
   older.onclick = () => go(page + 1);
   nav.hidden = page <= 1 && !more;
 }
+
+// ---- signing out --------------------------------------------------------
+
+// The bar's Sign out, on every page that has one: end the session, then the
+// landing page, signed out. This script loads in the head, before the bar.
+document.addEventListener('DOMContentLoaded', () => {
+  const button = document.getElementById('signout');
+  if (!button) return;
+  button.addEventListener('click', async () => {
+    await fetch('/api/auth/signout', { method: 'POST' });
+    location.href = '/';
+  });
+});

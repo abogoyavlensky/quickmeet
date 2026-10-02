@@ -234,12 +234,12 @@ posts to `/api/rooms`.
 - Modify: `resources/public/ui.js`, `resources/public/index.html`, `resources/public/history.html`, `resources/public/app.css`
 - Test: `e2e/tests/rooms.spec.js`
 
-- [ ] **Step 1: `setPager` and the style**
+- [x] **Step 1: `setPager` and the style**
   Add `setPager(nav, page, more, go)` to `ui.js` as specified in the Design
   (it finds `#newer`/`#older` inside `nav`; a comment in the file's voice).
   Add the `.pager` rule to `app.css` next to `.rooms`/`.calls`.
 
-- [ ] **Step 2: Page the room list in `index.html`**
+- [x] **Step 2: Page the room list in `index.html`**
   Add the pager markup after `#no-rooms`. Keep a `page` variable read from
   `location.search` on load. `loadRooms()` fetches
   `/api/rooms?page=<page>`, steps back a page when `items` is empty and
@@ -249,13 +249,13 @@ posts to `/api/rooms`.
   `history.replaceState`. Going to a page sets `page` and calls
   `loadRooms()`. The five-second poll needs no change beyond that.
 
-- [ ] **Step 3: Page the history in `history.html`**
+- [x] **Step 3: Page the history in `history.html`**
   The same pager markup after the table; `load()` takes the page from the
   URL, fetches `/api/calls?page=<page>`, steps back on an empty later page,
   renders `items`, shows `#empty` only for an empty page 1, calls
   `setPager`, keeps the URL in step.
 
-- [ ] **Step 4: e2e for the rooms pager**
+- [x] **Step 4: e2e for the rooms pager**
   In `rooms.spec.js`, add a test: sign up, create 21 rooms with
   `page.request.post('/api/rooms')` (the context's cookie is sent), open
   `/`: 20 rows, the pager visible, Newer disabled; click Older: 1 row, URL
@@ -264,11 +264,16 @@ posts to `/api/rooms`.
   Add to an existing rooms test an assertion that `#pager` is hidden with
   one room.
 
-- [ ] **Step 5: Run the browser tests**
+- [x] **Step 5: Run the browser tests**
   Run: `lgx e2e`
   Expected: PASS, including the existing history test in `rooms.spec.js`.
 
-- [ ] **Step 6: Commit**
+> Deviation: let-go's `:uri` is the request URI with the query string, and ruuter matches it whole, so `/api/rooms?page=1` (and any page with a query, `/?x=1` included) answered 404. `handler` now strips the query before routing (own commit, with a route test); the route paging tests send `:uri` with the query, as the real server does. The plan's "keep `:uri` as the bare path" was wrong.
+> Deviation: the pager and URL helpers (`pageInUrl`, `setPageInUrl`) both live in `ui.js`, so the two pages share them.
+> Deviation (codex review): the pages adopt the `page` the server served (a `?page=1000000` it cannot read is page 1), and an empty page steps back once, then to page 1, instead of one request per page. Covered in the rooms e2e test.
+> Note: three blur tests time out intermittently under load; master fails them the same way with `--repeat-each=2`, so they are unrelated.
+
+- [x] **Step 6: Commit**
   `git commit -m "Room list and history show a page at a time"`
 
 ### Task 3: Sign out on history and settings
@@ -277,27 +282,29 @@ posts to `/api/rooms`.
 - Modify: `resources/public/ui.js`, `resources/public/index.html`, `resources/public/history.html`, `resources/public/settings.html`
 - Test: `e2e/tests/account.spec.js`
 
-- [ ] **Step 1: Share the handler**
+- [x] **Step 1: Share the handler**
   Move the `#signout` click handler from `index.html`'s inline script into
   `ui.js`: on `DOMContentLoaded`, if the page has `#signout`, a click posts
   `/api/auth/signout` and then sets `location.href = '/'`.
 
-- [ ] **Step 2: Add the button**
+- [x] **Step 2: Add the button**
   Add `<button id="signout" class="link">Sign out</button>` to the navs of
   `history.html` and `settings.html`, after Settings, as on the landing
   page. Add `<script src="/static/ui.js"></script>` to `settings.html`'s head.
 
-- [ ] **Step 3: e2e**
+- [x] **Step 3: e2e**
   In `account.spec.js`, add a test: sign up, go to `/history`, click
   `#signout`, expect `/` with `#signed-out` visible; sign in again, go to
   `/settings`, do the same. Then `/history` redirects to `/signin`.
 
-- [ ] **Step 4: Run the browser tests**
+- [x] **Step 4: Run the browser tests**
   Run: `lgx e2e`
   Expected: PASS (the two existing `#signout` uses in `account.spec.js`
   still pass through the shared handler).
 
-- [ ] **Step 5: Commit**
+> Deviation: after signing out the landing page navigates to `/` like the others (it used to reload), which also drops a `?page=`.
+
+- [x] **Step 5: Commit**
   `git commit -m "Sign out from history and settings"`
 
 ### Task 4: Docs
