@@ -197,7 +197,12 @@
   [conn session-id]
   (sqlite/execute-one! conn [session-user-sql session-id]))
 
-(defn delete-session! [conn session-id]
+(declare delete-session-subscriptions!)
+
+(defn delete-session!
+  "End a session; the devices it subscribed for ringing stop with it."
+  [conn session-id]
+  (delete-session-subscriptions! conn session-id)
   (sqlite/execute! conn [delete-session-sql session-id]))
 
 ;; History: a call is one stretch of a room being occupied, and its
@@ -319,3 +324,96 @@
   [conn]
   (sqlite/execute! conn [close-open-participants-sql])
   (sqlite/execute! conn [close-open-calls-sql]))
+
+;; ---- push ---------------------------------------------------------------
+
+;; Settings: a key and a value, written once. The VAPID key pair is the one
+;; row so far (quickmeet.push).
+
+(def ^:private setting-sql
+  (sql-of {:select [:value]
+           :from [:settings]
+           :where [:= :key "key"]}))
+
+(def ^:private add-setting-sql
+  (sql-of {:insert-into :settings
+           :values [{:key "key" :value "value"}]
+           :on-conflict []
+           :do-nothing true}))
+
+(defn setting
+  "The value stored under `key`, or nil."
+  [conn key]
+  (:value (sqlite/execute-one! conn [setting-sql key])))
+
+(defn add-setting!
+  "Store `value` under `key` unless the key has one already; a second
+   writer changes nothing, so read the value back after."
+  [conn key value]
+  (sqlite/execute! conn [add-setting-sql key value]))
+
+;; Push subscriptions: one row per browser, keyed by its endpoint, held by
+;; the session that subscribed. The same browser subscribing again (another
+;; session, rotated keys) takes the row over. Plain SQL from here on: an
+;; upsert and a four-table join are shapes HoneySQL under let-go has
+;; misordered before.
+
+(def ^:private save-subscription-sql
+  "insert into push_subscriptions (endpoint, session_id, p256dh, auth)
+   values (?, ?, ?, ?)
+   on conflict (endpoint) do update set
+     session_id = excluded.session_id,
+     p256dh = excluded.p256dh,
+     auth = excluded.auth,
+     created_at = CURRENT_TIMESTAMP")
+
+(def ^:private delete-subscription-sql
+  "delete from push_subscriptions where endpoint = ?")
+
+(def ^:private delete-own-subscription-sql
+  "delete from push_subscriptions
+   where endpoint = ?
+     and session_id in (select id from sessions where user_id = ?)")
+
+(def ^:private delete-session-subscriptions-sql
+  "delete from push_subscriptions where session_id = ?")
+
+;; Who a ring from `caller` in a room reaches: every device of the room's
+;; other members whose session is still live. The window is the one
+;; session-user-sql uses (auth/session-days).
+(def ^:private ring-targets-sql
+  "select p.endpoint, p.p256dh, p.auth, u.id as user_id, u.email, u.display_name
+   from push_subscriptions p
+   join sessions s on s.id = p.session_id
+   join users u on u.id = s.user_id
+   join room_members m on m.user_id = u.id
+   where m.room_id = ?
+     and u.id <> ?
+     and s.created_at > datetime('now', '-365 days')
+   order by p.created_at, p.endpoint")
+
+(defn save-subscription!
+  "Store a browser's push subscription for `session-id`, replacing the row
+   its endpoint had."
+  [conn endpoint session-id p256dh auth]
+  (sqlite/execute! conn [save-subscription-sql endpoint session-id p256dh auth]))
+
+(defn delete-subscription!
+  "Forget a subscription, whoever holds it: the push service said it is
+   gone."
+  [conn endpoint]
+  (sqlite/execute! conn [delete-subscription-sql endpoint]))
+
+(defn delete-own-subscription!
+  "Forget a subscription, but only if one of `user-id`'s sessions holds it."
+  [conn endpoint user-id]
+  (sqlite/execute! conn [delete-own-subscription-sql endpoint user-id]))
+
+(defn- delete-session-subscriptions! [conn session-id]
+  (sqlite/execute! conn [delete-session-subscriptions-sql session-id]))
+
+(defn ring-targets
+  "The devices a ring by `caller-id` in the room reaches: {:endpoint :p256dh
+   :auth :user_id :email :display_name}, one per subscription."
+  [conn room-id caller-id]
+  (sqlite/query conn [ring-targets-sql room-id caller-id]))

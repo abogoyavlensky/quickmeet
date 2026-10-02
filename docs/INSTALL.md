@@ -93,6 +93,12 @@ ufw allow 7882/udp
 ufw enable
 ```
 
+The box also needs outbound HTTPS to the browser vendors' push services
+(`fcm.googleapis.com`, `*.push.apple.com`, `*.push.services.mozilla.com`,
+`*.notify.windows.com`) for ringing; most firewalls allow outbound traffic
+already. Nothing to configure: the keys that sign the pushes are made on
+the first start and kept in the database.
+
 Keep SSH open or you lock yourself out. Open nothing else: 8080 and 7880
 already listen on loopback only (`HOST=127.0.0.1`, and the SFU's default
 bind), and a closed firewall is the second layer. That matters for more
@@ -166,7 +172,8 @@ lobby, and the people join again.
 ## Backups
 
 Everything quickmeet remembers is in `/var/lib/quickmeet/quickmeet.db`:
-accounts, rooms and call history. Nothing backs it up for you yet
+accounts, rooms, call history, and the keys that sign rings (lose them and
+every device has to turn ringing on again). Nothing backs it up for you yet
 ([backlog entry](https://github.com/abogoyavlensky/quickmeet/blob/master/docs/backlog/sqlite-backups.md)).
 A copy that is safe to take while the app runs, as the `quickmeet` user so
 no file in its directory ends up owned by root (install the `sqlite3`
@@ -188,7 +195,9 @@ Put that in a daily cron job and copy the result off the box.
   ```bash
   systemctl stop quickmeet
   runuser -u quickmeet -- sqlite3 /var/lib/quickmeet/quickmeet.db \
-    "delete from sessions where user_id = (select id from users where email = 'them@example.com');
+    "delete from push_subscriptions where session_id in
+       (select id from sessions where user_id = (select id from users where email = 'them@example.com'));
+     delete from sessions where user_id = (select id from users where email = 'them@example.com');
      delete from users where email = 'them@example.com';"
   systemctl start quickmeet
   ```

@@ -13,11 +13,14 @@
 
 ;; Sign-in and sign-up are keyed by client address, room creation by user
 ;; id. Sign-in is not limited per account: that would let anyone lock the
-;; owner of an address out by guessing at it.
+;; owner of an address out by guessing at it. Ringing is keyed by caller
+;; and room: one ring every 30 seconds, so a ring cannot be repeated into a
+;; stream of notifications.
 (def default-limits
   {:signin {:limit 10 :window-ms (* 60 1000)}
    :signup {:limit 10 :window-ms (* 60 60 1000)}
-   :create-room {:limit 60 :window-ms (* 60 60 1000)}})
+   :create-room {:limit 60 :window-ms (* 60 60 1000)}
+   :ring {:limit 1 :window-ms (* 30 1000)}})
 
 ;; Past this many entries, a check drops the ones whose window has ended,
 ;; so a flood of distinct keys cannot grow the map without bound. At most

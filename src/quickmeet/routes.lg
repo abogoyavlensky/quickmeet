@@ -6,6 +6,7 @@
             [quickmeet.db :as db]
             [quickmeet.history :as history]
             [quickmeet.id :as id]
+            [quickmeet.push :as push]
             [quickmeet.ratelimit :as ratelimit]
             [quickmeet.sfu :as sfu]
             [ruuter.core :as r]
@@ -252,8 +253,57 @@
    :owner (= (:owner_id room) (:id user))
    :present (get active (:id room) 0)})
 
+;; ---- ringing ------------------------------------------------------------
+
+;; A subscription as the browser's PushSubscription.toJSON() gives it:
+;; {"endpoint", "keys": {"p256dh", "auth"}}. The endpoint must be a browser
+;; vendor's push service (push/endpoint-problem); the keys are short
+;; base64url strings.
+(defn- subscription-problem [{:keys [endpoint] :as body}]
+  (let [{:keys [p256dh auth]} (get body :keys)
+        key-ok? #(and (string? %) (not (str/blank? %)) (<= (count %) 256))]
+    (cond
+      (not (string? endpoint)) "The endpoint is missing."
+      (push/endpoint-problem endpoint) (push/endpoint-problem endpoint)
+      (not (and (key-ok? p256dh) (key-ok? auth))) "The subscription's keys are missing or malformed."
+      :else nil)))
+
+(defn- ring-targets
+  "The devices a ring by `user` in the room reaches: the other members'
+   live subscriptions, whose address is still allowed."
+  [conn auth room-id user]
+  (filterv #(auth/allowed? auth (:email %)) (db/ring-targets conn room-id (:id user))))
+
+(defn- ring-names
+  "Whom a ring by `user` would reach, by name; [] for a guest."
+  [conn auth room-id user]
+  (if user
+    (vec (distinct (map :display_name (ring-targets conn auth room-id user))))
+    []))
+
+(defn- in-room?
+  "Whether `user` is in the room now, as the SFU sees it. A lookup that
+   could not ask the SFU reads as no."
+  [participants room-id user]
+  (let [identity (:identity (participant-identity user nil))]
+    (boolean (some #(= identity (:identity %)) (participants room-id)))))
+
+(defn- ring-message
+  "What a ring sends: the notification the service worker shows, the room
+   as the topic (so a newer ring replaces one still waiting at the push
+   service), and the VAPID subject, the site's own URL behind TLS. Over
+   plain http (development) there is no such URL; the library makes the
+   address a mailto:."
+  [req user room-id]
+  {:payload (json/write-json {:title (str (:display_name user) " wants to talk")
+                              :body "Tap to join the call."
+                              :url (str "/room/" room-id)
+                              :tag (str "room-" room-id)})
+   :topic room-id
+   :subject (if (secure? req) (str "https://" (request-host req)) "quickmeet@localhost")})
+
 (defn- routes [conn {:keys [api-key api-secret] :as livekit}
-               {:keys [participants active-rooms verify]} auth]
+               {:keys [participants active-rooms verify]} auth push]
   (let [current-user (fn [req] (auth/current-user conn auth (session-id req)))
         ;; An owner's action on a room: 401 without a session, 404 for no
         ;; such room, 403 for someone else's.
@@ -290,6 +340,13 @@
    {:path "/favicon.ico"
     :method :get
     :response (fn [_] (static-response "favicon.ico"))}
+
+   ;; The service worker that shows rings. At the root because a worker
+   ;; controls only the paths under its own file's; never cached, so a
+   ;; changed worker reaches browsers at their next visit.
+   {:path "/sw.js"
+    :method :get
+    :response (fn [_] (static-response "sw.js" "no-cache"))}
 
    ;; Accounts. Body: {"email": "...", "password": "..."}.
    {:path "/api/auth/signup"
@@ -432,8 +489,10 @@
                       ;; Joining as a signed-in person puts the room on
                       ;; their list.
                       (when user (db/add-member! conn id (:id user)))
+                      ;; `ring`: whom the call page may offer to ring.
                       (json-response 200
-                                     {:token (lk/token api-key api-secret
+                                     {:ring (ring-names conn auth id user)
+                                      :token (lk/token api-key api-secret
                                                        {:identity identity
                                                         :name name
                                                         :room id
@@ -442,6 +501,57 @@
                                       :identity identity
                                       :name name
                                       :url (signalling-url req livekit)})))))}
+
+   ;; Ring the room's other members: someone in the room right now, signed
+   ;; in, notifies every live device of the others. Checked in this order,
+   ;; with the limit last so only a ring that is sent starts its window.
+   {:path "/api/rooms/:id/ring"
+    :method :post
+    :response (fn [req]
+                (let [id (-> req :params :id)
+                      user (current-user req)]
+                  (cond
+                    (not user) unauthorized
+                    (not (and (valid-room-id? id) (db/get-room conn id))) room-not-found
+                    (not (in-room? participants id user)) forbidden
+                    :else
+                    (let [targets (ring-targets conn auth id user)]
+                      (if (empty? targets)
+                        (json-response 409 {:error "nobody to ring"})
+                        (or (limited auth :ring (str (:id user) ":" id))
+                            (do (push/deliver! push conn targets (ring-message req user id))
+                                (json-response 200 {:devices (count targets)}))))))))}
+
+   ;; The key a browser subscribes with (applicationServerKey).
+   {:path "/api/push/key"
+    :method :get
+    :response (fn [_] (json-response 200 {:key (:public-key push)}))}
+
+   ;; This device may be rung. Body: the browser's subscription. It belongs
+   ;; to the session, so signing out stops it.
+   {:path "/api/push/subscriptions"
+    :method :post
+    :response (json-only
+               (fn [req]
+                 (if (current-user req)
+                   (let [body (read-json-body req)]
+                     (if-let [problem (subscription-problem body)]
+                       (json-response 400 {:error problem})
+                       (let [{:keys [p256dh auth]} (get body :keys)]
+                         (db/save-subscription! conn (:endpoint body) (session-id req) p256dh auth)
+                         (json-response 200 {}))))
+                   unauthorized)))}
+
+   ;; This device may not be rung any more. Body: {"endpoint"}. Only a
+   ;; device of one's own goes; an unknown one is no error.
+   {:path "/api/push/unsubscribe"
+    :method :post
+    :response (json-only
+               (fn [req]
+                 (if-let [user (current-user req)]
+                   (do (db/delete-own-subscription! conn (str (:endpoint (read-json-body req))) (:id user))
+                       (json-response 200 {}))
+                   unauthorized)))}
 
    ;; A page of my call history, newest first.
    {:path "/api/calls"
@@ -478,9 +588,11 @@
    #{..} | nil, :limit f}: the addresses that may have an account, or nil
    for open sign-up; and, optionally, the rate limiter as (fn [bucket key])
    -> nil to allow, or the seconds to wait (quickmeet.ratelimit/check!).
-   Without :limit nothing is limited."
-  [conn livekit lookups auth]
-  (let [table (routes conn livekit lookups auth)]
+   Without :limit nothing is limited. `push` is how rings go out:
+   {:public-key, :send! (fn [target message]) -> status, :spawn (fn [f])}
+   (quickmeet.push/service)."
+  [conn livekit lookups auth push]
+  (let [table (routes conn livekit lookups auth push)]
     (fn [req]
       ;; let-go's :uri is the request URI, query string included, and
       ;; ruuter matches it whole: routes see the path alone. The query
@@ -499,4 +611,5 @@
              {:participants (partial sfu/participants livekit)
               :active-rooms (partial sfu/active-rooms livekit)
               :verify (fn [header body] (lk/verify-webhook header body api-key api-secret))}
-             auth)))
+             auth
+             (push/service db))))

@@ -63,3 +63,79 @@
         (is (nil? (db/get-room conn "aaaaaaaaaaaa")))
         (is (= [] (rooms-of conn (:id bob))))
         (is (= ["bbbbbbbbbbbb"] (mapv :id (rooms-of conn (:id alice)))))))))
+
+;; ---- push ---------------------------------------------------------------
+
+(deftest settings-are-written-once
+  (with-db
+    (fn [conn]
+      (is (nil? (db/setting conn "vapid-keys")))
+      (db/add-setting! conn "vapid-keys" "first")
+      ;; A second writer (another start racing the first) changes nothing.
+      (db/add-setting! conn "vapid-keys" "second")
+      (is (= "first" (db/setting conn "vapid-keys"))))))
+
+(def ^:private fcm "https://fcm.googleapis.com/fcm/send/")
+
+(defn- endpoints [rows] (set (map :endpoint rows)))
+
+(deftest ring-targets-are-the-other-members-live-devices
+  (with-db
+    (fn [conn]
+      (doseq [[id email name] [["u-alice" "alice@example.com" "Alice"]
+                               ["u-bob" "bob@example.com" "Bob"]
+                               ["u-carol" "carol@example.com" "Carol"]]]
+        (db/create-user! conn id email "x" name))
+      (doseq [[session user] [["s-alice" "u-alice"] ["s-bob-phone" "u-bob"]
+                              ["s-bob-laptop" "u-bob"] ["s-carol" "u-carol"]]]
+        (db/create-session! conn session user))
+      (db/create-room! conn "aaaaaaaaaaaa" "u-alice")
+      (db/add-member! conn "aaaaaaaaaaaa" "u-bob")
+      (db/save-subscription! conn (str fcm "alice") "s-alice" "pa" "aa")
+      (db/save-subscription! conn (str fcm "bob-phone") "s-bob-phone" "pb" "ab")
+      (db/save-subscription! conn (str fcm "bob-laptop") "s-bob-laptop" "pc" "ac")
+      ;; Carol has a device but is not a member of the room.
+      (db/save-subscription! conn (str fcm "carol") "s-carol" "pd" "ad")
+      ;; Alice rings: Bob's two devices, not her own, not Carol's.
+      (let [targets (db/ring-targets conn "aaaaaaaaaaaa" "u-alice")]
+        (is (= #{(str fcm "bob-phone") (str fcm "bob-laptop")} (endpoints targets)))
+        (is (= {:endpoint (str fcm "bob-phone") :p256dh "pb" :auth "ab"
+                :user_id "u-bob" :email "bob@example.com" :display_name "Bob"}
+               (first (filter #(= (str fcm "bob-phone") (:endpoint %)) targets)))))
+      ;; Bob rings: Alice's device.
+      (is (= #{(str fcm "alice")} (endpoints (db/ring-targets conn "aaaaaaaaaaaa" "u-bob"))))
+      ;; A session past the 365-day window is not rung.
+      (sqlite/execute! conn ["update sessions set created_at = datetime('now', '-366 days')
+                              where id = 's-bob-laptop'"])
+      (is (= #{(str fcm "bob-phone")} (endpoints (db/ring-targets conn "aaaaaaaaaaaa" "u-alice"))))
+      ;; The same browser subscribing under another session moves the row,
+      ;; keys included.
+      (db/save-subscription! conn (str fcm "bob-phone") "s-carol" "pe" "ae")
+      (is (= [{:session_id "s-carol" :p256dh "pe" :auth "ae"}]
+             (sqlite/query conn ["select session_id, p256dh, auth from push_subscriptions
+                                  where endpoint = ?" (str fcm "bob-phone")])))
+      (is (= #{} (endpoints (db/ring-targets conn "aaaaaaaaaaaa" "u-alice")))))))
+
+(deftest subscriptions-go-with-their-session
+  (with-db
+    (fn [conn]
+      (db/create-user! conn "u-alice" "alice@example.com" "x" "Alice")
+      (db/create-user! conn "u-bob" "bob@example.com" "x" "Bob")
+      (db/create-session! conn "s-1" "u-alice")
+      (db/create-session! conn "s-2" "u-alice")
+      (db/create-session! conn "s-bob" "u-bob")
+      (db/save-subscription! conn (str fcm "1") "s-1" "p" "a")
+      (db/save-subscription! conn (str fcm "2") "s-2" "p" "a")
+      (db/save-subscription! conn (str fcm "bob") "s-bob" "p" "a")
+      (let [left #(set (map :endpoint (sqlite/query conn ["select endpoint from push_subscriptions"])))]
+        ;; Signing out removes that session's devices only.
+        (db/delete-session! conn "s-1")
+        (is (= #{(str fcm "2") (str fcm "bob")} (left)))
+        ;; Someone else's endpoint is not one's own to delete.
+        (db/delete-own-subscription! conn (str fcm "bob") "u-alice")
+        (is (= #{(str fcm "2") (str fcm "bob")} (left)))
+        (db/delete-own-subscription! conn (str fcm "2") "u-alice")
+        (is (= #{(str fcm "bob")} (left)))
+        ;; A dead subscription is deleted whoever holds it.
+        (db/delete-subscription! conn (str fcm "bob"))
+        (is (= #{} (left)))))))
