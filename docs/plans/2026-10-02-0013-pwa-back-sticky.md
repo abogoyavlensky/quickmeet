@@ -181,7 +181,7 @@ Work on branch `pwa-back-sticky` (already created from `master`).
 - Modify: `lgx.edn`, `src/quickmeet/routes.lg`
 - Test: `test/quickmeet/routes_test.lg`
 
-- [ ] **Step 1: Write the failing route tests**
+- [x] **Step 1: Write the failing route tests**
   In `routes_test.lg`, a new `deftest the-installable-app` in the style of
   `pages-and-static` (use `with-handler` and `call`):
   - `GET /static/manifest.webmanifest` → 200, `Content-Type`
@@ -193,18 +193,18 @@ Work on branch `pwa-back-sticky` (already created from `master`).
     holds raw bytes).
   - `GET /favicon.ico` → 200, `image/x-icon`.
 
-- [ ] **Step 2: Run to see them fail**
+- [x] **Step 2: Run to see them fail**
   Run: `lgx test`
   Expected: the new test fails (404s), everything else passes.
 
-- [ ] **Step 3: Write `scripts/make-icons.mjs`**
+- [x] **Step 3: Write `scripts/make-icons.mjs`**
   As described in "Icons and the favicon" above. Header comment in the style
   of `scripts/vendor-fonts.mjs`: what it writes and that the shapes mirror
   `icon.svg`. One `draw(size, { rounded })` returning RGBA, one `png(rgba,
   size)`, one `ico(pngBytes, size)`. Paths resolved from the script's own
   location, so it runs from any directory.
 
-- [ ] **Step 4: Add the `icons` task to `lgx.edn` and run it**
+- [x] **Step 4: Add the `icons` task to `lgx.edn` and run it**
   Next to `vendor-fonts`: `icons`, doc "Write the app icons and the favicon
   into resources/public", `{:sh "node scripts/make-icons.mjs"}`.
   Run: `lgx icons` twice; `git status` and `sha256sum` show four new files,
@@ -213,21 +213,21 @@ Work on branch `pwa-back-sticky` (already created from `master`).
   `file resources/public/favicon.ico` says "MS Windows icon resource ... PNG
   image data, 32 x 32").
 
-- [ ] **Step 5: Write `resources/public/manifest.webmanifest`**
+- [x] **Step 5: Write `resources/public/manifest.webmanifest`**
   Exactly the JSON in the Design section.
 
-- [ ] **Step 6: Serve them**
+- [x] **Step 6: Serve them**
   In `routes.lg`: add `"webmanifest" "application/manifest+json"`,
   `"png" "image/png"` and `"ico" "image/x-icon"` to `content-types`; add a
   route `{:path "/favicon.ico" :method :get}` that answers
   `(static-response "favicon.ico")`, placed with the page routes, with a
   one-line comment saying browsers ask for this path on their own.
 
-- [ ] **Step 7: Run the tests**
+- [x] **Step 7: Run the tests**
   Run: `lgx test`
   Expected: PASS.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
   `git commit -m "App icons, a favicon and a web app manifest, served from the binary"`
 
 ### Task 2: Link them from every page

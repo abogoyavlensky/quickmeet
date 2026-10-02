@@ -33,6 +33,9 @@
    "js"     "text/javascript; charset=utf-8"
    "css"    "text/css; charset=utf-8"
    "svg"    "image/svg+xml"
+   "png"    "image/png"
+   "ico"    "image/x-icon"
+   "webmanifest" "application/manifest+json"
    ;; Streaming compilation of the wasm needs its own type.
    "wasm"   "application/wasm"
    "tflite" "application/octet-stream"})
@@ -256,6 +259,11 @@
    {:path "/history"
     :method :get
     :response (fn [_] (static-response "history.html"))}
+
+   ;; Browsers ask for this path on their own, whatever a page links.
+   {:path "/favicon.ico"
+    :method :get
+    :response (fn [_] (static-response "favicon.ico"))}
 
    ;; Accounts. Body: {"email": "...", "password": "..."}.
    {:path "/api/auth/signup"
