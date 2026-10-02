@@ -11,7 +11,8 @@ FROM alpine:3.22
 RUN apk add --no-cache ca-certificates
 
 LABEL org.opencontainers.image.source="https://github.com/abogoyavlensky/quickmeet" \
-      org.opencontainers.image.description="Self-hosted 1-to-1 video calls from a single binary"
+      org.opencontainers.image.description="Self-hosted 1-to-1 video calls from a single binary" \
+      org.opencontainers.image.licenses="MIT"
 
 WORKDIR /app
 # The database lives in /app/data; mount a volume there to keep it.
