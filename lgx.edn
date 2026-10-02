@@ -67,7 +67,7 @@
  :tasks
  {;; Browser tests: build the binary that ships, then let Playwright start it
   ;; on test ports and drive two headless Chromiums through a real call.
-  ;; See e2e/playwright.config.js and "Browser tests" in the README.
+  ;; See e2e/playwright.config.js and "Browser tests" in docs/DEVELOPMENT.md.
   e2e
   {:doc "Build the binary and run the browser tests against it"
    :do [{:task lgx:build}

@@ -1,0 +1,53 @@
+# Deployment and releases
+
+[Back to quickmeet](../README.md) · [Configuration](CONFIGURATION.md)
+
+To run quickmeet on your own server, follow
+[the installation guide](INSTALL.md): the release binary under systemd,
+Caddy in front for TLS, two media ports open. Releases are built by
+`.github/workflows/release.yml` when a `v*` tag is pushed: a tarball with
+the static linux/amd64 binary, the files the guide installs (`deploy/`)
+and the guide itself, plus its SHA-256. There is no macOS build.
+
+## Restarts and live calls
+
+On SIGTERM (systemd, `docker stop`) the app stops serving, closes active
+calls in history and exits. Browsers try to reconnect to the new process.
+Recovery time varies: staging checks have seen interruptions of about
+28 to 60 seconds, including a period when both people appear to be waiting.
+See the [reconnection issue](backlog/reconnect-after-deploy-can-leave-both-waiting.md).
+
+## Staging
+
+Staging is restricted to the operator’s account; it is not a public service.
+A push to master runs the tests, then `.github/workflows/deploy.yml`:
+it builds `bin/quickmeet`, checks that it is statically linked, wraps it
+in the `Dockerfile` (Alpine plus the binary, nothing built inside the
+image), smoke-tests the image, and deploys `compose.yaml` with
+[uncloud](https://github.com/psviderski/uncloud) (`uc`) to the
+`unison-staging` cluster, at `https://quickmeet.absky.dev`.
+
+- One hostname. uncloud's Caddy terminates TLS and routes `/rtc*` to the
+  SFU's port 7880 and everything else to the app's port 8080. The app
+  sees `x-forwarded-proto` and hands browsers `wss://<host>` as the
+  signalling URL.
+- Media cannot go through Caddy: the SFU takes all UDP media on one port,
+  7882, plus ICE over TCP on 7881, both published in uncloud's host mode
+  and advertised with the host's public IP (found over STUN). Both must
+  be open in the server's firewall.
+- The database is `/root/quickmeet-db/quickmeet.db` on the server, bind
+  mounted at `/app/db`. It is disposable for now.
+
+Repository settings the workflow needs: variables `SERVER_IP`,
+`APP_DOMAIN` (`quickmeet.absky.dev`) and, optionally, `ALLOWED_EMAILS`;
+secrets `SSH_PRIVATE_KEY` (a key the server accepts for root),
+`LIVEKIT_API_KEY` (any short identifier) and `LIVEKIT_API_SECRET` (32+
+random characters, e.g. `openssl rand -hex 32`). DNS for `APP_DOMAIN`
+points at the server.
+
+Starting a meeting takes an account. Staging's `ALLOWED_EMAILS` holds
+the operator's address, so nobody else can sign up or sign in there;
+unset, sign-up would be open. Rooms are permanent and hold two people.
+Sign-in is limited to 10 attempts a minute and sign-up to 10 an hour per
+client address, room creation to 60 an hour per account; over a limit
+the answer is 429 with `Retry-After`.
