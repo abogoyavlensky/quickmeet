@@ -3,11 +3,28 @@
 [Back to quickmeet](../README.md) · [Configuration](CONFIGURATION.md)
 
 To run quickmeet on your own server, follow
-[the installation guide](INSTALL.md): the release binary under systemd,
-Caddy in front for TLS, two media ports open. Releases are built by
-`.github/workflows/release.yml` when a `v*` tag is pushed: a tarball with
-the static linux/amd64 binary, the files the guide installs (`deploy/`)
-and the guide itself, plus its SHA-256. There is no macOS build.
+[the installation guide](INSTALL.md): the Docker image or the release
+binary under systemd, Caddy in front for TLS, two media ports open.
+
+## Releases
+
+Only a pushed `vX.Y.Z` tag publishes anything;
+`.github/workflows/release.yml` then runs the tests and, natively on an
+amd64 and an arm64 runner, builds the static binary, smoke-tests the
+image around it (`scripts/docker-smoke.sh`) and packs a tarball: the
+binary, the files the guide installs (`deploy/`) and the guide itself,
+plus its SHA-256. It pushes each architecture's image as
+`ghcr.io/abogoyavlensky/quickmeet:X.Y.Z-<arch>`, joins them into one
+multi-arch image tagged `X.Y.Z`, `X.Y` and `latest`, and creates the
+GitHub release with both tarballs last, so a release never exists
+without its image. There is no macOS build.
+
+Running the workflow by hand (Actions, release, Run workflow) is a dry
+run: the tests, both builds and smoke tests, nothing pushed.
+
+The first push creates the ghcr.io package as private. Make it public
+once: the package's settings, Change visibility. The image's
+`org.opencontainers.image.source` label links it to the repository.
 
 ## Restarts and live calls
 

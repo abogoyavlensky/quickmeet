@@ -18,6 +18,7 @@ lgx test                # handler, migrations and the whole system
 lgx e2e                 # two headless browsers in a real call (see below)
 lgx build && ./bin/quickmeet
 lgx smoke               # a two-browser call against a running instance (QM_URL)
+lgx docker              # build, then the image around it, started and asked for a page
 ```
 
 Open http://localhost:8080, sign up (any email, no verification), click
@@ -123,12 +124,15 @@ resources/public/              index, room, history, signup, signin, settings pa
 scripts/vendor-fonts.mjs       writes resources/public/fonts.css from the pinned Onest release
 scripts/vendor-blur.mjs        writes the blur bundle, MediaPipe's wasm and the model into resources/public
 scripts/make-icons.mjs         writes the home-screen icons and favicon.ico into resources/public
+scripts/docker-smoke.sh        builds the image around bin/quickmeet, starts it, asks for a page (`lgx docker`)
+scripts/docker-compose-smoke.sh  runs deploy/docker against that image, a page over Caddy (CI only)
 test/quickmeet/                routes and auth over a temp db; migrations; password; the full system
 e2e/                           Playwright: two browsers in a call against bin/quickmeet; smoke.mjs for a deployed one
-Dockerfile                     the runtime image around bin/quickmeet
+Dockerfile                     the runtime image around bin/quickmeet, staging's and the published one
 compose.yaml                   the uncloud service: Caddy routes, media ports, secrets
 deploy/                        the single-box install: systemd unit, Caddyfile, environment example
-.github/workflows/             test.yml on every push; deploy.yml on master; release.yml on a v* tag
+deploy/docker/                 the optional Docker Compose setup: the image behind Caddy
+.github/workflows/             test.yml on every push; deploy.yml on master; release.yml on a vX.Y.Z tag
 docs/                          installation, development, configuration, API, deployment and project notes
 ```
 
