@@ -27,6 +27,10 @@
       <thead><tr><th>With</th><th>When</th><th>Duration</th></tr></thead>
       <tbody></tbody>
     </table>
+    <nav id="pager" class="pager" hidden>
+      <button id="newer" class="link">← Newer</button>
+      <button id="older" class="link">Older →</button>
+    </nav>
     <p id="empty" class="muted" hidden>No calls yet. They appear here once you have talked to someone.</p>
     <p id="error" class="error" hidden></p>
   </main>
@@ -60,16 +64,26 @@
       return tr;
     }
 
+    // History comes a page at a time.
+    let page = pageInUrl();
+
     // History is for a signed-in person; anyone else goes to sign in.
     async function load() {
+      const asked = page;
       try {
-        const res = await fetch('/api/calls');
+        const res = await fetch('/api/calls?page=' + asked);
         if (res.status === 401) { location.href = '/signin'; return; }
         if (!res.ok) throw new Error('could not load history (' + res.status + ')');
-        const calls = await res.json();
+        const { items: calls, more } = await res.json();
+        // Two quick clicks on the pager: only the last one's answer counts.
+        if (page !== asked) return;
+        // Past the end (an old link, say): the page before.
+        if (calls.length === 0 && page > 1) { page--; return load(); }
         $('calls').querySelector('tbody').replaceChildren(...calls.map(row));
         $('calls').hidden = calls.length === 0;
         $('empty').hidden = calls.length > 0;
+        setPager($('pager'), page, more, n => { page = n; load(); });
+        setPageInUrl(page);
       } catch (e) {
         $('error').textContent = String(e.message || e);
         $('error').hidden = false;

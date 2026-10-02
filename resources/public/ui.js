@@ -60,3 +60,32 @@ function setAvatar(el, name) {
   el.dataset.initial = [...text][0].toUpperCase();
   el.style.setProperty('--hue', [25, 60, 95, 150, 195, 240, 285, 330][hash % 8]);
 }
+
+// ---- pages of a list ----------------------------------------------------
+
+// The page a list is on lives in the address (?page=N, none for the first),
+// so a reload, or Back from a room, lands on it again.
+function pageInUrl() {
+  const n = parseInt(new URLSearchParams(location.search).get('page'), 10);
+  return n > 0 ? n : 1;
+}
+
+function setPageInUrl(page) {
+  const url = new URL(location.href);
+  if (page > 1) url.searchParams.set('page', page);
+  else url.searchParams.delete('page');
+  history.replaceState(null, '', url);
+}
+
+// Newer and Older under a list (#newer and #older inside `nav`). `more` is
+// the API's flag for an older page; `go(page)` shows that page. Called on
+// every load, so the handlers are assigned, not added. A list that fits on
+// one page has no pager.
+function setPager(nav, page, more, go) {
+  const newer = nav.querySelector('#newer'), older = nav.querySelector('#older');
+  newer.disabled = page <= 1;
+  older.disabled = !more;
+  newer.onclick = () => go(page - 1);
+  older.onclick = () => go(page + 1);
+  nav.hidden = page <= 1 && !more;
+}
