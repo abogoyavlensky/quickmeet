@@ -109,8 +109,10 @@
     const RING_FAILED = 'Could not ring.';
     // A phone or a tablet, by the browser's own word. Such a device has a
     // front and a back camera to flip between, no screen to share, and
-    // routes a headset itself, so it gets no settings panel.
+    // routes a headset itself, so it gets no settings panel. Safari on an
+    // iPad says it is a Mac; a Mac has no touch screen.
     const handheld = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
+      || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1)
       || !!(navigator.userAgentData && navigator.userAgentData.mobile);
 
     for (const id of ['copy', 'invite']) {

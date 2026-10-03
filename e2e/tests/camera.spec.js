@@ -200,3 +200,31 @@ test.describe('on a desktop', () => {
     await expect(more).toBeHidden();
   });
 });
+
+// Safari on an iPad says it is a Mac. A touch screen tells them apart, so
+// an iPad flips by facing like a phone instead of going through its
+// several back cameras in turn.
+test.describe('on an iPad', () => {
+  const ipad = {
+    viewport: { width: 820, height: 1180 }, hasTouch: true,
+    userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15',
+  };
+  const touchScreen = async context => {
+    await context.addInitScript(() => Object.defineProperty(Navigator.prototype, 'maxTouchPoints', { get: () => 5 }));
+  };
+  test.use(ipad);
+  let contexts;
+  test.beforeEach(() => { contexts = []; });
+  test.afterEach(async () => { await Promise.all(contexts.map(c => c.close())); });
+
+  test('the switch flips, and there is no settings panel', async ({ browser, page }) => {
+    const roomUrl = await newRoom(page);
+    const alice = await joinAs(browser, contexts, roomUrl, 'alice', {
+      ...ipad, init: async context => { await touchScreen(context); await twoCameras()(context); },
+    });
+    await expect(alice.page.locator('#switch-cam')).toHaveAttribute('aria-label', 'Flip camera');
+    await expect(alice.page.locator('#more')).toBeHidden();
+    await alice.page.locator('#switch-cam').click();
+    await expect.poll(() => facingOf(alice.page)).toBe('environment');
+  });
+});
