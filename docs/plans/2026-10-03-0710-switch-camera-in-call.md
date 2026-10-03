@@ -4,6 +4,8 @@
 
 **Goal:** A person in a call can switch cameras with one tap (a phone flips front/back, a desktop moves to its next camera), and a desktop can pick an exact camera and microphone from a small panel in the bar; blur moves onto the self view to make room.
 
+**Status: completed 2026-10-03**
+
 **Tech Stack:** Plain JavaScript and CSS in `resources/public/room.html`, `resources/public/app.css` and `resources/public/ui.js`; livekit-client 2.22.3 (vendored; `LocalTrack.restartTrack`); Playwright e2e in `e2e/` (`lgx e2e`). No server change.
 
 ---
@@ -613,3 +615,41 @@ among the controls it measures; those lists change (Task 1).
 
 - [x] **Step 2: Commit**
   `git commit -m "docs: switching the camera and devices in a call"`
+
+## Summary
+
+**Status: completed.** The call's controls have a switch-camera button,
+shown with more than one camera: a phone or an iPad flips between front
+and back by facing, a desktop moves to its next camera, and the back
+camera is not mirrored in your own view. Blur moved from the controls
+onto the self view's corner. On a desktop a settings button (three
+vertical dots) at the bar's right end opens a panel with camera and
+microphone pickers. Every device switch, in the lobby or the call, goes
+through one `switchDevice`, which asks for 720p, restarts the old device
+when the new one cannot start, and stops a track that a leave left
+behind. Seven tests in `e2e/tests/camera.spec.js` cover it; the mobile
+layout tests follow blur's move. Final run: `lgx test` 81 tests, 0
+failures; `lgx e2e` 72 passed.
+
+Issues:
+- The shell's global `lgx` was 0.2.0 and built nothing; builds ran
+  through `mise exec`, and the global pin was bumped to 0.4.2.
+- The leave-during-a-switch test first passed with its guard removed;
+  it now waits for the switch to end, and fails without the guard.
+
+Deviations, gathered:
+- Builds use `mise exec -- lgx build` (Task 1).
+- The `flip` arrows were redrawn slightly larger than the candidate
+  (Task 2).
+- A focused blur button on the self view no longer fades (Task 2 review).
+- No `fillSelect` helper; `drawDevices` alone sets the pickers' values
+  and whether they wait. The pickers also wait while blur switches
+  (Task 3).
+- iPadOS Safari, which sends a Mac user agent, counts as handheld, with
+  a test (Task 3 review).
+
+What the plan could have specified better: that a test for an
+abandoned async operation must wait for the operation to end before
+asserting, and that iPadOS reports itself as a Mac wherever the page
+tells handhelds from desktops.
+
