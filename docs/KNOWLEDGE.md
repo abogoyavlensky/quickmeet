@@ -669,6 +669,19 @@ Learned while setting up staging on uncloud, 2026-09-28:
   PID 1 case. The app now registers a handler, and the grace period is
   10 s, a ceiling it does not reach.
 
+The published image, 2026-10-02 (PR #25, CI on ubuntu-latest):
+
+- The image's own defaults (`LIVEKIT_BIND=0.0.0.0`,
+  `LIVEKIT_UDP_PORT=7882`, `DB_PATH=/app/data/quickmeet.db`) start the
+  app with only a secret added (`scripts/docker-smoke.sh`).
+- `deploy/docker` (the image behind `caddy:2`) serves the home page over
+  HTTPS with `QUICKMEET_DOMAIN=localhost`: Caddy issues itself a local
+  certificate for that name, so the check needs no DNS
+  (`scripts/docker-compose-smoke.sh`, `curl -k`). That proves the
+  Caddyfile's `{$VAR}` domain and the upstream names, not media.
+- Not yet verified: the arm64 build (it first runs on a tag or a manual
+  release run) and a call through Docker's published media ports.
+
 The first deploy, 2026-09-28 to 2026-09-29:
 
 - It works end to end: two phones on different networks held a call at

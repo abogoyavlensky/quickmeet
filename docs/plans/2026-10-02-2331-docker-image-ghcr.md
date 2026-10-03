@@ -1,6 +1,8 @@
 # Official Docker Image on ghcr.io Implementation Plan
 
-> **For agentic workers:** Use executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** Use executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
+
+**Status: completed 2026-10-03**
 
 **Goal:** A version tag publishes a multi-arch image `ghcr.io/abogoyavlensky/quickmeet` alongside the release tarballs, and the README's "Host it yourself" section offers a `docker run` quickstart (behind the operator's own HTTPS proxy) next to the binary + systemd install; the install guide adds an optional Docker Compose setup with Caddy for a server that has no proxy yet.
 
@@ -233,14 +235,14 @@ Work on a branch: `git checkout -b docker-image`.
 - Create: `scripts/docker-smoke.sh`
 - Modify: `lgx.edn`, `.github/workflows/deploy.yml`
 
-- [ ] **Step 1: Dockerfile.** Add the `ENV` defaults, `mkdir -p
+- [x] **Step 1: Dockerfile.** Add the `ENV` defaults, `mkdir -p
   /app/data`, `EXPOSE`, and labels (`source`, `description` "Self-hosted
   1-to-1 video calls from a single binary"; no `licenses` label, the repo
   has no LICENSE file). Extend the header comment: the same file makes
   the published image (release.yml), and why `LIVEKIT_USE_EXTERNAL_IP`
   is left to the `docker run` command.
 
-- [ ] **Step 2: `scripts/docker-smoke.sh`** (executable, `set -u`),
+- [x] **Step 2: `scripts/docker-smoke.sh`** (executable, `set -u`),
   modelled on `../pagelet/scripts/docker-smoke.sh` and today's inline
   step in `deploy.yml`: `file bin/quickmeet | grep -q 'statically
   linked'` (fail with a message otherwise), `docker build -t
@@ -252,7 +254,7 @@ Work on a branch: `git checkout -b docker-image`.
   remove, exit with curl's status. Keep the comments about the port
   proxy reset and no `--rm`.
 
-- [ ] **Step 3: lgx task.** In `lgx.edn` `:tasks`:
+- [x] **Step 3: lgx task.** In `lgx.edn` `:tasks`:
   ```clojure
   docker
   {:doc "Build the binary, then the image, and smoke-test it"
@@ -260,35 +262,35 @@ Work on a branch: `git checkout -b docker-image`.
         {:sh "scripts/docker-smoke.sh"}]}
   ```
 
-- [ ] **Step 4: deploy.yml.** Replace the "Build the binary" static
+- [x] **Step 4: deploy.yml.** Replace the "Build the binary" static
   check and the inline smoke step with `lgx build` followed by
   `scripts/docker-smoke.sh` (the script does the static check). Keep the
   comment that it must run before buildx is set up.
 
-- [ ] **Step 5: Check.** `bash -n scripts/docker-smoke.sh`;
+- [x] **Step 5: Check.** `bash -n scripts/docker-smoke.sh`;
   `shellcheck scripts/docker-smoke.sh` if installed; `lgx tasks` (or
   `lgx --help`) lists `docker`. If docker is reachable, `lgx docker`
   prints the page and exits 0.
 
-- [ ] **Step 6: Commit** `Docker image defaults and one smoke script`
+- [x] **Step 6: Commit** `Docker image defaults and one smoke script`
 
 ### Task 2: The optional Docker Compose files
 
 **Files:**
 - Create: `deploy/docker/compose.yaml`, `deploy/docker/Caddyfile`, `deploy/docker/.env.example`
 
-- [ ] **Step 1: Write the three files** as in Design §4. Comment them the
+- [x] **Step 1: Write the three files** as in Design §4. Comment them the
   way `deploy/quickmeet.env.example` and the root `compose.yaml` are
   commented: why only 7881/7882 are published, why `./data`, what
   `QUICKMEET_VERSION` does.
 
-- [ ] **Step 2: Check.** If `docker compose` is available:
+- [x] **Step 2: Check.** If `docker compose` is available:
   `cd deploy/docker && QUICKMEET_DOMAIN=x LIVEKIT_API_SECRET=y docker
   compose config -q` exits 0, and without `LIVEKIT_API_SECRET` it fails
   with the message. Otherwise
   `python3 -c 'import yaml,sys; yaml.safe_load(open(sys.argv[1]))' deploy/docker/compose.yaml`.
 
-- [ ] **Step 3: Commit** `Optional Docker Compose setup with Caddy`
+- [x] **Step 3: Commit** `Optional Docker Compose setup with Caddy`
 
 ### Task 3: CI smoke-tests the image and the compose setup
 
@@ -296,19 +298,19 @@ Work on a branch: `git checkout -b docker-image`.
 - Create: `scripts/docker-compose-smoke.sh`
 - Modify: `.github/workflows/test.yml`
 
-- [ ] **Step 1: `scripts/docker-compose-smoke.sh`** (executable,
+- [x] **Step 1: `scripts/docker-compose-smoke.sh`** (executable,
   `set -u`) as in Design §4.
 
-- [ ] **Step 2: test.yml.** After "Browser tests" (which built the
+- [x] **Step 2: test.yml.** After "Browser tests" (which built the
   static `bin/quickmeet`), add "Smoke-test the image" running
   `scripts/docker-smoke.sh` and "Run the Docker Compose setup" running
   `scripts/docker-compose-smoke.sh`, a one-line comment each.
 
-- [ ] **Step 3: Check.** `bash -n` and shellcheck both scripts.
+- [x] **Step 3: Check.** `bash -n` and shellcheck both scripts.
 
-- [ ] **Step 4: Commit** `Smoke-test the image and the compose setup in CI`
+- [x] **Step 4: Commit** `Smoke-test the image and the compose setup in CI`
 
-- [ ] **Step 5: Push the branch and open a draft PR** so `test.yml` runs
+- [x] **Step 5: Push the branch and open a draft PR** so `test.yml` runs
   both scripts on a real runner. Fix until green before moving on. If
   something fails, read the printed logs before changing anything.
 
@@ -317,7 +319,7 @@ Work on a branch: `git checkout -b docker-image`.
 **Files:**
 - Modify (rewrite): `.github/workflows/release.yml`
 
-- [ ] **Step 1: Write the workflow** as in Design §5, following
+- [x] **Step 1: Write the workflow** as in Design §5, following
   `../pagelet/.github/workflows/release.yml` closely (concurrency group
   `release-${{ github.ref }}` without cancel, `env.IMAGE:
   ghcr.io/abogoyavlensky/quickmeet`, `env.CGO_ENABLED: "0"`). Matrix:
@@ -338,10 +340,10 @@ Work on a branch: `git checkout -b docker-image`.
   version part of the name is `${GITHUB_REF_NAME//\//-}`.
   Update the header comment (what a tag publishes, what a dispatch does).
 
-- [ ] **Step 2: Check.** Parse the YAML (python yaml). If `actionlint`
+- [x] **Step 2: Check.** Parse the YAML (python yaml). If `actionlint`
   is installed, run it on `.github/workflows/`.
 
-- [ ] **Step 3: Commit** `Publish a multi-arch image to ghcr.io on release`
+- [x] **Step 3: Commit** `Publish a multi-arch image to ghcr.io on release`
 
 ### Task 5: Documentation
 
@@ -350,17 +352,17 @@ Work on a branch: `git checkout -b docker-image`.
 
 Use /writing-clearly; match the existing docs' plain, short-sentence voice.
 
-- [ ] **Step 1: README "Host it yourself"** as in Design §6, with the
+- [x] **Step 1: README "Host it yourself"** as in Design §6, with the
   `docker run` snippet from Design §3. Keep it short; details live in
   INSTALL.md. Link to the INSTALL Docker section and the binary path.
 
-- [ ] **Step 2: INSTALL.md** "Run with Docker" section and the `ARCH`
+- [x] **Step 2: INSTALL.md** "Run with Docker" section and the `ARCH`
   variable in the release download, per Design §6. Update the intro
   ("linux/amd64" → amd64 or arm64; two ways to install) and the dated
   note: the Docker path is checked by CI on a runner, not yet on a
   fresh server.
 
-- [ ] **Step 3: DEPLOYMENT.md** releases paragraph: what a tag
+- [x] **Step 3: DEPLOYMENT.md** releases paragraph: what a tag
   publishes (two tarballs, the image tags), the dispatch dry run, the
   one-time package visibility step. **DEVELOPMENT.md** file map:
   `scripts/docker-smoke.sh`, the `docker` task.
@@ -368,16 +370,16 @@ Use /writing-clearly; match the existing docs' plain, short-sentence voice.
   **KNOWLEDGE.md**: facts verified while doing this (CI results, arm64
   build time, anything surprising).
 
-- [ ] **Step 4: Check** every relative link added resolves
+- [x] **Step 4: Check** every relative link added resolves
   (`ls` the targets) and anchors match headings.
 
-- [ ] **Step 5: Commit** `Docker quickstart in the README and the install guide`
+- [x] **Step 5: Commit** `Docker quickstart in the README and the install guide`
 
 ### Task 6: Finish
 
-- [ ] **Step 1:** Mark this plan `**Status: completed <date>**` under
+- [x] **Step 1:** Mark this plan `**Status: completed <date>**` under
   the header, commit, push, and get the PR's checks green.
-- [ ] **Step 2:** Tell the user: after merge, (a) run `release.yml` by
+- [x] **Step 2:** Tell the user: after merge, (a) run `release.yml` by
   hand on master as a dry run, (b) push the first tag (e.g. `v0.1.0`)
   so the image and tarballs exist, since the README now points at them,
   (c) make the ghcr.io package public once. Tagging and the visibility
@@ -386,3 +388,31 @@ Use /writing-clearly; match the existing docs' plain, short-sentence voice.
   on a real server behind its proxy and run `lgx smoke` against it
   (`QM_URL=https://…`) to prove signalling and media through Docker's
   published ports.
+
+## Summary
+
+Implemented as planned on branch `docker-image` (PR #25): image defaults
+and one smoke script (`lgx docker`), the optional `deploy/docker` Compose
+setup with Caddy, both smoke checks in `test.yml` (green on the PR), a
+`release.yml` that builds amd64 and arm64 natively and publishes the
+ghcr.io image and both tarballs on a `vX.Y.Z` tag only, and the docs
+(README Docker quickstart, INSTALL "Run with Docker" and "Docker Compose
+with Caddy", DEPLOYMENT releases, DEVELOPMENT, ROADMAP, KNOWLEDGE).
+
+Deviations:
+- Codex was over its usage limit for the whole run, so the per-task
+  codex reviews were replaced by a self-review of the diff.
+- Added at the user's request mid-run: an MIT `LICENSE`, the image's
+  `licenses` label, and a License section in the README.
+- `.gitignore` gained `deploy/docker/.env` and `deploy/docker/data/`.
+- The compose smoke removes the root-owned `data/` through a container
+  rather than `sudo`, so it also works off CI.
+- The localhost Docker run was split out to
+  `docs/backlog/docker-local-run-needs-node-ip.md`.
+
+Not verified: the arm64 build and the publish job (first run on a tag or
+a manual dry run after merge), and a real call through the Docker setups.
+
+What the plan could have specified better: that `release.yml`'s dry run
+cannot be tried before merge (dispatch needs the workflow on the default
+branch), so arm64 stays unproven at merge time.
