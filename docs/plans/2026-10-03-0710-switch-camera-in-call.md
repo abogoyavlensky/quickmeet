@@ -408,7 +408,7 @@ among the controls it measures; those lists change (Task 1).
 **Files:**
 - Modify: `resources/public/room.html`, `resources/public/ui.js`, `resources/public/app.css`
 
-- [ ] **Step 1: Markup**
+- [x] **Step 1: Markup**
   In `#call`: move `<button id="blur" hidden></button>` from `.controls`
   into `.tile.self` after the video; add `<button id="switch-cam" hidden></button>`
   between `#cam` and `#share`. In the bar's `.end`, after `#copy`:
@@ -416,7 +416,7 @@ among the controls it measures; those lists change (Task 1).
   The panel above. Update the comments: the self view with blur on it;
   the controls list; the bar's comment (the settings on a desktop).
 
-- [ ] **Step 2: The icons in `ui.js`**
+- [x] **Step 2: The icons in `ui.js`**
   `more`: three filled dots in a column, `<g fill="currentColor" stroke="none"><circle cx="12" cy="5" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="12" cy="19" r="1.7"/></g>`
   (filled, as the `blur` dots are, so they survive 20 px). `flip`: a
   camera outline (the body of `video`) with two short bent arrows inside
@@ -424,7 +424,7 @@ among the controls it measures; those lists change (Task 1).
   `'<path d="M3 8h3l2-3h8l2 3h3v11H3z"/><path d="M9.6 12.6a2.6 2.6 0 0 1 4.8-1.2M14.4 13.4a2.6 2.6 0 0 1-4.8 1.2"/><path d="M14.4 9.6v1.8h-1.8M9.6 16.4v-1.8h1.8"/>'`.
   Check both read at 20 px (the screenshots in Task 4), and adjust.
 
-- [ ] **Step 3: CSS**
+- [x] **Step 3: CSS**
   In `app.css`, "the room page" section, as Layout and The panel above:
   - `.tile.self button`: the `.preview button` glass (extend that
     selector list), 40 px, `position: absolute; top: 8px; right: 8px`;
@@ -439,15 +439,21 @@ among the controls it measures; those lists change (Task 1).
     muted) but in the room's white-on-dark.
   - `body.rear-camera .preview video, body.rear-camera .tile.self video { transform: none; }`.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
   `git commit -m "Call: blur on the self view, a camera switch in the controls, settings in the bar"`
+
+> Deviation: the `flip` arrows were redrawn slightly larger than the
+> candidate path; to be judged in Task 4's screenshots.
+> Codex review (6658d2f): one finding, a keyboard-focused blur button on
+> the self view faded with the controls (`wake()` checked only the bar and
+> the controls for focus); fixed in 046175a.
 
 ### Task 3: The logic
 
 **Files:**
 - Modify: `resources/public/room.html`
 
-- [ ] **Step 1: State and helpers**
+- [x] **Step 1: State and helpers**
   In the lobby section, beside `lobby`: `const devices = { video: [], audio: [] }`,
   `const busy = { video: null, audio: null }` (keyed by `Track.Kind`,
   whose values are the strings `'video'` and `'audio'`), and
@@ -458,7 +464,7 @@ among the controls it measures; those lists change (Task 1).
   near the top and use it in both places. Add `VideoPresets` to the
   `LivekitClient` destructuring.
 
-- [ ] **Step 2: `fillDevices`, the pickers, `devicechange`**
+- [x] **Step 2: `fillDevices`, the pickers, `devicechange`**
   `fillDevices` stores both lists in `devices` and fills the four
   selects through `fillSelect(select, list, currentId, fallback)`
   (the current id from `settingsOf(kind).deviceId`). Replace
@@ -467,7 +473,7 @@ among the controls it measures; those lists change (Task 1).
   `navigator.mediaDevices.addEventListener('devicechange', () => { if (lobby.tracks.length) fillDevices(); })`
   (guarded for a browser without `mediaDevices`).
 
-- [ ] **Step 3: `switchDevice` and `flash`**
+- [x] **Step 3: `switchDevice` and `flash`**
   As the design says. Shape:
   ```js
   async function switchDevice(kind, options) {
@@ -503,7 +509,7 @@ among the controls it measures; those lists change (Task 1).
   in the call `flash(text)`. Write `flash(text)` once and have
   `blurFailed` and `shareFailed` use it.
 
-- [ ] **Step 4: `drawDevices`, the switch button, the panel**
+- [x] **Step 4: `drawDevices`, the switch button, the panel**
   `drawDevices()` as Drawing above; call it at the end of `drawMedia`
   and from `showCam` and `showMic`. The switch button's click handler:
   on a handheld `switchDevice(Video, { facingMode: { exact: settingsOf(Video).facingMode === 'environment' ? 'user' : 'environment' } })`;
@@ -517,7 +523,7 @@ among the controls it measures; those lists change (Task 1).
   section is not `call`. `#more.hidden = handheld` once, at setup.
   `wake()`'s `busy` adds `!$('settings').hidden`.
 
-- [ ] **Step 5: The locks**
+- [x] **Step 5: The locks**
   `drawBlur`: add `!!busy.video` to the disabled condition. `drawMedia`:
   the lobby's camera and microphone buttons and all four selects wait
   on `busy` of their kind, and the lobby's selects on a join publishing
@@ -528,7 +534,7 @@ among the controls it measures; those lists change (Task 1).
   switch ends on its own and stops its track, as "A switch that outlives
   its track" says), and `drawDevices()` runs through `drawMedia()`.
 
-- [ ] **Step 6: Run the camera and mobile tests**
+- [x] **Step 6: Run the camera and mobile tests**
   Run: `lgx build && (cd e2e && npx playwright test tests/camera.spec.js tests/mobile.spec.js)`
   Expected: PASS. If test 4 (revert) fails because the track is dead
   after the revert, check that the revert's `restartTrack` is reached and
@@ -539,8 +545,19 @@ among the controls it measures; those lists change (Task 1).
   restarted audio track reached the sender (`replaceTrack`) before
   blaming the test.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
   `git commit -m "Call: switch the camera with one tap, pick devices from the bar"`
+
+> Deviation: no `fillSelect` helper; `fillDevices` fills the four
+> pickers in one loop, and `drawDevices` alone sets their value and
+> whether they wait (so the selection logic lives in one place).
+> Deviation: the pickers also wait while blur switches, since a camera
+> switch refuses then.
+> Test fix: the leave-during-a-switch test passed with the guard removed,
+> because it read the old track right after leaving, before the delayed
+> switch ended. It now waits for the lobby's camera button to come back
+> (the switch has ended) and then reads it; with the guard removed it
+> fails ("live"), with it it passes.
 
 ### Task 4: Full suite and a look
 

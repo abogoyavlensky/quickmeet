@@ -94,7 +94,11 @@ test.describe('on a phone', () => {
       await expect(a.locator('#lobby')).toBeVisible();
       await expect.poll(() => a.evaluate(() => document.getElementById('preview').videoWidth)).toBeGreaterThan(0);
 
-      await expect.poll(() => a.evaluate(() => window.__before.mediaStreamTrack.readyState), { timeout: 10_000 }).toBe('ended');
+      // The switch is still in flight: the lobby's camera button waits for
+      // it. Only once it has ended does the old track's state say anything.
+      await expect(a.locator('#cam-preview')).toBeDisabled();
+      await expect(a.locator('#cam-preview')).toBeEnabled({ timeout: 10_000 });
+      expect(await a.evaluate(() => window.__before.mediaStreamTrack.readyState)).toBe('ended');
       expect(await a.evaluate(() => trackOfKind('video') !== window.__before)).toBe(true);
       await expect(a.locator('#error')).toBeHidden();
     });
