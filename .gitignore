@@ -8,3 +8,7 @@ lgx-bundle
 .DS_Store
 .idea/
 .claude/
+
+# A compose run from deploy/docker/ leaves its settings and database there.
+deploy/docker/.env
+deploy/docker/data/

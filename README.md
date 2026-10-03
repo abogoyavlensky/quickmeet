@@ -12,13 +12,33 @@ The binary includes the app, [LiveKit](https://github.com/livekit/livekit)
 for calls, and SQLite for storage. No separate media server, database
 service, or container is required.
 
-You need a **Linux x86-64 server**, a domain name, and HTTPS. The
-[installation guide](docs/INSTALL.md) covers running the binary with
-systemd, setting up Caddy for HTTPS, and opening the two media ports.
+You need a **Linux server** (x86-64 or ARM64), a domain name, and HTTPS.
 You can restrict account creation to an email allowlist.
 
-There are no published releases yet. For now, [build from source](docs/INSTALL.md#build-from-source)
-and use the guide's service and proxy setup with the files in [`deploy/`](deploy/).
+### With Docker
+
+```sh
+docker run -d --name quickmeet --restart unless-stopped \
+  -p 127.0.0.1:8080:8080 -p 127.0.0.1:7880:7880 \
+  -p 7881:7881 -p 7882:7882/udp \
+  -v quickmeet-data:/app/data \
+  -e LIVEKIT_USE_EXTERNAL_IP=true \
+  -e LIVEKIT_API_SECRET=$(openssl rand -hex 32) \
+  -e ALLOWED_EMAILS=you@example.com \
+  ghcr.io/abogoyavlensky/quickmeet:latest
+```
+
+Put an HTTPS reverse proxy in front: `/rtc*` to port 7880, everything
+else to 8080. [`deploy/Caddyfile`](deploy/Caddyfile) does this for Caddy.
+Open 7881/tcp and 7882/udp for media, then sign up at
+`https://YOUR.DOMAIN/signup` with the allowed address. No proxy on the
+server yet? The guide has a [Docker Compose setup with Caddy](docs/INSTALL.md#docker-compose-with-caddy).
+
+### With the binary
+
+The [installation guide](docs/INSTALL.md) covers running the release
+binary with systemd, setting up Caddy for HTTPS, and opening the two
+media ports.
 
 ## Highlights
 
@@ -66,3 +86,7 @@ see the [roadmap](docs/ROADMAP.md).
 
 Written in [let-go](https://github.com/nooga/let-go), built with
 [lgx](https://github.com/abogoyavlensky/lgx).
+
+## License
+
+[MIT](LICENSE).

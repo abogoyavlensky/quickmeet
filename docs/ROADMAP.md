@@ -280,6 +280,15 @@ in host mode. Two phones on different networks held a call there. See
   way (`docs/plans/2026-10-02-2217-lobby-mic-camera-off.md`). The camera's
   light goes out while it is off. The choice is not remembered between
   visits: every lobby starts with both on.
+- Done 2026-10-02: an official Docker image,
+  `ghcr.io/abogoyavlensky/quickmeet`, for amd64 and arm64, published with
+  the release tarballs (now one per architecture) on a `vX.Y.Z` tag only
+  (`docs/plans/2026-10-02-2331-docker-image-ghcr.md`). The README's quickstart is
+  one `docker run` behind your own proxy; the install guide adds a
+  Docker Compose setup with Caddy for a server without one. This widens
+  the release from M5's "linux/amd64 only". No tag pushed yet. A local
+  run cannot hold a call yet
+  (`docs/backlog/docker-local-run-needs-node-ip.md`).
 - Mobile: LiveKit's Swift, Kotlin and React Native SDKs talk to the same
   SFU and the same token endpoint. Native ringing needs APNs and FCM
   signing that let-go does not have; a small Go shim or a hosted push

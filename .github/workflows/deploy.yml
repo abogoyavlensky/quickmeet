@@ -43,36 +43,16 @@ jobs:
           key: runtimes-static-${{ runner.os }}-${{ hashFiles('lgx.edn', 'webpush/**') }}
           restore-keys: runtimes-static-${{ runner.os }}-
 
-      # The image is a copy of this binary. A dynamically linked one would
-      # not start on Alpine, so fail here rather than in the container.
+      # The image is a copy of this binary.
       - name: Build the binary
-        run: |
-          lgx build
-          file bin/quickmeet | grep -q 'statically linked'
+        run: lgx build
 
       # An image build alone cannot tell a binary that builds from one that
-      # starts on Alpine. Runs before buildx is set up so the default docker
-      # driver loads the image for `docker run`.
-      # Docker's port proxy accepts the connection before the app listens and
-      # then resets it, which curl does not count as retryable, hence
-      # --retry-all-errors. No --rm, so a container that crashed still has
-      # its logs to print.
+      # starts on Alpine; the script also fails on a dynamically linked
+      # binary. Runs before buildx is set up so the default docker driver
+      # loads the image for `docker run`.
       - name: Smoke-test the image
-        run: |
-          docker build -t quickmeet:ci .
-          # Bound off loopback, the app refuses the development secret;
-          # this one never leaves the runner.
-          docker run -d --name qm -p 8080:8080 \
-            -e PORT=8080 -e LIVEKIT_BIND=0.0.0.0 -e LIVEKIT_UDP_PORT=7882 \
-            -e LIVEKIT_API_SECRET=ci-smoke-test-secret-0123456789abcdef \
-            -e DB_PATH=/tmp/quickmeet.db quickmeet:ci
-          status=0
-          curl -fsS --retry 15 --retry-all-errors --retry-delay 1 \
-            localhost:8080/ > /dev/null || status=$?
-          docker ps -a --filter name=qm
-          docker logs qm
-          docker rm -f qm
-          exit $status
+        run: scripts/docker-smoke.sh
 
       # The default docker driver can't export cache (type=gha); this sets up
       # a docker-container builder that can.

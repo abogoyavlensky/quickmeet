@@ -1,18 +1,24 @@
 # Installing quickmeet on one box
 
-This guide installs quickmeet on a single linux/amd64 server: the binary as
-a systemd service, Caddy in front of it for TLS, and two ports open for
-media. It takes about fifteen minutes.
+This guide installs quickmeet on a single Linux server, x86-64 or ARM64:
+the app, Caddy in front of it for TLS, and two ports open for media. It
+takes about fifteen minutes. There are two ways to run the app:
+
+- [With Docker](#run-with-docker): the published image, behind your own
+  proxy or behind Caddy from a Compose file.
+- As a systemd service: the release binary, steps 1 to 8 below.
 
 > Written on 2026-09-30 from the staging deployment at
 > `https://quickmeet.absky.dev`, which runs the same binary in a container.
 > As of that date the steps below had not yet been run end to end on a
-> fresh box. If a step does not work as written, please open an issue.
+> fresh box. The Docker setups, added on 2026-10-02, start and serve a
+> page in CI but have not held a call on a fresh box either. If a step
+> does not work as written, please open an issue.
 
 ## What you need
 
-- A linux/amd64 server with a public IP address. A small VPS is enough:
-  the app uses about 100 MB of memory plus about 25 MB per call.
+- A Linux server, x86-64 or ARM64, with a public IP address. A small VPS
+  is enough: the app uses about 100 MB of memory plus about 25 MB per call.
 - A DNS name pointing at that address, for example `meet.example.com`.
   Browsers only allow camera access over HTTPS, so there is no way around
   a name and a certificate.
@@ -27,12 +33,140 @@ media. It takes about fifteen minutes.
 Every other port stays closed. In particular 8080 (the app) and 7880 (the
 SFU's signalling) listen on loopback only; Caddy reaches them there.
 
+## Run with Docker
+
+Install Docker, then start the image:
+
+```bash
+docker run -d --name quickmeet --restart unless-stopped \
+  -p 127.0.0.1:8080:8080 -p 127.0.0.1:7880:7880 \
+  -p 7881:7881 -p 7882:7882/udp \
+  -v quickmeet-data:/app/data \
+  -e LIVEKIT_USE_EXTERNAL_IP=true \
+  -e LIVEKIT_API_SECRET=$(openssl rand -hex 32) \
+  -e ALLOWED_EMAILS=you@example.com \
+  ghcr.io/abogoyavlensky/quickmeet:latest
+```
+
+- `-p 127.0.0.1:...` publishes the app and the SFU's signalling on
+  loopback only, the same addresses the systemd install uses, so only a
+  proxy on the box can reach them. That matters: the rate limits trust
+  the client address the proxy forwards.
+- 7881/tcp and 7882/udp carry media straight to the container.
+  `LIVEKIT_USE_EXTERNAL_IP=true` advertises the server's public address,
+  found over STUN, to browsers.
+- The `quickmeet-data` volume keeps the database across updates.
+- The image refuses to start without `LIVEKIT_API_SECRET`. A new random
+  one on every `docker run` is fine: it only signs short-lived join
+  tokens, and nothing stored depends on it.
+- `ALLOWED_EMAILS` lists, comma-separated, who may have an account. Left
+  out, anyone who finds the site can sign up and start calls on your
+  bandwidth. Every other setting is in the
+  [configuration reference](CONFIGURATION.md).
+
+Then follow [4. Open the firewall](#4-open-the-firewall) and
+[5. Install Caddy](#5-install-caddy) with the repository's Caddyfile,
+which points at the same two loopback ports:
+
+```bash
+curl -fsSLO https://raw.githubusercontent.com/abogoyavlensky/quickmeet/master/deploy/Caddyfile
+```
+
+Any other proxy works too: send `/rtc*` to 7880 and everything else to
+8080. Docker opens the
+ports it publishes by itself, past `ufw`; the loopback ones stay private.
+
+`docker logs quickmeet` should end with `quickmeet on
+http://localhost:8080` and, from the SFU, `found external IP via STUN`.
+Then create [the first account](#7-the-first-account).
+
+To upgrade, pull the new image and start it the same way; the database
+migrates itself:
+
+```bash
+docker pull ghcr.io/abogoyavlensky/quickmeet:latest
+docker rm -f quickmeet
+docker run -d --name quickmeet ...   # the same command as above
+```
+
+Use a version tag such as `:0.1.0` instead of `:latest` to stay on one
+release. To change `ALLOWED_EMAILS`, remove and start the container the
+same way.
+
+The image has no `sqlite3`, so a backup stops the app briefly and copies
+the file out:
+
+```bash
+docker stop quickmeet
+docker cp quickmeet:/app/data/quickmeet.db /var/backups/quickmeet.db
+docker start quickmeet
+```
+
+### Docker Compose with Caddy
+
+For a server with nothing on ports 80 and 443 yet: the image and Caddy in
+one Compose project, with Caddy getting the certificate. Install Docker
+with the Compose plugin, then:
+
+```bash
+mkdir quickmeet && cd quickmeet
+base=https://raw.githubusercontent.com/abogoyavlensky/quickmeet/master/deploy/docker
+curl -fsSL -O $base/compose.yaml -O $base/Caddyfile
+cat > .env <<EOF
+QUICKMEET_DOMAIN=meet.example.com
+ALLOWED_EMAILS=you@example.com
+LIVEKIT_API_SECRET=$(openssl rand -hex 32)
+EOF
+docker compose up -d
+```
+
+[`deploy/docker/.env.example`](../deploy/docker/.env.example) explains
+each setting, including `QUICKMEET_VERSION` to pin a release. Open the
+ports in the table above (Docker opens them past `ufw` anyway); 8080 and
+7880 are not published at all, Caddy reaches them inside the Compose
+network. `docker compose logs quickmeet` shows the app's log. Then create
+[the first account](#7-the-first-account).
+
+The database is `data/quickmeet.db` next to `compose.yaml`. To upgrade:
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+A backup is safe to take while the app runs, as root on the host
+(install the `sqlite3` package first):
+
+```bash
+sqlite3 data/quickmeet.db ".backup /var/backups/quickmeet.db"
+```
+
 ## 1. Get the binary
+
+### Install a release
+
+Pick a tag from the
+[releases page](https://github.com/abogoyavlensky/quickmeet/releases),
+then download the tarball for your server's architecture:
+
+```bash
+VERSION=v0.1.0   # the tag you picked
+ARCH=amd64       # or arm64; `uname -m` says x86_64 or aarch64
+NAME=quickmeet-$VERSION-linux-$ARCH
+curl -fLO https://github.com/abogoyavlensky/quickmeet/releases/download/$VERSION/$NAME.tar.gz
+curl -fLO https://github.com/abogoyavlensky/quickmeet/releases/download/$VERSION/$NAME.tar.gz.sha256
+sha256sum -c $NAME.tar.gz.sha256
+tar xzf $NAME.tar.gz
+cd $NAME
+```
+
+The directory holds the binary, the systemd unit, a Caddyfile, an example
+environment file, and this guide.
 
 ### Build from source
 
-There are no published releases yet. On Linux x86-64, install lgx 0.4.2
-or newer and Go (versions are pinned in `.mise.toml`), then run:
+On Linux, install lgx 0.4.2 or newer and Go (versions are pinned in
+`.mise.toml`), then run:
 
 ```bash
 git clone https://github.com/abogoyavlensky/quickmeet.git
@@ -44,24 +178,6 @@ In step 2, use `bin/quickmeet` and `deploy/quickmeet.service` as the
 source files. In step 3, use `deploy/quickmeet.env.example`; in step 5,
 use `deploy/Caddyfile`. If you built on another machine, copy these four files to
 the server first, preserving these paths.
-
-### Install a release when available
-
-Pick a tag from the
-[releases page](https://github.com/abogoyavlensky/quickmeet/releases), then:
-
-```bash
-VERSION=v0.1.0   # the tag you picked
-NAME=quickmeet-$VERSION-linux-amd64
-curl -fLO https://github.com/abogoyavlensky/quickmeet/releases/download/$VERSION/$NAME.tar.gz
-curl -fLO https://github.com/abogoyavlensky/quickmeet/releases/download/$VERSION/$NAME.tar.gz.sha256
-sha256sum -c $NAME.tar.gz.sha256
-tar xzf $NAME.tar.gz
-cd $NAME
-```
-
-The directory holds the binary, the systemd unit, a Caddyfile, an example
-environment file, and this guide.
 
 ## 2. Install the binary and the service
 

@@ -1,0 +1,52 @@
+# quickmeet with Caddy in front, for a server with nothing on ports 80 and
+# 443 yet. Put this file, the Caddyfile and a .env (from .env.example) in
+# one directory, then `docker compose up -d`. See docs/INSTALL.md.
+#
+# Already running a proxy? Skip this file and use the `docker run` command
+# from the README instead.
+
+services:
+  quickmeet:
+    # A version (0.1.0) instead of latest pins the release.
+    image: ghcr.io/abogoyavlensky/quickmeet:${QUICKMEET_VERSION:-latest}
+    restart: unless-stopped
+    # WebRTC media cannot go through Caddy: it goes straight to the box on
+    # these two ports. The app (8080) and the SFU's signalling (7880) are
+    # not published; Caddy reaches them over the compose network, so it is
+    # the only client that can, and the address it forwards is the one the
+    # rate limits trust.
+    ports:
+      - "7881:7881/tcp"
+      - "7882:7882/udp"
+    # The database, a plain file next to this one: data/quickmeet.db.
+    volumes:
+      - ./data:/app/data
+    # On SIGTERM the app closes open calls in history and exits in well
+    # under a second; this is only the ceiling.
+    stop_grace_period: 10s
+    environment:
+      # Advertise the server's public address, found over STUN, to browsers.
+      LIVEKIT_USE_EXTERNAL_IP: "true"
+      LIVEKIT_LOG_LEVEL: info
+      LIVEKIT_API_KEY: quickmeet
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:?set LIVEKIT_API_SECRET in .env}
+      ALLOWED_EMAILS: ${ALLOWED_EMAILS:-}
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      QUICKMEET_DOMAIN: ${QUICKMEET_DOMAIN:?set QUICKMEET_DOMAIN in .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Certificates; keep them, or Caddy asks for new ones on every start.
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  caddy-data:
+  caddy-config:
