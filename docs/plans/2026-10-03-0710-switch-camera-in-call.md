@@ -561,7 +561,7 @@ among the controls it measures; those lists change (Task 1).
 
 ### Task 4: Full suite and a look
 
-- [ ] **Step 1: Run everything**
+- [x] **Step 1: Run everything**
   Run: `lgx test` and `lgx e2e`.
   Expected: all PASS. `blur.spec.js` clicks the moved `#blur` and
   switches the lobby camera through the picker (now `switchDevice`);
@@ -569,7 +569,7 @@ among the controls it measures; those lists change (Task 1).
   out under parallel load (see its header): re-run it alone with
   `--workers 1` before counting a failure there.
 
-- [ ] **Step 2: Screenshots**
+- [x] **Step 2: Screenshots**
   `twoCameras` exists only inside the suite, so take the screenshots from
   a throwaway spec (or a `page.screenshot` call added temporarily to the
   new tests, removed before the commit): a desktop call with the panel
@@ -578,12 +578,21 @@ among the controls it measures; those lists change (Task 1).
   on. Check the panel clears the bar and the remote name, the blur
   button sits in the thumbnail, and both icons read at 20 px.
 
+> Results: `lgx test` 81 tests, 0 failures; `lgx e2e` 71 passed, blur
+> included, on the Task 3 code. After the iPad fix, `camera.spec.js` and
+> `screenshare.spec.js` again: 18 passed. Screenshots (desktop with the
+> panel open, a phone front and back) show the panel clear of the bar,
+> blur in the thumbnail's corner, and four buttons in the phone's row.
+> Codex review (27ad541): one finding, Safari on iPadOS says it is a Mac,
+> so an iPad cycled its cameras instead of flipping; fixed in 4d8f20c
+> (a Mac user agent with a touch screen counts as handheld), with a test.
+
 ### Task 5: Docs
 
 **Files:**
 - Modify: `docs/KNOWLEDGE.md`, `docs/ROADMAP.md`
 
-- [ ] **Step 1: Write it down**
+- [x] **Step 1: Write it down**
   `KNOWLEDGE.md`, beside the `restartTrack` note: it stops the old
   capture before asking for the new one, so a failed restart leaves a
   dead track and the page restarts it with the previous device; it asks
@@ -602,5 +611,5 @@ among the controls it measures; those lists change (Task 1).
   view, a desktop-only settings panel in the bar with camera and
   microphone pickers; not yet tried on a real phone.
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
   `git commit -m "docs: switching the camera and devices in a call"`
