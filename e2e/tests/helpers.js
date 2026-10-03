@@ -85,6 +85,59 @@ const canvasMedia = (api, width, height) => async context => {
     };
   }, { api, width, height });
 };
+// A second camera, on the back. The headless shell has one fake camera
+// (fake_device_0, 16:9), so the switch-camera button would never show.
+// This adds "Back Camera" to the device list and answers any request for
+// it, by deviceId 'back' or by facingMode 'environment', with a 4:3
+// canvas whose settings say so; the other side tells the two apart by
+// shape. Every other video request goes to the fake device with its
+// facingMode dropped: the fake device refuses an exact one. `backFails`
+// makes the back camera refuse to start; `backDelay` (ms) makes it slow
+// to answer, either way.
+export const twoCameras = ({ backFails = false, backDelay = 0 } = {}) => async context => {
+  await context.addInitScript(({ backFails, backDelay }) => {
+    const back = { deviceId: 'back', groupId: '', kind: 'videoinput', label: 'Back Camera' };
+    back.toJSON = () => ({ ...back });
+    const devices = navigator.mediaDevices;
+    const realEnumerate = devices.enumerateDevices.bind(devices);
+    devices.enumerateDevices = async () => [...await realEnumerate(), back];
+
+    const backTrack = () => {
+      const canvas = Object.assign(document.createElement('canvas'), { width: 640, height: 480 });
+      const g = canvas.getContext('2d');
+      let n = 0;
+      setInterval(() => {
+        g.fillStyle = `hsl(${(n++ * 7) % 360} 60% 50%)`;
+        g.fillRect(0, 0, 640, 480);
+      }, 66);
+      const track = canvas.captureStream(15).getVideoTracks()[0];
+      const settings = track.getSettings.bind(track);
+      track.getSettings = () => ({ ...settings(), deviceId: 'back', facingMode: 'environment', width: 640, height: 480 });
+      track.applyConstraints = async () => {};
+      Object.defineProperty(track, 'label', { value: 'Back Camera' });
+      return track;
+    };
+    // A constraint is a value, or { exact } or { ideal }.
+    const valueOf = c => (c && typeof c === 'object' ? (c.exact !== undefined ? c.exact : c.ideal) : c);
+
+    const realGet = devices.getUserMedia.bind(devices);
+    devices.getUserMedia = async constraints => {
+      const video = constraints && constraints.video;
+      if (!video || typeof video !== 'object') return realGet(constraints);
+      const wantsBack = valueOf(video.deviceId) === 'back' || valueOf(video.facingMode) === 'environment';
+      if (!wantsBack) {
+        const { facingMode, ...rest } = video;
+        return realGet({ ...constraints, video: rest });
+      }
+      if (backDelay) await new Promise(r => setTimeout(r, backDelay));
+      if (backFails) throw new DOMException('no such camera', 'OverconstrainedError');
+      const stream = constraints.audio ? await realGet({ audio: constraints.audio }) : new MediaStream();
+      stream.addTrack(backTrack());
+      return stream;
+    };
+  }, { backFails, backDelay });
+};
+
 // Held upright, and a webcam's 4:3.
 export const tallCamera = canvasMedia('user', 360, 640);
 export const webcam = canvasMedia('user', 640, 480);
