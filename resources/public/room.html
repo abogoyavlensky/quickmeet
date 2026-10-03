@@ -252,7 +252,7 @@
       document.body.classList.remove('idle');
       clearTimeout(idleTimer);
       idleTimer = setTimeout(() => {
-        const busy = !$('status').hidden || !$('sound').hidden || document.querySelector('.bar :focus-visible, .controls :focus-visible');
+        const busy = !$('status').hidden || !$('sound').hidden || document.querySelector('.bar :focus-visible, .controls :focus-visible, .tile.self :focus-visible');
         if (!busy) document.body.classList.add('idle');
       }, 4000);
     }
