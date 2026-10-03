@@ -17,8 +17,9 @@
 </head>
 <body class="room">
   <!-- Before the call: back to the list, the brand and the link to send.
-       In the call: the other person, how long it has been, and the same
-       link as an icon. -->
+       In the call: the other person, how long it has been, the same link
+       as an icon, and on a desktop the settings: a camera and a
+       microphone to pick, in a panel under the bar. -->
   <header class="bar">
     <a id="back" class="back" href="/"></a>
     <a class="brand" href="/">quickmeet</a>
@@ -26,6 +27,11 @@
     <span class="end">
       <button id="full" hidden></button>
       <button id="copy" class="ghost" title="Copy link"></button>
+      <button id="more" hidden></button>
+      <div id="settings" class="panel" hidden>
+        <label>Camera <select id="cam-pick"></select></label>
+        <label>Microphone <select id="mic-pick"></select></label>
+      </div>
     </span>
   </header>
 
@@ -65,7 +71,9 @@
 
   <section id="call" class="call" hidden>
     <div class="tile empty"><video id="remote" autoplay playsinline></video></div>
-    <div class="tile self"><video id="local" autoplay playsinline muted></video></div>
+    <!-- Your own picture, with the blur button in its corner: blur is set
+         once and lives on your picture, as it does in the lobby. -->
+    <div class="tile self"><video id="local" autoplay playsinline muted></video><button id="blur" hidden></button></div>
     <!-- One line for the call's state, shown only when something needs
          attention; while alone, Ring for the other members who can be
          rung and the link to send; the sound button for browsers that
@@ -77,9 +85,9 @@
       <button id="sound" class="primary" hidden>Tap to enable sound</button>
     </div>
     <footer class="controls">
-      <button id="blur" hidden></button>
       <button id="mic"></button>
       <button id="cam"></button>
+      <button id="switch-cam" hidden></button>
       <button id="share" hidden></button>
       <button id="leave" class="danger"></button>
     </footer>
@@ -93,12 +101,19 @@
     // turned off there, and is then published muted. Leaving, or a
     // dropped connection, returns to the lobby, which starts over (the
     // client stops local tracks on disconnect).
-    const { Room, RoomEvent, Track, DisconnectReason, createLocalTracks } = LivekitClient;
+    const { Room, RoomEvent, Track, DisconnectReason, VideoPresets, createLocalTracks } = LivekitClient;
     const $ = id => document.getElementById(id);
     const roomId = location.pathname.split('/').pop();
     const FULL = 'This call already has two people in it.';
     const WAITING = 'Waiting for the other person.';
     const RING_FAILED = 'Could not ring.';
+    // A phone or a tablet, by the browser's own word. Such a device has a
+    // front and a back camera to flip between, no screen to share, and
+    // routes a headset itself, so it gets no settings panel. Safari on an
+    // iPad says it is a Mac; a Mac has no touch screen.
+    const handheld = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
+      || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1)
+      || !!(navigator.userAgentData && navigator.userAgentData.mobile);
 
     for (const id of ['copy', 'invite']) {
       $(id).innerHTML = icon('link') + '<span>Copy link</span>';
@@ -114,6 +129,7 @@
       for (const id of ['gone', 'lobby', 'call']) $(id).hidden = id !== section;
       document.body.classList.toggle('in-call', section === 'call');
       if (section !== 'call' && fullScreen()) exitFull.call(document);
+      if (section !== 'call') closeSettings();
     };
     // The one line of status, and whether we are alone: alone, the stage is
     // empty and the line sits in its middle with the link to send.
@@ -122,6 +138,15 @@
       $('status').hidden = !text;
       document.body.classList.toggle('waiting', !!alone);
       wake();
+    }
+
+    // A failure in the call, said for four seconds in the status line, then
+    // the line goes back to what it said, unless something else replaced it.
+    function flash(text) {
+      setStatus(text);
+      setTimeout(() => {
+        if (window.call.room && $('status').textContent === text) refreshStatus(window.call.room);
+      }, 4000);
     }
 
     // The whole call state, exposed for tests and for poking at from devtools.
@@ -244,7 +269,7 @@
       document.body.classList.remove('idle');
       clearTimeout(idleTimer);
       idleTimer = setTimeout(() => {
-        const busy = !$('status').hidden || !$('sound').hidden || document.querySelector('.bar :focus-visible, .controls :focus-visible');
+        const busy = !$('status').hidden || !$('sound').hidden || !$('settings').hidden || document.querySelector('.bar :focus-visible, .controls :focus-visible, .tile.self :focus-visible');
         if (!busy) document.body.classList.add('idle');
       }, 4000);
     }
@@ -296,6 +321,15 @@
     // null when there is none; join() waits for it.
     const lobby = { tracks: [], ready: null, poll: null, joining: false, switching: null };
     const trackOfKind = kind => lobby.tracks.find(t => t.kind === kind) || null;
+    // The cameras and microphones there are, by Track.Kind ('video',
+    // 'audio'), from fillDevices; and the promise of a device switch in
+    // flight for each kind, null when there is none (see switchDevice).
+    const devices = { video: [], audio: [] };
+    const busy = { video: null, audio: null };
+    // The settings of the capture itself. With blur on, the track's
+    // mediaStreamTrack is the processed one, which says nothing of the
+    // device or which way it faces.
+    const settingsOf = kind => { const t = trackOfKind(kind); return t ? t.getSourceTrackSettings() : {}; };
 
     // Every lobby start begins from no tracks: whatever the previous lobby
     // or call held is stopped, so a failed join does not leak a capture
@@ -364,37 +398,153 @@
 
     // Permission was just granted (or refused), so labels are available and
     // no second prompt is needed: getLocalDevices(kind, false).
+    // Each kind has two pickers, the lobby's and the call's settings panel;
+    // drawDevices keeps them on the device in use.
+    const pickers = { video: ['cam-select', 'cam-pick'], audio: ['mic-select', 'mic-pick'] };
     async function fillDevices() {
-      const kinds = [['videoinput', 'cam-select', Track.Kind.Video, 'Camera'],
-                     ['audioinput', 'mic-select', Track.Kind.Audio, 'Microphone']];
-      for (const [kind, id, trackKind, fallback] of kinds) {
-        const devices = await Room.getLocalDevices(kind, false);
-        const track = trackOfKind(trackKind);
-        const current = track ? track.mediaStreamTrack.getSettings().deviceId : null;
-        const select = $(id);
-        select.innerHTML = '';
-        devices.forEach((d, i) => {
-          const option = document.createElement('option');
-          option.value = d.deviceId;
-          option.textContent = d.label || `${fallback} ${i + 1}`;
-          option.selected = d.deviceId === current;
-          select.append(option);
-        });
+      const kinds = [[Track.Kind.Video, 'videoinput', 'Camera'], [Track.Kind.Audio, 'audioinput', 'Microphone']];
+      for (const [kind, deviceKind, fallback] of kinds) {
+        devices[kind] = await Room.getLocalDevices(deviceKind, false);
+        for (const id of pickers[kind]) {
+          const select = $(id);
+          select.innerHTML = '';
+          devices[kind].forEach((d, i) => {
+            const option = document.createElement('option');
+            option.value = d.deviceId;
+            option.textContent = d.label || `${fallback} ${i + 1}`;
+            select.append(option);
+          });
+        }
       }
       drawMedia();
     }
-
-    async function onDeviceChange(trackKind, deviceId) {
-      const track = trackOfKind(trackKind);
-      if (!track || !deviceId) return;
-      try {
-        // restartTrack swaps the media stream track and re-attaches it to
-        // the preview element.
-        await track.restartTrack({ deviceId: { exact: deviceId } });
-      } catch (e) { showError(e); }
+    for (const [kind, ids] of Object.entries(pickers)) {
+      for (const id of ids) $(id).addEventListener('change', e => switchDevice(kind, { deviceId: { exact: e.target.value } }));
     }
-    $('cam-select').addEventListener('change', e => onDeviceChange(Track.Kind.Video, e.target.value));
-    $('mic-select').addEventListener('change', e => onDeviceChange(Track.Kind.Audio, e.target.value));
+    // A camera or a microphone plugged in or out, in the lobby or the call.
+    if (navigator.mediaDevices) {
+      navigator.mediaDevices.addEventListener('devicechange', () => { if (lobby.tracks.length) fillDevices(); });
+    }
+
+    // Switching the device of a track, from a picker or the switch-camera
+    // button. restartTrack stops the capture, asks for the new one, and
+    // swaps it into the published sender and every element the track is
+    // attached to, blur and all, so the other side gets it with no
+    // republish. It asks getUserMedia for the device alone and applies the
+    // rest afterwards, so a camera is asked for its 720p again here.
+    //
+    // The old capture is stopped before the new one is asked for, so a
+    // device that cannot start leaves the track dead: it is restarted on
+    // the device it had, and the person is told. One thing at a time works
+    // on a track, as with the mute switches and blur, and nothing switches
+    // while a join publishes. If the lobby started over meanwhile (a leave,
+    // a lost connection), the track is nobody's any more: it is not
+    // restarted again but stopped, so no camera is left running.
+    const SWITCH_FAILED = { video: 'Could not switch camera.', audio: 'Could not switch microphone.' };
+    async function switchDevice(kind, options) {
+      const track = trackOfKind(kind);
+      const publishing = lobby.joining && !window.call.joined;
+      if (!track || busy[kind] || lobby.switching || publishing || track.isMuted
+          || (kind === Track.Kind.Video && blurBusy)) {
+        drawDevices();
+        return false;
+      }
+      const before = settingsOf(kind).deviceId;
+      const extra = kind === Track.Kind.Video ? { resolution: VideoPresets.h720.resolution } : {};
+      busy[kind] = (async () => {
+        let ok = true;
+        try {
+          await track.restartTrack({ ...options, ...extra });
+        } catch (e) {
+          ok = false;
+          if (track === trackOfKind(kind)) {
+            await track.restartTrack({ deviceId: before ? { exact: before } : undefined, ...extra }).catch(() => {});
+          }
+        }
+        if (track !== trackOfKind(kind)) { track.stop(); return false; }
+        return ok;
+      })();
+      drawMedia();
+      drawBlur();
+      const ok = await busy[kind];
+      busy[kind] = null;
+      drawMedia();
+      drawBlur();
+      if (!ok && track === trackOfKind(kind)) {
+        if (window.call.joined) flash(SWITCH_FAILED[kind]); else showError(SWITCH_FAILED[kind]);
+      }
+      return ok;
+    }
+
+    // The switch-camera button, in the call's controls while there is more
+    // than one camera: a phone flips between its front and back cameras by
+    // facing (an iPhone lists several back cameras, and going through them
+    // in turn is not a flip); a desktop moves to its next camera. The
+    // settings panel is where a desktop picks one exactly.
+    $('switch-cam').addEventListener('click', () => {
+      const current = settingsOf(Track.Kind.Video);
+      if (handheld) {
+        const side = current.facingMode === 'environment' ? 'user' : 'environment';
+        switchDevice(Track.Kind.Video, { facingMode: { exact: side } });
+        return;
+      }
+      const list = devices.video;
+      const next = list[(list.findIndex(d => d.deviceId === current.deviceId) + 1) % list.length];
+      if (next) switchDevice(Track.Kind.Video, { deviceId: { exact: next.deviceId } });
+    });
+
+    // Everything about the devices that follows their state: the switch
+    // button, the mirror, and the four pickers (which device, and whether
+    // they wait). Called from drawMedia, so wherever the lobby's buttons
+    // are drawn, and from showMic and showCam in the call.
+    function drawDevices() {
+      const publishing = lobby.joining && !window.call.joined;
+      for (const kind of [Track.Kind.Video, Track.Kind.Audio]) {
+        const track = trackOfKind(kind), current = settingsOf(kind).deviceId;
+        const waits = !track || track.isMuted || !!lobby.switching || !!busy[kind] || publishing
+          || (kind === Track.Kind.Video && !!blurBusy);
+        for (const id of pickers[kind]) {
+          const select = $(id);
+          if (current && [...select.options].some(o => o.value === current)) select.value = current;
+          select.disabled = select.options.length === 0 || waits;
+        }
+      }
+      const cam = camTrack(), flip = $('switch-cam');
+      flip.hidden = !cam || devices.video.length < 2;
+      flip.disabled = !cam || cam.isMuted || !!busy.video || !!blurBusy || !!lobby.switching || publishing;
+      setIcon(flip, 'flip', handheld ? 'Flip camera' : 'Switch camera');
+      document.body.classList.toggle('rear-camera', settingsOf(Track.Kind.Video).facingMode === 'environment');
+      if (window.call.joined) {
+        $('mic').disabled = !!busy.audio;
+        $('cam').disabled = !!busy.video;
+      }
+    }
+
+    // The settings panel, on a desktop in a call: the button at the bar's
+    // right end opens it; Escape, a click anywhere else, or leaving the
+    // call closes it.
+    $('more').hidden = handheld;
+    setIcon($('more'), 'more', 'Settings');
+    $('more').setAttribute('aria-haspopup', 'dialog');
+    $('more').setAttribute('aria-expanded', 'false');
+    function openSettings() {
+      $('settings').hidden = false;
+      $('more').setAttribute('aria-expanded', 'true');
+      wake();
+    }
+    function closeSettings() {
+      $('settings').hidden = true;
+      $('more').setAttribute('aria-expanded', 'false');
+    }
+    $('more').addEventListener('click', () => ($('settings').hidden ? openSettings() : closeSettings()));
+    document.addEventListener('keydown', e => {
+      if (e.key !== 'Escape' || $('settings').hidden) return;
+      closeSettings();
+      $('more').focus();
+    });
+    document.addEventListener('click', e => {
+      if (!$('settings').hidden && !e.target.closest('.bar .end')) closeSettings();
+    });
 
     // The microphone and the camera can be off before joining: the track is
     // muted, and the call publishes it muted. The track is the truth, as
@@ -403,26 +553,25 @@
     // same device, re-attached to the preview, blur and all.
     //
     // A button is absent with no track of its kind. It waits while a switch
-    // is in flight, from the Join click, and, the camera's, while blur is
-    // switching, so one thing at a time works on a track. A device's select
-    // waits while it is off: another device would restart the capture
-    // behind the mute.
-    const mediaSwitches = [['mic-preview', 'mic-select', Track.Kind.Audio],
-                           ['cam-preview', 'cam-select', Track.Kind.Video]];
+    // is in flight (on or off, or to another device), from the Join click,
+    // and, the camera's, while blur is switching, so one thing at a time
+    // works on a track. A device's pickers wait while it is off: another
+    // device would restart the capture behind the mute (drawDevices).
+    const mediaSwitches = [['mic-preview', Track.Kind.Audio], ['cam-preview', Track.Kind.Video]];
     function drawMedia() {
-      for (const [id, selectId, kind] of mediaSwitches) {
+      for (const [id, kind] of mediaSwitches) {
         const track = trackOfKind(kind), off = !!(track && track.isMuted);
-        const button = $(id), select = $(selectId);
+        const button = $(id);
         button.hidden = !track;
-        button.disabled = !!lobby.switching || lobby.joining || (kind === Track.Kind.Video && !!blurBusy);
+        button.disabled = !!lobby.switching || lobby.joining || !!busy[kind] || (kind === Track.Kind.Video && !!blurBusy);
         drawSwitch(button, kind, !off);
-        select.disabled = select.options.length === 0 || !track || off || !!lobby.switching;
       }
       $('preview').parentElement.classList.toggle('cam-off', !!(camTrack() && camTrack().isMuted));
+      drawDevices();
     }
     async function switchMedia(kind) {
       const track = trackOfKind(kind);
-      if (!track || lobby.switching || lobby.joining || (kind === Track.Kind.Video && blurBusy)) return;
+      if (!track || lobby.switching || lobby.joining || busy[kind] || (kind === Track.Kind.Video && blurBusy)) return;
       // A camera that cannot start again (unplugged, taken by another app)
       // stays off and says why; the promise join() waits for never fails.
       lobby.switching = (track.isMuted ? track.unmute() : track.mute()).catch(showError);
@@ -433,7 +582,7 @@
       drawMedia();
       drawBlur();
     }
-    for (const [id, , kind] of mediaSwitches) $(id).addEventListener('click', () => switchMedia(kind));
+    for (const [id, kind] of mediaSwitches) $(id).addEventListener('click', () => switchMedia(kind));
 
     async function pollPresence() {
       try {
@@ -493,7 +642,7 @@
       const publishing = lobby.joining && !window.call.joined;
       for (const button of blurButtons) {
         button.hidden = !track || !blurSupported();
-        button.disabled = !!blurBusy || !!lobby.switching || publishing || !!(track && track.isMuted);
+        button.disabled = !!blurBusy || !!busy.video || !!lobby.switching || publishing || !!(track && track.isMuted);
         setIcon(button, 'blur', on ? 'Stop blurring' : 'Blur background');
         button.setAttribute('aria-pressed', String(on));
         button.toggleAttribute('data-on', on);
@@ -546,10 +695,7 @@
     }
     function blurFailed() {
       if (!window.call.joined) { showNotice(BLUR_FAILED); return; }
-      setStatus(BLUR_FAILED);
-      setTimeout(() => {
-        if (window.call.room && $('status').textContent === BLUR_FAILED) refreshStatus(window.call.room);
-      }, 4000);
+      flash(BLUR_FAILED);
     }
 
     // A switch still running for the previous lobby's camera ends first.
@@ -624,9 +770,7 @@
     // (LocalTrackUnpublished, in join()).
     const SHARING = 'You are sharing your screen.';
     const SHARE_FAILED = 'Screen sharing is not available here.';
-    const canShare = !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia)
-      && !/Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
-      && !(navigator.userAgentData && navigator.userAgentData.mobile);
+    const canShare = !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia) && !handheld;
     const sharing = () => !!(window.call.room && window.call.room.localParticipant.isScreenShareEnabled);
     Object.defineProperty(window.call, 'sharing', { get: sharing });
     // Set while the picker is open, so a second click cannot start a
@@ -656,12 +800,7 @@
       shareBusy = false;
       drawShare();
     }
-    function shareFailed() {
-      setStatus(SHARE_FAILED);
-      setTimeout(() => {
-        if (window.call.room && $('status').textContent === SHARE_FAILED) refreshStatus(window.call.room);
-      }, 4000);
-    }
+    function shareFailed() { flash(SHARE_FAILED); }
 
     // ---- call -----------------------------------------------------------
 
@@ -688,11 +827,15 @@
       setIcon(button, name, label);
       button.toggleAttribute('data-off', !on);
     }
-    function showMic(on) { drawSwitch($('mic'), Track.Kind.Audio, on); }
+    function showMic(on) {
+      drawSwitch($('mic'), Track.Kind.Audio, on);
+      drawDevices();
+    }
     function showCam(on) {
       drawSwitch($('cam'), Track.Kind.Video, on);
       $('local').parentElement.hidden = !on;
       drawBlur();
+      drawDevices();
     }
 
     // Two people can both get tokens before the room fills; the SFU then
@@ -717,6 +860,8 @@
       try {
         await lobby.ready;
         await lobby.switching;
+        await busy.video;
+        await busy.audio;
         await blurBusy;
         const res = await fetch(`/api/rooms/${roomId}/token`, {
           method: 'POST',
@@ -807,11 +952,13 @@
         show('call');
 
         $('mic').onclick = async () => {
+          if (busy.audio) return;
           const on = !room.localParticipant.isMicrophoneEnabled;
           await room.localParticipant.setMicrophoneEnabled(on);
           showMic(on);
         };
         $('cam').onclick = async () => {
+          if (busy.video) return;
           const on = !room.localParticipant.isCameraEnabled;
           await room.localParticipant.setCameraEnabled(on);
           showCam(on);

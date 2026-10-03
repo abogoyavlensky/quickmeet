@@ -149,8 +149,10 @@ body:not(.in-call) .bar #copy { height: 36px; padding: 0 12px; border-radius: 10
 .cam-off-label { display: none; position: absolute; inset: 0; margin: 0; place-items: center; color: rgba(255,255,255,.6); }
 .preview.cam-off .cam-off-label { display: grid; }
 .preview.cam-off video { visibility: hidden; }
-/* Your own picture is a mirror, in the lobby and in the call. */
+/* Your own picture is a mirror, in the lobby and in the call; a back
+   camera is not, it shows the world (set by the page). */
 .preview video, .tile.self video { transform: scaleX(-1); }
+body.rear-camera .preview video, body.rear-camera .tile.self video { transform: none; }
 /* Who is there is the lobby's one piece of news, so it is its heading. */
 #presence { font-size: 20px; font-weight: 500; letter-spacing: -0.01em; min-height: 30px; }
 .join-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; }
@@ -163,7 +165,8 @@ body:not(.in-call) .bar #copy { height: 36px; padding: 0 12px; border-radius: 10
    the controls below it. */
 body.in-call { min-height: 0; height: 100vh; height: 100dvh; overflow: hidden; }
 .in-call .bar { position: absolute; z-index: 2; top: 0; left: 0; right: 0; padding: 0 calc(16px + env(safe-area-inset-right)) 0 calc(16px + env(safe-area-inset-left)); }
-.in-call .back, .in-call .brand, .in-call #copy span, body:not(.in-call) .who, body:not(.in-call) #full { display: none; }
+.in-call .back, .in-call .brand, .in-call #copy span, body:not(.in-call) .who, body:not(.in-call) #full,
+body:not(.in-call) #more, body:not(.in-call) #settings { display: none; }
 .who { display: flex; align-items: center; gap: 8px; min-width: 0; font-weight: 500; }
 .who #remote-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .who #timer { color: var(--muted); font-weight: 400; font-variant-numeric: tabular-nums; }
@@ -171,9 +174,14 @@ body.in-call { min-height: 0; height: 100vh; height: 100dvh; overflow: hidden; }
 .waiting .who { visibility: hidden; }
 /* Reconnecting: the dot becomes a ring. */
 .reconnecting .who .dot { background: none; border: 2px solid var(--muted); }
-.in-call .bar .end { gap: 4px; }
+.in-call .bar .end { position: relative; gap: 4px; }
 .in-call .bar button { width: 40px; height: 40px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: #fff; }
 .in-call .bar button:hover { background: rgba(255,255,255,.14); }
+/* The settings, on a desktop: the lobby's two pickers in a panel that
+   hangs from the bar's right end. */
+.panel { position: absolute; top: calc(100% + 6px); right: 0; width: 280px; display: grid; gap: 10px; padding: 14px;
+         border-radius: 14px; background: rgba(0,0,0,.75); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+         text-align: left; box-shadow: 0 0 0 1px rgba(255,255,255,.1), 0 8px 24px rgba(0,0,0,.45); }
 
 /* min-height: 0 and minmax(0, 1fr): a <video> has an intrinsic height, and
    without these the call area grows to it and pushes the controls off
@@ -193,14 +201,16 @@ body.in-call { min-height: 0; height: 100vh; height: 100dvh; overflow: hidden; }
 .tile.self { position: absolute; right: 20px; bottom: 20px; width: 200px; max-width: 30vw; aspect-ratio: 16 / 9; border-radius: 14px; box-shadow: 0 0 0 1px rgba(255,255,255,.14), 0 8px 24px rgba(0,0,0,.45); }
 
 .controls { position: absolute; z-index: 2; bottom: 16px; left: 0; right: 0; display: flex; justify-content: center; gap: 14px; }
-/* Round glass buttons over video: the controls, and the lobby's preview
-   buttons (microphone and camera at its foot, blur in its corner), which
-   are darker because a lit room behind them is bright. */
-.controls button, .preview button { padding: 0; border: 0; border-radius: 50%; background: rgba(255,255,255,.14); color: #fff; -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); }
+/* Round glass buttons over video: the controls, the lobby's preview
+   buttons (microphone and camera at its foot, blur in its corner) and the
+   blur button in the self view's corner; the last two are darker because
+   a lit room behind them is bright. */
+.controls button, .preview button, .tile.self button { padding: 0; border: 0; border-radius: 50%; background: rgba(255,255,255,.14); color: #fff; -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); }
 .controls button { width: 56px; height: 56px; border-radius: 28px; }
 .controls button:hover { background: rgba(255,255,255,.22); }
-.preview button { width: 44px; height: 44px; background: rgba(0,0,0,.45); }
-.preview button:hover { background: rgba(0,0,0,.6); }
+.preview button, .tile.self button { width: 44px; height: 44px; background: rgba(0,0,0,.45); }
+.preview button:hover, .tile.self button:hover { background: rgba(0,0,0,.6); }
+.tile.self button { position: absolute; top: 8px; right: 8px; width: 40px; height: 40px; }
 .preview-controls { position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); display: flex; gap: 10px; }
 #blur-preview { position: absolute; right: 12px; bottom: 12px; }
 .controls svg { width: 24px; height: 24px; }
@@ -209,7 +219,8 @@ body.in-call { min-height: 0; height: 100vh; height: 100dvh; overflow: hidden; }
 .controls button[data-off], .controls button[data-off]:hover,
 .controls button[data-on], .controls button[data-on]:hover,
 .preview button[data-off], .preview button[data-off]:hover,
-#blur-preview[data-on], #blur-preview[data-on]:hover { background: #fff; color: #161917; }
+#blur-preview[data-on], #blur-preview[data-on]:hover,
+#blur[data-on], #blur[data-on]:hover { background: #fff; color: #161917; }
 .controls .danger, .controls .danger:hover { width: 76px; background: var(--hang); }
 
 .overlay { position: absolute; z-index: 1; top: 64px; left: 0; right: 0; padding: 0 16px; display: grid; justify-items: center; gap: 12px; text-align: center; pointer-events: none; }
@@ -227,10 +238,10 @@ body:not(.waiting) #invite, body:not(.waiting) #ring { display: none; }
 .immersive .bar { background: linear-gradient(rgba(0,0,0,.5), transparent); }
 .immersive .controls { bottom: calc(16px + env(safe-area-inset-bottom)); }
 .immersive .tile.self { right: calc(12px + env(safe-area-inset-right)); bottom: calc(12px + env(safe-area-inset-bottom)); }
-.immersive .bar, .immersive .controls { transition: opacity .3s; }
+.immersive .bar, .immersive .controls, .immersive .tile.self button { transition: opacity .3s; }
 /* Faded controls take no taps: the tap that brings them back must not
    also hang up. */
-.immersive.idle .bar, .immersive.idle .controls { opacity: 0; pointer-events: none; }
+.immersive.idle .bar, .immersive.idle .controls, .immersive.idle .tile.self button { opacity: 0; pointer-events: none; }
 
 /* Phones, portrait (narrow) or landscape (short). */
 @media (max-width: 700px), (max-height: 500px) {
@@ -245,5 +256,5 @@ body:not(.waiting) #invite, body:not(.waiting) #ring { display: none; }
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .immersive .bar, .immersive .controls { transition: none; }
+  .immersive .bar, .immersive .controls, .immersive .tile.self button { transition: none; }
 }

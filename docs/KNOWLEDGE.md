@@ -136,6 +136,27 @@ Verified 2026-09-29, for the two-person rule:
   processor; a microphone track is not stopped on mute. Publishing a
   stopped camera logs "could not determine track dimensions, using
   defaults" and assumes 720p, its capture default: harmless.
+- Verified 2026-10-03 (livekit-client 2.22.3), switching the device of a
+  published track with `restartTrack`, from the call:
+  - It stops the old capture *before* asking `getUserMedia` for the new
+    one. A device that cannot start leaves the track with an ended
+    capture; the room page restarts it on the device it had.
+  - It asks `getUserMedia` for `deviceId` and `facingMode` only and
+    applies the rest of the options (a `resolution`) with
+    `applyConstraints` afterwards. A switch without `resolution` captures
+    at the browser's default for that device, not at 720p.
+  - A track stopped while its restart waits for `getUserMedia` stops the
+    capture that restart gets (`manuallyStopped`). A second
+    `restartTrack` resets that flag, so a page that restarts again after
+    a failure must check the track is still its own first.
+  - The other side gets the new camera, and a restarted microphone keeps
+    reaching it, with no republish.
+  - `track.getSourceTrackSettings()` reads the capture's own settings
+    (`deviceId`, `facingMode`); with blur on, `mediaStreamTrack` is the
+    processed track and says nothing of the device.
+- Safari on iPadOS sends a Mac user agent and has no `userAgentData`; a
+  touch screen (`navigator.maxTouchPoints > 1`) is what tells it from a
+  Mac. From compatibility data, not tried on a device.
 - Safari (iOS above all) can block remote audio until a user gesture:
   `RoomEvent.AudioPlaybackStatusChanged` plus `room.canPlaybackAudio`
   say so, and `room.startAudio()` from a click unblocks it.
@@ -320,6 +341,11 @@ built binary, run by `lgx e2e` (2026-09-27).
   'microphone'])` on the context, and the room page's `createLocalTracks`
   gets a synthetic camera and microphone unchanged. Two browser contexts
   are two independent participants; the SFU sees a real call.
+- The headless shell has one fake camera (`fake_device_0`, 16:9) and
+  three fake microphones (verified 2026-10-03). The fake camera refuses
+  an exact `facingMode` (`OverconstrainedError`). `twoCameras` in
+  `e2e/tests/helpers.js` adds a 4:3 "Back Camera" for the switching
+  tests.
 - Playwright's `webServer` kills the app's whole process group with
   SIGKILL on teardown (`processLauncher.js`), so no listener survives a
   run whatever the app does with SIGTERM.

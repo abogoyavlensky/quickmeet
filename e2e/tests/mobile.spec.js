@@ -5,6 +5,14 @@ import { test, expect } from '@playwright/test';
 import { newRoom, joinAs, remoteOf, box, inside, overlaps } from './helpers.js';
 
 const phone = { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true };
+
+// The blur button lies on the self view, big enough to tap.
+async function expectBlurOn(page, self) {
+  const b = await box(page.locator('#blur'));
+  const within = b.x >= self.x && b.y >= self.y && b.x + b.width <= self.x + self.width + 0.5 && b.y + b.height <= self.y + self.height + 0.5;
+  expect(within, `blur on the self view: ${JSON.stringify(b)} in ${JSON.stringify(self)}`).toBe(true);
+  expect(b.height, 'blur tall enough to tap').toBeGreaterThanOrEqual(40);
+}
 test.use(phone);
 
 test.describe('on a phone', () => {
@@ -32,8 +40,9 @@ test.describe('on a phone', () => {
     const self = await box(alice.page.locator('.tile.self'));
     expect(inside(self, 390, 844), `self view inside the viewport: ${JSON.stringify(self)}`).toBe(true);
     expect(self.height).toBeLessThan(self.width * 2);
+    await expectBlurOn(alice.page, self);
 
-    for (const id of ['#blur', '#mic', '#cam', '#leave']) {
+    for (const id of ['#mic', '#cam', '#leave']) {
       const b = await box(alice.page.locator(id));
       expect(inside(b, 390, 844), `${id} inside the viewport: ${JSON.stringify(b)}`).toBe(true);
       expect(b.height, `${id} tall enough to tap`).toBeGreaterThanOrEqual(44);
@@ -87,13 +96,14 @@ test.describe('on a phone held sideways', () => {
 
     const self = await box(alice.page.locator('.tile.self'));
     const boxes = {};
-    for (const id of ['#status', '#sound', '#blur', '#mic', '#cam', '#leave']) {
+    await expectBlurOn(alice.page, self);
+    for (const id of ['#status', '#sound', '#mic', '#cam', '#leave']) {
       boxes[id] = await box(alice.page.locator(id));
       expect(inside(boxes[id], 667, 375), `${id} inside the viewport: ${JSON.stringify(boxes[id])}`).toBe(true);
       expect(overlaps(boxes[id], self), `${id} clear of the self view`).toBe(false);
     }
     for (const id of ['#status', '#sound']) {
-      for (const control of ['#blur', '#mic', '#cam', '#leave']) {
+      for (const control of ['#mic', '#cam', '#leave']) {
         expect(overlaps(boxes[id], boxes[control]), `${id} clear of ${control}`).toBe(false);
       }
     }
@@ -114,7 +124,7 @@ test.describe('in a short desktop window', () => {
     const alice = await joinAs(browser, contexts, roomUrl, 'alice', short);
     await joinAs(browser, contexts, roomUrl, 'bob');
     await expect.poll(() => remoteOf(alice.page)).toBe('bob');
-    for (const id of ['#remote', '#remote-name', '.tile.self', '#blur', '#mic', '#cam', '#leave']) {
+    for (const id of ['#remote', '#remote-name', '.tile.self', '#mic', '#cam', '#leave']) {
       const b = await box(alice.page.locator(id));
       expect(inside(b, 1280, 550), `${id} inside the viewport: ${JSON.stringify(b)}`).toBe(true);
     }

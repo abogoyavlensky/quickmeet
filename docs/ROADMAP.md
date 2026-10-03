@@ -289,6 +289,15 @@ in host mode. Two phones on different networks held a call there. See
   the release from M5's "linux/amd64 only". No tag pushed yet. A local
   run cannot hold a call yet
   (`docs/backlog/docker-local-run-needs-node-ip.md`).
+- Done 2026-10-03: switching the camera in a call
+  (`docs/plans/2026-10-03-0710-switch-camera-in-call.md`). A button in
+  the controls, shown with more than one camera: a phone or an iPad
+  flips between front and back, a desktop moves to its next camera. The
+  back camera is not mirrored in your own view. Blur moved from the
+  controls onto the self view's corner, as it sits on the lobby's
+  preview. On a desktop, a settings button (three dots) at the bar's
+  right end opens the camera and microphone pickers. Not yet tried on a
+  real phone or iPad.
 - Mobile: LiveKit's Swift, Kotlin and React Native SDKs talk to the same
   SFU and the same token endpoint. Native ringing needs APNs and FCM
   signing that let-go does not have; a small Go shim or a hosted push
