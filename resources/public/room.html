@@ -17,8 +17,9 @@
 </head>
 <body class="room">
   <!-- Before the call: back to the list, the brand and the link to send.
-       In the call: the other person, how long it has been, and the same
-       link as an icon. -->
+       In the call: the other person, how long it has been, the same link
+       as an icon, and on a desktop the settings: a camera and a
+       microphone to pick, in a panel under the bar. -->
   <header class="bar">
     <a id="back" class="back" href="/"></a>
     <a class="brand" href="/">quickmeet</a>
@@ -26,6 +27,11 @@
     <span class="end">
       <button id="full" hidden></button>
       <button id="copy" class="ghost" title="Copy link"></button>
+      <button id="more" hidden></button>
+      <div id="settings" class="panel" hidden>
+        <label>Camera <select id="cam-pick"></select></label>
+        <label>Microphone <select id="mic-pick"></select></label>
+      </div>
     </span>
   </header>
 
@@ -65,7 +71,9 @@
 
   <section id="call" class="call" hidden>
     <div class="tile empty"><video id="remote" autoplay playsinline></video></div>
-    <div class="tile self"><video id="local" autoplay playsinline muted></video></div>
+    <!-- Your own picture, with the blur button in its corner: blur is set
+         once and lives on your picture, as it does in the lobby. -->
+    <div class="tile self"><video id="local" autoplay playsinline muted></video><button id="blur" hidden></button></div>
     <!-- One line for the call's state, shown only when something needs
          attention; while alone, Ring for the other members who can be
          rung and the link to send; the sound button for browsers that
@@ -77,9 +85,9 @@
       <button id="sound" class="primary" hidden>Tap to enable sound</button>
     </div>
     <footer class="controls">
-      <button id="blur" hidden></button>
       <button id="mic"></button>
       <button id="cam"></button>
+      <button id="switch-cam" hidden></button>
       <button id="share" hidden></button>
       <button id="leave" class="danger"></button>
     </footer>

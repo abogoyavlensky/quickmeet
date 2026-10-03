@@ -18,6 +18,12 @@ const ICONS = {
   // A monitor on its stand, an arrow going up out of it.
   screen: '<rect x="2.5" y="4" width="19" height="13" rx="2"/><path d="M8 21h8M12 17v4M12 14V8M9 11l3-3 3 3"/>',
   bell: '<path d="M6 16v-5a6 6 0 0 1 12 0v5l1.5 2h-15L6 16z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>',
+  // A camera body with two arrows chasing each other inside: the other
+  // camera.
+  flip: '<path d="M3 8h3l2-3h8l2 3h3v11H3z"/><path d="M9 12.5a3 3 0 0 1 5.2-1.6M15 13.5a3 3 0 0 1-5.2 1.6"/><path d="M14.6 8.9v2.2h-2.2M9.4 17.1v-2.2h2.2"/>',
+  // Three dots in a column, filled: as zero-length strokes they vanish
+  // at 20px (as `blur`'s do).
+  more: '<g fill="currentColor" stroke="none"><circle cx="12" cy="5" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="12" cy="19" r="1.7"/></g>',
   // A person, sharp, with the background around them in dots. The dots
   // are filled: as zero-length strokes they vanish at 20px.
   blur: '<circle cx="12" cy="9" r="3.5"/><path d="M5.5 20a6.5 6.5 0 0 1 13 0"/><g fill="currentColor" stroke="none"><circle cx="3" cy="6" r="1.1"/><circle cx="3" cy="11.5" r="1.1"/><circle cx="3" cy="17" r="1.1"/><circle cx="21" cy="6" r="1.1"/><circle cx="21" cy="11.5" r="1.1"/><circle cx="21" cy="17" r="1.1"/><circle cx="7.5" cy="3" r="1.1"/><circle cx="16.5" cy="3" r="1.1"/></g>',

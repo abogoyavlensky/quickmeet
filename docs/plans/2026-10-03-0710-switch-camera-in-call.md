@@ -357,7 +357,7 @@ among the controls it measures; those lists change (Task 1).
 - Modify: `e2e/tests/helpers.js`, `e2e/tests/mobile.spec.js`
 - Create: `e2e/tests/camera.spec.js`
 
-- [ ] **Step 1: `twoCameras` in `helpers.js`**
+- [x] **Step 1: `twoCameras` in `helpers.js`**
   After `canvasMedia`, export `twoCameras({ backFails, backDelay } = {})`
   as an init function (`async context => context.addInitScript(fn, { backFails, backDelay })`)
   doing what Testing above describes. The script must be self-contained:
@@ -367,7 +367,7 @@ among the controls it measures; those lists change (Task 1).
   `label` as own properties on the canvas track instance. Keep a comment
   saying why the helper exists (one fake camera in the headless shell).
 
-- [ ] **Step 2: `camera.spec.js`**
+- [x] **Step 2: `camera.spec.js`**
   Write the six tests from Testing in two `describe` blocks: "on a
   phone" (the Android context from `screenshare.spec.js`, copied; tests
   1, 4 and 5) and "on a desktop" (tests 2, 3 and 6). Use
@@ -380,21 +380,28 @@ among the controls it measures; those lists change (Task 1).
   (`trackOfKind` is a global of the page's script, as `lobby.spec.js`
   uses it). Boxes with `box` and `inside` from `helpers.js`.
 
-- [ ] **Step 3: `mobile.spec.js`**
+- [x] **Step 3: `mobile.spec.js`**
   In the three control lists (`['#blur', '#mic', '#cam', '#leave']` and
   the two longer ones) drop `#blur`, and where the self view's box is
   already measured add: `#blur`'s box lies inside it and is at least
   40 px tall. Keep the checks that the remaining controls clear the self
   view.
 
-- [ ] **Step 4: Run them to see them fail**
+- [x] **Step 4: Run them to see them fail**
   Run: `lgx build && (cd e2e && npx playwright test tests/camera.spec.js tests/mobile.spec.js)`
   Expected: the camera tests FAIL on a missing `#switch-cam` or `#more`
   (test 3 may fail only on `#more`); the mobile tests FAIL on `#blur`
   not inside the self view.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git commit -m "e2e: a second camera, and the tests for switching devices in a call"`
+
+> Deviation: builds run as `mise exec -- lgx build`. The shell's `lgx` was
+> 0.2.0, which reads this project's `lgx.edn` as unknown keys and builds
+> nothing; the project pins 0.4.2 in `.mise.toml`. The global pin was
+> bumped to 0.4.2 on 2026-10-03, which fixes it for new shells.
+> Codex review (fb4f2f5): one finding, that the new tests fail before the
+> feature exists; that is this task's purpose, not a defect.
 
 ### Task 2: Markup, icons and style
 
