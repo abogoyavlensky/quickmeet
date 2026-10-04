@@ -297,7 +297,7 @@ by e2e: Playwright cannot receive a Web Push.
 - Modify: `resources/public/ui.js`, `lgx.edn`, `src/quickmeet/routes.lg`
 - Test: `test/quickmeet/routes_test.lg`
 
-- [ ] **Step 1: Write `i18n.js`**
+- [x] **Step 1: Write `i18n.js`**
   As in the design: `RU` (empty for now), `auto`, `pinned`, `lang`,
   `localeOf` (`undefined` when pinned is `auto`, else the language),
   `t(key, vars)` (replace `{x}` from `vars`), `applyLanguage()`, and
@@ -306,22 +306,33 @@ by e2e: Playwright cannot receive a Web Push.
   returns true. A header comment in the voice of `ui.js`. `applyLanguage`
   stores the key into an empty `data-i18n` on its first pass.
   `document.addEventListener('DOMContentLoaded', applyLanguage)`.
+  > Deviation: `i18n.js` reads localStorage through its own small wrapper
+  > instead of `ui.js`'s `stored`. The sign-in and sign-up pages do not
+  > load `ui.js`. It also sets `html[lang]` as soon as it loads, before
+  > the DOM is ready.
 
-- [ ] **Step 2: `ui.js`**
+- [x] **Step 2: `ui.js`**
   `copyLink` writes `t('Copied')`; `push.on` and
   `pushKey`/`saveSubscription` throw `t(...)` sentences (the status code
   stays a `{status}` variable); Sign out calls `rememberLanguage(null)`
   before leaving. `setIcon` is unchanged: callers pass `t('...')`.
+  > `copyLink` builds its `Copied` span with `textContent` now, since the
+  > text is no longer a fixed literal inside markup.
 
-- [ ] **Step 3: Serve it**
+- [x] **Step 3: Serve it**
   `routes.lg` serves `/static/i18n.js` through `/static/:file` already
   (any `.js` under `public/`); add a `pages-and-static` assertion that
   every page links `/static/i18n.js` once task 4 adds the tags. For now,
   only confirm `GET /static/i18n.js` is 200 with the JS content type.
   Run: `lgx test`
   Expected: PASS.
+  > Deviation: the `<script src="/static/i18n.js">` tags went onto all six
+  > pages here, not in task 4. `ui.js` calls `t` from this task on, and a
+  > page without the script would break on copying a link. The route test
+  > checks every page links it. `lgx test` 83 tests, 0 failures; the
+  > account, rooms, landing and ring e2e specs 19 passed.
 
-- [ ] **Step 4: Write `scripts/check-i18n.mjs`**
+- [x] **Step 4: Write `scripts/check-i18n.mjs`**
   Reads the six pages, `ui.js`, `account.js`; collects keys as the
   design's "Completeness check" lists: whole tags (`<[^>]+>`) with a
   `data-i18n*` attribute, resolving empty ones to the tag's text or its
@@ -335,7 +346,7 @@ by e2e: Playwright cannot receive a Web Push.
   in step 2. Task 4 marks the pages and fills the dictionary; nothing is
   translated in this task.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git commit -m "i18n: the dictionary script and its completeness check"`
 
 ### Task 4: The pages speak Russian

@@ -253,6 +253,12 @@
         (is (str/includes? (:body js) "livekit-client@2.22.3")))
       (is (= 404 (:status (call handler :get "/static/nope.js"))))
       ;; The account pages, the script they share, and history.
+      ;; The interface's language, linked by every page.
+      (let [js (call handler :get "/static/i18n.js")]
+        (is (= 200 (:status js)))
+        (is (= "text/javascript; charset=utf-8" (get-in js [:headers "Content-Type"]))))
+      (doseq [page ["/" "/signup" "/signin" "/settings" "/history" "/room/0123456789ab"]]
+        (is (str/includes? (:body (call handler :get page)) "/static/i18n.js") page))
       (doseq [page ["/signup" "/signin" "/settings" "/history" "/static/account.js"]]
         (is (= 200 (:status (call handler :get page))) page))
       ;; The service worker, at the root: a worker controls only the paths
