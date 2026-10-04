@@ -5,32 +5,39 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#f4f5f2" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#111312" media="(prefers-color-scheme: dark)">
-  <title>Sign up · quickmeet</title>
+  <title data-i18n>Sign up · quickmeet</title>
   <link rel="icon" href="/favicon.ico" sizes="32x32">
   <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
   <link rel="manifest" href="/static/manifest.webmanifest">
   <link rel="stylesheet" href="/static/fonts.css">
   <link rel="stylesheet" href="/static/app.css">
+  <script src="/static/i18n.js"></script>
 </head>
 <body>
   <header class="bar"><a class="brand" href="/">quickmeet</a></header>
   <main class="page">
-    <h1>Sign up</h1>
-    <p class="lead">An account lets you start calls. Joining one takes only the link.</p>
+    <h1 data-i18n>Sign up</h1>
+    <p class="lead" data-i18n>An account lets you start calls. Joining one takes only the link.</p>
     <form id="form" class="form">
-      <label>Email <input id="email" type="email" autocomplete="email" required autofocus></label>
-      <label>Password <input id="password" type="password" autocomplete="new-password" minlength="8" required></label>
-      <button id="submit" class="primary" type="submit">Sign up</button>
+      <label><span data-i18n>Email</span> <input id="email" type="email" autocomplete="email" required autofocus></label>
+      <label><span data-i18n>Password</span> <input id="password" type="password" autocomplete="new-password" minlength="8" required></label>
+      <button id="submit" class="primary" type="submit" data-i18n>Sign up</button>
       <p id="error" class="error" hidden></p>
     </form>
-    <p class="muted">Have an account? <a href="/signin">Sign in</a></p>
+    <p class="muted"><span data-i18n>Have an account?</span> <a href="/signin" data-i18n>Sign in</a></p>
   </main>
   <script src="/static/account.js"></script>
   <script>
+    // The API's codes, and the sentences it sends ready-made, in the
+    // page's language.
     accountForm('/api/auth/signup', {
-      'exists': 'An account with this email already exists. Sign in instead.',
-      'not allowed': 'This address is not allowed on this instance.',
+      'exists': t('An account with this email already exists. Sign in instead.'),
+      'not allowed': t('This address is not allowed on this instance.'),
+      'Enter a valid email address.': t('Enter a valid email address.'),
+      'The password must be at least 8 characters.': t('The password must be at least 8 characters.'),
+      'The password must be at most 72 bytes.': t('The password must be at most 72 bytes.'),
+      'Too many attempts. Try again later.': t('Too many attempts. Try again later.'),
     });
   </script>
 </body>

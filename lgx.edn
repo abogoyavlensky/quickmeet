@@ -108,6 +108,11 @@
   {:doc "Write the app icons and the favicon into resources/public"
    :do {:sh "node scripts/make-icons.mjs"}}
 
+  ;; Every English sentence on the pages has its Russian (i18n.js).
+  i18n-check
+  {:doc "List the interface's sentences that have no Russian yet"
+   :do {:sh "node scripts/check-i18n.mjs"}}
+
   ;; Background blur: LiveKit's track processors, MediaPipe's wasm and the
   ;; segmentation model, served from the binary too. Versions are pinned in
   ;; the script.

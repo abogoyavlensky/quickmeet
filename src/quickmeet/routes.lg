@@ -173,7 +173,7 @@
       (too-many retry))))
 
 (defn- public-user [user]
-  (select-keys user [:email :display_name]))
+  (select-keys user [:email :display_name :language]))
 
 (def ^:private unauthorized
   (json-response 401 {:error "unauthorized"}))
@@ -289,16 +289,20 @@
     (boolean (some #(= identity (:identity %)) (participants room-id)))))
 
 (defn- ring-message
-  "What a ring sends: the notification the service worker shows, the room
-   as the topic (so a newer ring replaces one still waiting at the push
-   service), and the VAPID subject, the site's own URL behind TLS. Over
-   plain http (development) there is no such URL; the library makes the
-   address a mailto:."
-  [req user room-id]
+  "What a ring sends to `target`'s device: the notification the service
+   worker shows, the room as the topic (so a newer ring replaces one still
+   waiting at the push service), and the VAPID subject, the site's own URL
+   behind TLS. Over plain http (development) there is no such URL; the
+   library makes the address a mailto:. The text is English; `from` and
+   the recipient's `language` let the worker show it in Russian (sw.js),
+   which only it can decide for \"auto\", from the device's own language."
+  [req user room-id target]
   {:payload (json/write-json {:title (str (:display_name user) " wants to talk")
                               :body "Tap to join the call."
                               :url (str "/room/" room-id)
-                              :tag (str "room-" room-id)})
+                              :tag (str "room-" room-id)
+                              :from (:display_name user)
+                              :language (or (:language target) "auto")})
    :topic room-id
    :subject (if (secure? req) (str "https://" (request-host req)) "quickmeet@localhost")})
 
@@ -378,16 +382,34 @@
                   (json-response 200 (public-user user))
                   unauthorized))}
 
-   ;; Body: {"display_name": "..."}.
+   ;; Body: {"display_name": "...", "language": "auto" | "en" | "ru"},
+   ;; either or both. Both are checked before either is saved, so a bad
+   ;; one changes nothing.
    {:path "/api/me"
     :method :post
     :response (json-only
                (fn [req]
                  (if-let [user (current-user req)]
-                   (let [result (auth/rename! conn (:id user) (:display_name (read-json-body req)))]
-                     (if (:error result)
-                       (error-response result)
-                       (json-response 200 (public-user (:user result)))))
+                   (let [body (read-json-body req)
+                         ;; JSON that is not an object (1, "x", []) has
+                         ;; nothing to change.
+                         body (if (map? body) body {})
+                         name? (contains? body :display_name)
+                         language? (contains? body :language)
+                         language (:language body)]
+                     (cond
+                       (not (or name? language?))
+                       (json-response 400 {:error "Nothing to change."})
+
+                       (and language? (auth/language-problem language))
+                       (json-response 400 {:error (auth/language-problem language)})
+
+                       :else
+                       (let [renamed (if name? (auth/rename! conn (:id user) (:display_name body)) {:user user})]
+                         (if (:error renamed)
+                           (error-response renamed)
+                           (let [result (if language? (auth/set-language! conn (:id user) language) renamed)]
+                             (json-response 200 (public-user (:user result))))))))
                    unauthorized)))}
 
    {:path "/room/:id"
@@ -519,7 +541,8 @@
                       (if (empty? targets)
                         (json-response 409 {:error "nobody to ring"})
                         (or (limited auth :ring (str (:id user) ":" id))
-                            (do (push/deliver! push conn targets (ring-message req user id))
+                            (do (doseq [target targets]
+                                  (push/deliver! push conn [target] (ring-message req user id target)))
                                 (json-response 200 {:devices (count targets)}))))))))}
 
    ;; The key a browser subscribes with (applicationServerKey).

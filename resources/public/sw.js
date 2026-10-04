@@ -7,16 +7,29 @@
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', event => event.waitUntil(self.clients.claim()));
 
-// The server sends {title, body, url, tag} (routes.lg, ring-message). The
-// tag is the room's, so a second ring replaces the first rather than
-// stacking, and renotify makes the replacement alert again. A push that
-// shows nothing gets the subscription revoked on iOS, so even one that
-// cannot be read shows something.
+// The server sends {title, body, url, tag, from, language} (routes.lg,
+// ring-message). The tag is the room's, so a second ring replaces the
+// first rather than stacking, and renotify makes the replacement alert
+// again. A push that shows nothing gets the subscription revoked on iOS,
+// so even one that cannot be read shows something.
+//
+// The worker puts the ring in the recipient's language itself: their
+// account's choice when they pinned one, else this device's own first
+// language, as the pages decide (i18n.js). The server cannot decide
+// "auto"; it does not know the device. Its English title and body are the
+// fallback. The two Russian sentences live here because a worker cannot
+// load the pages' dictionary.
+const russian = ring => ring.language === 'ru'
+  || (ring.language !== 'en' && /^ru\b/i.test(self.navigator.language || ''));
 self.addEventListener('push', event => {
   let ring = {};
   try { ring = event.data ? event.data.json() : {}; } catch (e) { /* shown plainly below */ }
-  event.waitUntil(self.registration.showNotification(ring.title || 'quickmeet', {
-    body: ring.body || 'Someone wants to talk.',
+  // Russian needs the caller's name; without it the ring is all English.
+  const ru = !!ring.from && russian(ring);
+  const title = ru ? ring.from + ' хочет поговорить' : ring.title || 'quickmeet';
+  const body = ru ? 'Нажмите, чтобы присоединиться' : ring.body || 'Someone wants to talk.';
+  event.waitUntil(self.registration.showNotification(title, {
+    body,
     tag: ring.tag || 'quickmeet',
     renotify: true,
     icon: '/static/icon-192.png',

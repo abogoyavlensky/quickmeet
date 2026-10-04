@@ -16,6 +16,10 @@ export default defineConfig({
     baseURL: 'http://127.0.0.1:8099',
     trace: 'retain-on-failure',
     permissions: ['camera', 'microphone'],
+    // The specs find buttons by their English names; the interface follows
+    // the browser's language (i18n.js), so the browser is pinned to it.
+    // i18n.spec.js opens Russian contexts on purpose.
+    locale: 'en-US',
     launchOptions: {
       // A synthetic camera and microphone through the normal getUserMedia
       // path, with no permission prompt, and autoplay for the remote <video>.

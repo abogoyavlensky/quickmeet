@@ -100,7 +100,7 @@
       (let [targets (db/ring-targets conn "aaaaaaaaaaaa" "u-alice")]
         (is (= #{(str fcm "bob-phone") (str fcm "bob-laptop")} (endpoints targets)))
         (is (= {:endpoint (str fcm "bob-phone") :p256dh "pb" :auth "ab"
-                :user_id "u-bob" :email "bob@example.com" :display_name "Bob"}
+                :user_id "u-bob" :email "bob@example.com" :display_name "Bob" :language "auto"}
                (first (filter #(= (str fcm "bob-phone") (:endpoint %)) targets)))))
       ;; Bob rings: Alice's device.
       (is (= #{(str fcm "alice")} (endpoints (db/ring-targets conn "aaaaaaaaaaaa" "u-bob"))))

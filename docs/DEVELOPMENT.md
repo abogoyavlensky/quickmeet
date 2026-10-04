@@ -83,6 +83,26 @@ restart or deploy does to a live call. It reads `QM_URL`, `QM_EMAIL` and
 exits 0 when both sides end the run in the call with media flowing
 (`e2e/smoke.mjs`).
 
+## The interface's languages
+
+The pages are in English, and in Russian for a browser whose first
+language is Russian or an account that pinned it in Settings
+(`resources/public/i18n.js`). The English sentences are the keys. To add
+or change one:
+
+- In markup, mark the element: `data-i18n` translates its text (an
+  element whose text sits beside an input or a link gets a `<span>` of its
+  own), and `data-i18n-placeholder`, `data-i18n-title` or
+  `data-i18n-aria-label` translate that attribute.
+- In a script, wrap the literal itself: `t('Join call')`, with a variable
+  as a placeholder, `t('{name} is already here.', { name })`. Never
+  `t(text)`: the check below finds keys by their literal.
+- Run `lgx i18n-check`. It lists every sentence `RU` in `i18n.js` has no
+  Russian for, and fails until each has one.
+
+The browser tests run in English (`locale` in `e2e/playwright.config.js`);
+`e2e/tests/i18n.spec.js` opens Russian browsers on purpose.
+
 ## Vendored assets
 
 `livekit-client` is vendored into `resources/public/` and served from the

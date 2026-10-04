@@ -14,6 +14,7 @@
   <script src="/static/livekit-client.umd.min.js"></script>
   <script src="/static/track-processors.js"></script>
   <script src="/static/ui.js"></script>
+  <script src="/static/i18n.js"></script>
 </head>
 <body class="room">
   <!-- Before the call: back to the list, the brand and the link to send.
@@ -26,20 +27,20 @@
     <span class="who"><span class="dot"></span><span id="remote-name">waiting for the other side…</span><span id="timer"></span></span>
     <span class="end">
       <button id="full" hidden></button>
-      <button id="copy" class="ghost" title="Copy link"></button>
+      <button id="copy" class="ghost" title="Copy link" data-i18n-title></button>
       <button id="more" hidden></button>
       <div id="settings" class="panel" hidden>
-        <label>Camera <select id="cam-pick"></select></label>
-        <label>Microphone <select id="mic-pick"></select></label>
+        <label><span data-i18n>Camera</span> <select id="cam-pick"></select></label>
+        <label><span data-i18n>Microphone</span> <select id="mic-pick"></select></label>
       </div>
     </span>
   </header>
 
   <!-- The link points at no room: nothing is asked of the camera. -->
   <section id="gone" class="lobby" hidden>
-    <h1>This link does not exist.</h1>
-    <p class="lead">The call it led to was deleted, or the address is mistyped.</p>
-    <p><a class="button" href="/">Start a new call</a></p>
+    <h1 data-i18n>This link does not exist.</h1>
+    <p class="lead" data-i18n>The call it led to was deleted, or the address is mistyped.</p>
+    <p><a class="button" href="/" data-i18n>Start a new call</a></p>
   </section>
 
   <!-- Before joining: a preview (with the blur button in its corner, so
@@ -51,7 +52,7 @@
   <section id="lobby" class="lobby" hidden>
     <div class="preview">
       <video id="preview" autoplay playsinline muted></video>
-      <p class="cam-off-label">Camera is off</p>
+      <p class="cam-off-label" data-i18n>Camera is off</p>
       <div class="preview-controls">
         <button id="mic-preview" hidden></button>
         <button id="cam-preview" hidden></button>
@@ -62,13 +63,14 @@
       <p id="presence"></p>
       <p id="notice" class="notice" hidden></p>
       <div class="join-row">
-        <input id="identity" maxlength="64" placeholder="Your name" aria-label="Your name" autocomplete="name">
-        <button id="join" class="primary">Join call</button>
+        <input id="identity" maxlength="64" placeholder="Your name" aria-label="Your name" autocomplete="name"
+               data-i18n-placeholder data-i18n-aria-label>
+        <button id="join" class="primary" data-i18n>Join call</button>
       </div>
       <p id="error" class="error" hidden></p>
       <div class="devices">
-        <label>Camera <select id="cam-select"></select></label>
-        <label>Microphone <select id="mic-select"></select></label>
+        <label><span data-i18n>Camera</span> <select id="cam-select"></select></label>
+        <label><span data-i18n>Microphone</span> <select id="mic-select"></select></label>
       </div>
     </div>
   </section>
@@ -86,7 +88,7 @@
       <p id="status" class="status" hidden></p>
       <button id="ring" class="primary" hidden></button>
       <button id="invite" class="primary"></button>
-      <button id="sound" class="primary" hidden>Tap to enable sound</button>
+      <button id="sound" class="primary" hidden data-i18n>Tap to enable sound</button>
     </div>
     <footer class="controls">
       <button id="mic"></button>
@@ -108,9 +110,11 @@
     const { Room, RoomEvent, Track, DisconnectReason, VideoPresets, createLocalTracks } = LivekitClient;
     const $ = id => document.getElementById(id);
     const roomId = location.pathname.split('/').pop();
-    const FULL = 'This call already has two people in it.';
-    const WAITING = 'Waiting for the other person.';
-    const RING_FAILED = 'Could not ring.';
+    // Sentences the page shows from more than one place; functions, so they
+    // follow a language that changes after load (i18n.js).
+    const FULL = () => t('This call already has two people in it.');
+    const WAITING = () => t('Waiting for the other person.');
+    const RING_FAILED = () => t('Could not ring.');
     // A phone or a tablet, by the browser's own word. Such a device has a
     // front and a back camera to flip between, no screen to share, and
     // routes a headset itself, so it gets no settings panel. Safari on an
@@ -119,12 +123,31 @@
       || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1)
       || !!(navigator.userAgentData && navigator.userAgentData.mobile);
 
-    for (const id of ['copy', 'invite']) {
-      $(id).innerHTML = icon('link') + '<span>Copy link</span>';
-      $(id).addEventListener('click', () => copyLink($(id), location.href));
+    for (const id of ['copy', 'invite']) $(id).addEventListener('click', () => copyLink($(id), location.href));
+    // The labels scripts write once; again when the language changes.
+    function drawLabels() {
+      for (const id of ['copy', 'invite']) {
+        const label = document.createElement('span');
+        label.textContent = t('Copy link');
+        $(id).innerHTML = icon('link');
+        $(id).append(label);
+      }
+      setIcon($('leave'), 'hang', t('Leave'));
+      setIcon($('back'), 'back', t('Back'));
+      setIcon($('more'), 'more', t('Settings'));
+      drawRemoteName();
     }
-    setIcon($('leave'), 'hang', 'Leave');
-    setIcon($('back'), 'back', 'Back');
+
+    // Who is in the bar: nobody yet, the other person's name, or that they
+    // left. Kept here, not in the element, so a language that changes
+    // mid-call redraws the words and keeps the name.
+    const LEFT = {};
+    let remoteName = null;
+    function drawRemoteName() {
+      $('remote-name').textContent = remoteName === LEFT ? t('the other side left')
+        : remoteName || t('waiting for the other side…');
+    }
+    drawLabels();
 
     const showError = e => { $('error').textContent = String(e.message || e); $('error').hidden = false; };
     const showNotice = text => { $('notice').textContent = text || ''; $('notice').hidden = !text; };
@@ -257,7 +280,7 @@
     const fullScreen = () => !!(document.fullscreenElement || document.webkitFullscreenElement);
     function layout() {
       document.body.classList.toggle('immersive', small.matches || fullScreen());
-      setIcon($('full'), fullScreen() ? 'shrink' : 'expand', fullScreen() ? 'Leave full screen' : 'Full screen');
+      setIcon($('full'), fullScreen() ? 'shrink' : 'expand', fullScreen() ? t('Leave full screen') : t('Full screen'));
       fitRemote();
     }
     small.addEventListener('change', layout);
@@ -357,10 +380,28 @@
     async function fillName() {
       try {
         const res = await fetch('/api/me');
-        if (!res.ok) return;
-        const { display_name } = await res.json();
+        if (!res.ok) { if (rememberLanguage(null)) redraw(); return; }
+        const { display_name, language } = await res.json();
+        if (rememberLanguage(language)) redraw();
         if (!$('identity').value) $('identity').value = display_name;
       } catch (e) { /* a guest, or offline: the field stays empty */ }
+    }
+
+    // The account's language differed from the one the page was drawn in:
+    // what scripts wrote is written again (the presence line, at the next
+    // poll).
+    function redraw() {
+      drawLabels();
+      layout();
+      drawMedia();
+      drawBlur();
+      drawShare();
+      drawRing();
+      if (window.call.joined) {
+        showMic(window.call.room.localParticipant.isMicrophoneEnabled);
+        showCam(window.call.room.localParticipant.isCameraEnabled);
+        refreshStatus(window.call.room);
+      }
     }
 
     function startLobby(notice) {
@@ -384,8 +425,8 @@
     async function acquireTracks() {
       const attempts = [
         [{ audio: true, video: { facingMode: 'user' } }, null],
-        [{ audio: true }, 'No camera found: joining with audio only.'],
-        [{ video: { facingMode: 'user' } }, 'No microphone found: joining without sound.'],
+        [{ audio: true }, t('No camera found: joining with audio only.')],
+        [{ video: { facingMode: 'user' } }, t('No microphone found: joining without sound.')],
       ];
       for (const [options, note] of attempts) {
         try {
@@ -397,7 +438,7 @@
         } catch (e) { /* the next attempt asks for less */ }
       }
       lobby.tracks = [];
-      showNotice('No camera or microphone: you will only see and hear.');
+      showNotice(t('No camera or microphone: you will only see and hear.'));
     }
 
     // Permission was just granted (or refused), so labels are available and
@@ -406,7 +447,10 @@
     // drawDevices keeps them on the device in use.
     const pickers = { video: ['cam-select', 'cam-pick'], audio: ['mic-select', 'mic-pick'] };
     async function fillDevices() {
-      const kinds = [[Track.Kind.Video, 'videoinput', 'Camera'], [Track.Kind.Audio, 'audioinput', 'Microphone']];
+      const kinds = [
+        [Track.Kind.Video, 'videoinput', n => t('Camera {n}', { n })],
+        [Track.Kind.Audio, 'audioinput', n => t('Microphone {n}', { n })],
+      ];
       for (const [kind, deviceKind, fallback] of kinds) {
         devices[kind] = await Room.getLocalDevices(deviceKind, false);
         for (const id of pickers[kind]) {
@@ -415,7 +459,7 @@
           devices[kind].forEach((d, i) => {
             const option = document.createElement('option');
             option.value = d.deviceId;
-            option.textContent = d.label || `${fallback} ${i + 1}`;
+            option.textContent = d.label || fallback(i + 1);
             select.append(option);
           });
         }
@@ -444,7 +488,7 @@
     // while a join publishes. If the lobby started over meanwhile (a leave,
     // a lost connection), the track is nobody's any more: it is not
     // restarted again but stopped, so no camera is left running.
-    const SWITCH_FAILED = { video: 'Could not switch camera.', audio: 'Could not switch microphone.' };
+    const SWITCH_FAILED = { video: () => t('Could not switch camera.'), audio: () => t('Could not switch microphone.') };
     async function switchDevice(kind, options) {
       const track = trackOfKind(kind);
       const publishing = lobby.joining && !window.call.joined;
@@ -475,7 +519,7 @@
       drawMedia();
       drawBlur();
       if (!ok && track === trackOfKind(kind)) {
-        if (window.call.joined) flash(SWITCH_FAILED[kind]); else showError(SWITCH_FAILED[kind]);
+        if (window.call.joined) flash(SWITCH_FAILED[kind]()); else showError(SWITCH_FAILED[kind]());
       }
       return ok;
     }
@@ -516,7 +560,7 @@
       const cam = camTrack(), flip = $('switch-cam');
       flip.hidden = !cam || devices.video.length < 2;
       flip.disabled = !cam || cam.isMuted || !!busy.video || !!blurBusy || !!lobby.switching || publishing;
-      setIcon(flip, 'flip', handheld ? 'Flip camera' : 'Switch camera');
+      setIcon(flip, 'flip', handheld ? t('Flip camera') : t('Switch camera'));
       document.body.classList.toggle('rear-camera', settingsOf(Track.Kind.Video).facingMode === 'environment');
       if (window.call.joined) {
         $('mic').disabled = !!busy.audio;
@@ -528,7 +572,6 @@
     // right end opens it; Escape, a click anywhere else, or leaving the
     // call closes it.
     $('more').hidden = handheld;
-    setIcon($('more'), 'more', 'Settings');
     $('more').setAttribute('aria-haspopup', 'dialog');
     $('more').setAttribute('aria-expanded', 'false');
     function openSettings() {
@@ -598,8 +641,8 @@
         if (!lobby.poll || lobby.joining) return;
         const n = participants.length;
         $('presence').textContent =
-          n === 0 ? 'Nobody has joined yet.' :
-          n === 1 ? `${nameOf(participants[0])} is already here.` : FULL;
+          n === 0 ? t('Nobody has joined yet.') :
+          n === 1 ? t('{name} is already here.', { name: nameOf(participants[0]) }) : FULL();
         $('join').disabled = n >= 2;
       } catch (e) { /* the next poll tries again */ }
     }
@@ -622,7 +665,7 @@
     // for the lobby and for any switch in flight, so whoever asked for blur
     // is never published without it.
     const BLUR_KEY = 'quickmeet.blur';
-    const BLUR_FAILED = 'Background blur is not available here.';
+    const BLUR_FAILED = () => t('Background blur is not available here.');
     const blurButtons = [$('blur-preview'), $('blur')];
     const camTrack = () => trackOfKind(Track.Kind.Video);
     const blurOn = () => { const t = camTrack(); return !!(t && t.getProcessor()); };
@@ -654,7 +697,7 @@
       for (const button of blurButtons) {
         button.hidden = !track || !blurSupported();
         button.disabled = !!blurBusy || !!busy.video || !!lobby.switching || publishing || !!(track && track.isMuted);
-        setIcon(button, 'blur', loading ? 'Loading blur…' : on ? 'Stop blurring' : 'Blur background');
+        setIcon(button, 'blur', loading ? t('Loading blur…') : on ? t('Stop blurring') : t('Blur background'));
         button.setAttribute('aria-pressed', String(on));
         button.toggleAttribute('data-on', on);
         button.toggleAttribute('data-busy', loading);
@@ -711,8 +754,8 @@
       return result === 'done';
     }
     function blurFailed() {
-      if (!window.call.joined) { showNotice(BLUR_FAILED); return; }
-      flash(BLUR_FAILED);
+      if (!window.call.joined) { showNotice(BLUR_FAILED()); return; }
+      flash(BLUR_FAILED());
     }
 
     // A desktop lobby fetches blur's files while the person looks at the
@@ -763,7 +806,7 @@
       $('ring').hidden = names.length === 0;
       $('ring').disabled = resting;
       const label = document.createElement('span');
-      label.textContent = resting ? 'Rung' : names.length === 1 ? 'Ring ' + names[0] : 'Ring them';
+      label.textContent = resting ? t('Rung') : names.length === 1 ? t('Ring {name}', { name: names[0] }) : t('Ring them');
       $('ring').innerHTML = icon('bell');
       $('ring').append(label);
       // One green button at a time: with Ring there, the link steps back.
@@ -789,9 +832,9 @@
       const room = window.call.room;
       const alone = room && room.remoteParticipants.size === 0 && !document.body.classList.contains('reconnecting');
       if (!alone) return;
-      setStatus(RING_FAILED, true);
+      setStatus(RING_FAILED(), true);
       setTimeout(() => {
-        if (window.call.room && $('status').textContent === RING_FAILED) refreshStatus(window.call.room);
+        if (window.call.room && $('status').textContent === RING_FAILED()) refreshStatus(window.call.room);
       }, 4000);
     });
 
@@ -805,8 +848,8 @@
     // while a screen track is published. The browser's own "Stop sharing"
     // ends that track, the client unpublishes it, and the button follows
     // (LocalTrackUnpublished, in join()).
-    const SHARING = 'You are sharing your screen.';
-    const SHARE_FAILED = 'Screen sharing is not available here.';
+    const SHARING = () => t('You are sharing your screen.');
+    const SHARE_FAILED = () => t('Screen sharing is not available here.');
     const canShare = !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia) && !handheld;
     const sharing = () => !!(window.call.room && window.call.room.localParticipant.isScreenShareEnabled);
     Object.defineProperty(window.call, 'sharing', { get: sharing });
@@ -818,7 +861,7 @@
       const on = sharing();
       $('share').hidden = !canShare;
       $('share').disabled = shareBusy;
-      setIcon($('share'), 'screen', on ? 'Stop sharing' : 'Share screen');
+      setIcon($('share'), 'screen', on ? t('Stop sharing') : t('Share screen'));
       $('share').setAttribute('aria-pressed', String(on));
       $('share').toggleAttribute('data-on', on);
     }
@@ -837,7 +880,7 @@
       shareBusy = false;
       drawShare();
     }
-    function shareFailed() { flash(SHARE_FAILED); }
+    function shareFailed() { flash(SHARE_FAILED()); }
 
     // ---- call -----------------------------------------------------------
 
@@ -847,11 +890,12 @@
     // (and the way to stop) from fading.
     function refreshStatus(room) {
       const alone = room.remoteParticipants.size === 0;
-      setStatus(alone ? WAITING : sharing() ? SHARING : null, alone);
+      setStatus(alone ? WAITING() : sharing() ? SHARING() : null, alone);
     }
     // The other person is here: their name goes in the bar, the clock runs.
     function arrived(participant) {
-      $('remote-name').textContent = nameOf(participant);
+      remoteName = nameOf(participant);
+      drawRemoteName();
       startClock();
     }
     // The buttons show what the microphone and camera are doing now, in
@@ -859,8 +903,8 @@
     // there is no self view to show.
     function drawSwitch(button, kind, on) {
       const [name, label] = kind === Track.Kind.Audio
-        ? (on ? ['mic', 'Mute'] : ['mic-off', 'Unmute'])
-        : (on ? ['video', 'Stop video'] : ['video-off', 'Start video']);
+        ? (on ? ['mic', t('Mute')] : ['mic-off', t('Unmute')])
+        : (on ? ['video', t('Stop video')] : ['video-off', t('Start video')]);
       setIcon(button, name, label);
       button.toggleAttribute('data-off', !on);
     }
@@ -905,7 +949,7 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ identity: $('identity').value }),
         });
-        if (res.status === 409) throw new Error(FULL);
+        if (res.status === 409) throw new Error(FULL());
         if (!res.ok) throw new Error('could not get a token (' + res.status + ')');
         const { token, url, ring } = await res.json();
         window.call.ring = ring || [];
@@ -928,18 +972,19 @@
         });
         room.on(RoomEvent.ParticipantConnected, participant => { arrived(participant); refreshStatus(room); });
         room.on(RoomEvent.ParticipantDisconnected, () => {
-          $('remote-name').textContent = 'the other side left';
+          remoteName = LEFT;
+          drawRemoteName();
           // The element can keep the last frame's size after the track
           // ends, so the reset does not ask it.
           clearRemote();
           stopClock();
           window.call.remote = null;
           window.call.tracks = { video: null, audio: null };
-          setStatus(WAITING, true);
+          setStatus(WAITING(), true);
         });
         // A dropped signalling socket raises SignalReconnecting first and
         // Reconnecting only if a full reconnect follows; both are one state.
-        const reconnecting = () => { document.body.classList.add('reconnecting'); setStatus('Reconnecting…'); };
+        const reconnecting = () => { document.body.classList.add('reconnecting'); setStatus(t('Reconnecting…')); };
         room.on(RoomEvent.SignalReconnecting, reconnecting);
         room.on(RoomEvent.Reconnecting, reconnecting);
         room.on(RoomEvent.Reconnected, () => { document.body.classList.remove('reconnecting'); refreshStatus(room); });
@@ -962,13 +1007,13 @@
           stopClock();
           document.body.classList.remove('reconnecting');
           show('lobby');
-          startLobby(reason === DisconnectReason.CLIENT_INITIATED ? null : 'Connection lost. Join again.');
+          startLobby(reason === DisconnectReason.CLIENT_INITIATED ? null : t('Connection lost. Join again.'));
         });
 
         try {
           await room.connect(url, token);
         } catch (e) {
-          throw (await isFull()) ? new Error(FULL) : e;
+          throw (await isFull()) ? new Error(FULL()) : e;
         }
         for (const t of lobby.tracks) {
           await room.localParticipant.publishTrack(t);

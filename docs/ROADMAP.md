@@ -312,6 +312,14 @@ in host mode. Two phones on different networks held a call there. See
   name, Join and the pickers stand in a column beside it, the whole in
   the middle of the page. Narrower windows and phones keep the one
   column.
+- Done 2026-10-04: the interface in Russian
+  (`docs/plans/2026-10-04-0008-russian-interface.md`). A browser whose
+  first language is Russian gets every page in Russian, guests included;
+  others get English. In Settings a signed-in person picks Auto, English
+  or Русский, and the choice follows the account to every browser. A
+  ring arrives in the recipient's language. `lgx i18n-check` fails while
+  any sentence lacks its Russian. Not yet tried on a real Russian phone,
+  the ring in particular.
 - Mobile: LiveKit's Swift, Kotlin and React Native SDKs talk to the same
   SFU and the same token endpoint. Native ringing needs APNs and FCM
   signing that let-go does not have; a small Go shim or a hosted push

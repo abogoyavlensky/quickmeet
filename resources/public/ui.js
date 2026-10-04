@@ -47,7 +47,10 @@ async function copyLink(button, url) {
   if (button.dataset.busy) return;
   button.dataset.busy = '1';
   const before = button.innerHTML;
-  button.innerHTML = icon('check') + (button.classList.contains('icon') ? '' : '<span>Copied</span>');
+  const copied = document.createElement('span');
+  copied.textContent = t('Copied');
+  button.innerHTML = icon('check');
+  if (!button.classList.contains('icon')) button.append(copied);
   setTimeout(() => { button.innerHTML = before; delete button.dataset.busy; }, 1500);
 }
 
@@ -127,7 +130,7 @@ function toBase64url(buffer) {
 
 async function pushKey() {
   const res = await fetch('/api/push/key');
-  if (!res.ok) throw new Error('Could not reach the server (' + res.status + ').');
+  if (!res.ok) throw new Error(t('Could not reach the server ({status}).', { status: res.status }));
   return (await res.json()).key;
 }
 
@@ -137,7 +140,7 @@ async function saveSubscription(subscription) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(subscription.toJSON()),
   });
-  if (!res.ok) throw new Error('Could not turn ringing on (' + res.status + ').');
+  if (!res.ok) throw new Error(t('Could not turn ringing on ({status}).', { status: res.status }));
 }
 
 const push = {
@@ -167,7 +170,7 @@ const push = {
     // shows its prompt only while the tap that asked is still the current
     // gesture.
     const permission = await Notification.requestPermission();
-    if (permission !== 'granted') throw new Error('Notifications are not allowed for this site.');
+    if (permission !== 'granted') throw new Error(t('Notifications are not allowed for this site.'));
     const registration = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
     await navigator.serviceWorker.ready;
     const subscription = await registration.pushManager.subscribe({
@@ -227,6 +230,7 @@ document.addEventListener('DOMContentLoaded', () => {
   if (!button) return;
   button.addEventListener('click', async () => {
     stored.remove(PUSH_USER);
+    rememberLanguage(null);
     await Promise.race([
       push.off().catch(() => { /* the session's end removes it on the server */ }),
       new Promise(resolve => setTimeout(resolve, SIGNOUT_PUSH_WAIT_MS)),

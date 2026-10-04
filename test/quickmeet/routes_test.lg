@@ -253,6 +253,12 @@
         (is (str/includes? (:body js) "livekit-client@2.22.3")))
       (is (= 404 (:status (call handler :get "/static/nope.js"))))
       ;; The account pages, the script they share, and history.
+      ;; The interface's language, linked by every page.
+      (let [js (call handler :get "/static/i18n.js")]
+        (is (= 200 (:status js)))
+        (is (= "text/javascript; charset=utf-8" (get-in js [:headers "Content-Type"]))))
+      (doseq [page ["/" "/signup" "/signin" "/settings" "/history" "/room/0123456789ab"]]
+        (is (str/includes? (:body (call handler :get page)) "/static/i18n.js") page))
       (doseq [page ["/signup" "/signin" "/settings" "/history" "/static/account.js"]]
         (is (= 200 (:status (call handler :get page))) page))
       ;; The service worker, at the root: a worker controls only the paths
@@ -328,7 +334,7 @@
       (let [{:keys [status json cookie] :as res} (signup handler "Alice@Example.com")
             set-cookie (get-in res [:headers "Set-Cookie"])]
         (is (= 201 status))
-        (is (= {:email "alice@example.com" :display_name "alice"} json))
+        (is (= {:email "alice@example.com" :display_name "alice" :language "auto"} json))
         (is (re-find #"^[0-9a-f]{32}$" cookie))
         ;; Plain http: no Secure flag, everything else set.
         (doseq [attr ["Path=/" "HttpOnly" "SameSite=Lax" "Max-Age=31536000"]]
@@ -372,6 +378,38 @@
         (is (str/includes? (:error (:json short)) "8")))
       (is (= 409 (:status (signup handler "alice@example.com"))))
       (is (= {:error "exists"} (:json (signup handler "ALICE@example.com")))))))
+
+(deftest the-account-language
+  ;; Auto (follow the browser) until the person pins English or Russian in
+  ;; Settings; the name and the language are saved independently.
+  (with-handler
+    (fn [handler _]
+      (let [{:keys [cookie]} (signup handler "lang@example.com")
+            me #(:json (call handler :get "/api/me" nil (as cookie)))
+            post #(call handler :post "/api/me" (json/write-json %) (as cookie))]
+        (is (= "auto" (:language (me))))
+        (let [res (post {:language "ru"})]
+          (is (= 200 (:status res)))
+          (is (= {:email "lang@example.com" :display_name "lang" :language "ru"} (:json res))))
+        (is (= "ru" (:language (me))))
+        ;; A name alone leaves the language as it was, and the other way.
+        (is (= 200 (:status (post {:display_name "Lang"}))))
+        (is (= {:display_name "Lang" :language "ru"} (select-keys (me) [:display_name :language])))
+        (is (= 200 (:status (post {:language "en"}))))
+        (is (= {:display_name "Lang" :language "en"} (select-keys (me) [:display_name :language])))
+        (is (= 200 (:status (post {:display_name "Lang 2" :language "auto"}))))
+        (is (= {:display_name "Lang 2" :language "auto"} (select-keys (me) [:display_name :language])))
+        ;; Anything else is refused and changes nothing.
+        (doseq [body [{:language "de"} {:language ""} {:language 1} {}]]
+          (let [res (post body)]
+            (is (= 400 (:status res)) (pr-str body))
+            (is (string? (:error (:json res))) (pr-str body))))
+        (let [res (post {:display_name "Lang 3" :language "de"})]
+          (is (= 400 (:status res))))
+        ;; JSON that is not an object is refused the same way.
+        (doseq [raw ["1" "true" "\"text\"" "[]" "null"]]
+          (is (= 400 (:status (call handler :post "/api/me" raw (as cookie)))) raw))
+        (is (= {:display_name "Lang 2" :language "auto"} (select-keys (me) [:display_name :language])))))))
 
 (deftest account-endpoints-take-json-only
   ;; Login CSRF: a cross-site form with enctype text/plain can carry a
@@ -761,8 +799,11 @@
             (is (= 1 (count @sent)))
             (is (= {:endpoint (str fcm "bob") :p256dh "BPdh" :auth "au"}
                    (select-keys target [:endpoint :p256dh :auth])))
+            ;; The English text, plus what the device needs to show it in
+            ;; Bob's language: who rings, and his choice (sw.js).
             (is (= {:title "alice wants to talk" :body "Tap to join the call."
-                    :url (str "/room/" id) :tag (str "room-" id)}
+                    :url (str "/room/" id) :tag (str "room-" id)
+                    :from "alice" :language "auto"}
                    payload))
             (is (= id (:topic message)))
             (is (= "https://meet.example:8080" (:subject message))))
@@ -770,6 +811,14 @@
           (reset! sent [])
           (ring handler id alice)
           (is (= "quickmeet@localhost" (:subject (second (first @sent)))))
+          ;; Bob pins Russian: his device is told so; the text stays English
+          ;; for a worker that cannot translate yet.
+          (call handler :post "/api/me" (json/write-json {:language "ru"}) (as bob))
+          (reset! sent [])
+          (ring handler id alice)
+          (let [payload (json/read-json (:payload (second (first @sent))) {:keywords? true})]
+            (is (= {:language "ru" :from "alice" :title "alice wants to talk"}
+                   (select-keys payload [:language :from :title]))))
           ;; Bob signs out: his device goes with the session, and there is
           ;; nobody left to ring.
           (call handler :post "/api/auth/signout" nil (as bob))
