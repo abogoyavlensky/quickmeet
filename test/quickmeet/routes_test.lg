@@ -314,7 +314,10 @@
         ;; Bundled with scripts/vendor-blur.patch: the averaging downsample
         ;; and the mask smoothing are there. Stock, the blur ripples.
         (is (str/includes? (:body js) "u_srcTexel"))
-        (is (str/includes? (:body js) "u_keep")))
+        (is (str/includes? (:body js) "u_keep"))
+        ;; And the switch-off race fixed: a frame that waited while blur was
+        ;; switched off does not reach the closed segmenter.
+        (is (str/includes? (:body js) "this.isDisabled||!this.imageSegmenter)return")))
       (let [wasm (call handler :get (str blur-base "/vision_wasm_internal.wasm"))]
         (is (= 200 (:status wasm)))
         (is (= "application/wasm" (get-in wasm [:headers "Content-Type"])))
