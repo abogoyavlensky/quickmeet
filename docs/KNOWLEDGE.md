@@ -439,6 +439,24 @@ built binary, run by `lgx e2e` (2026-09-27).
   on a timer (`polling: 500`); its default polls on animation frames.
   Three blurring pages at once starve each other past a two-minute test
   timeout: repeat `blur.spec.js` with `--workers 1`.
+- Compression and the first blur, checked 2026-10-04: the app serves
+  raw bytes, so compression is the proxy's job. Caddy v2.11.6
+  (`caddy:2`) with a bare `encode zstd gzip` compresses
+  `application/wasm` by default, plus the JS and CSS, and leaves
+  `application/octet-stream` (the model) alone. The wasm, 9,423,986
+  bytes raw, comes through Caddy at 2,997,875 gzipped and 2,848,156 with
+  zstd. Not yet verified on staging, where uncloud bundles its own
+  Caddy: after a deploy, `curl -D - -H 'Accept-Encoding: gzip'` on the
+  wasm's URL should show `Content-Encoding`.
+- Chromium never caches the wasm in a private window, nor in
+  Playwright's usual contexts, which are alike: their cache lives in
+  memory and refuses an entry this large, so every fetch downloads it
+  again (two fetches in a row, both with a `transferSize` of 9.4 MB). A
+  persistent profile has a disk cache and serves the second fetch with
+  a `transferSize` of 0. That is what a desktop lobby's prefetch relies
+  on, and why its e2e test uses `chromium.launchPersistentContext`.
+  Request events fire for cache hits too, so only resource timing tells
+  the two apart.
 - On a real iPhone (2026-10-01, staging): the button shows and
   blur works in the lobby; the stock blur rippled (see below). Frame
   rate and heat not measured; Android not tried.

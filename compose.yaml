@@ -11,9 +11,11 @@ services:
       cache_to:
         - type=gha,mode=max
     # One hostname for the page and the SFU's signalling: the browser needs
-    # /rtc and /rtc/validate, the twirp room API stays internal.
+    # /rtc and /rtc/validate, the twirp room API stays internal. Caddy
+    # compresses: the app serves raw bytes, 9.4 MB of them for blur's wasm.
     x-caddy: |
       ${APP_DOMAIN} {
+        encode zstd gzip
         handle /rtc* {
           reverse_proxy {{upstreams 7880}}
         }

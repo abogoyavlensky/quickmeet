@@ -8,7 +8,10 @@
 // while blur runs is forced, waits poll on a timer, and frame counts are
 // polled for growth, never for a rate. Several of these at once starve
 // each other: to repeat the file, use one worker.
-import { test, expect } from '@playwright/test';
+import { test, expect, chromium } from '@playwright/test';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { newRoom, openLobby, joinAs, statsOf } from './helpers.js';
 
 const blurOf = page => page.evaluate(() => window.call.blur);
@@ -126,6 +129,92 @@ test.describe('background blur', () => {
     await alice.waitForFunction(() => window.call.joined === true, null, POLL);
     expect(await alice.evaluate(() => window.publishedBlurred)).toBe(true);
     expect(await blurOf(alice)).toBe(true);
+  });
+
+  test('while the wasm loads, the button says so; switching off does not', async ({ browser, page }) => {
+    test.setTimeout(120_000);
+    const roomUrl = await newRoom(page);
+    // The wasm is held until the test lets it go, so the loading state is
+    // there for as long as the assertions need, whatever fetched it first.
+    let release;
+    const held = new Promise(resolve => { release = resolve; });
+    const init = context => context.route('**/vision_wasm_internal.wasm', async route => {
+      await held;
+      await route.continue();
+    });
+    const { page: alice } = await openLobby(browser, contexts, roomUrl, 'alice', { init });
+    const button = alice.locator('#blur-preview');
+    await expect(button).toBeVisible();
+
+    await alice.click('#blur-preview');
+    await expect(button).toHaveAttribute('data-busy', '');
+    await expect(button).toHaveAttribute('aria-busy', 'true');
+    await expect(button).toHaveAttribute('aria-label', 'Loading blur…');
+    release();
+    await expect.poll(() => blurOf(alice), SLOW).toBe(true);
+    await expect(button).not.toHaveAttribute('data-busy');
+    await expect(button).not.toHaveAttribute('aria-busy');
+    await expect(button).toHaveAttribute('aria-label', 'Stop blurring');
+
+    // Off is instant: no loading state on the way, at any moment.
+    await alice.evaluate(() => {
+      const b = document.getElementById('blur-preview');
+      window.sawBusy = false;
+      new MutationObserver(() => { if (b.hasAttribute('data-busy')) window.sawBusy = true; })
+        .observe(b, { attributes: true });
+    });
+    await alice.click('#blur-preview', { force: true });
+    await expect.poll(() => blurOf(alice), SLOW).toBe(false);
+    expect(await alice.evaluate(() => window.sawBusy)).toBe(false);
+    await expect(button).toHaveAttribute('aria-label', 'Blur background');
+  });
+
+  test('a desktop lobby fetches the wasm before the click, a phone does not', async ({ browser, page }) => {
+    test.setTimeout(120_000);
+    const roomUrl = await newRoom(page);
+
+    // The desktop half runs in a profile with a disk cache, as a real
+    // browser has. Playwright's usual contexts are like private windows:
+    // their cache lives in memory and never holds an entry this large
+    // (checked 2026-10-04), so there every fetch of the wasm downloads it.
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'quickmeet-profile-'));
+    const desktop = await chromium.launchPersistentContext(dir, {
+      baseURL: test.info().project.use.baseURL,
+      permissions: ['camera', 'microphone'],
+      args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'],
+    });
+    try {
+      const alice = desktop.pages()[0] || await desktop.newPage();
+      await alice.goto(roomUrl);
+      // What each fetch of the wasm took from the network.
+      const wasm = () => alice.evaluate(() => performance.getEntriesByType('resource')
+        .filter(e => /vision_wasm_internal\.wasm$/.test(e.name)).map(e => e.transferSize));
+      await expect.poll(async () => (await wasm()).length, { timeout: 15_000 }).toBe(1);
+      expect(await blurOf(alice)).toBe(false);
+      await alice.click('#blur-preview');
+      await expect.poll(() => blurOf(alice), SLOW).toBe(true);
+      // The click found the wasm in the cache: nothing more downloaded.
+      const sizes = await wasm();
+      expect(sizes[0]).toBeGreaterThan(1_000_000);
+      expect(sizes.slice(1).every(n => n === 0), `transfer sizes ${sizes}`).toBe(true);
+    } finally {
+      await desktop.close();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+
+    // Requests from the moment the context exists, so one the page makes
+    // while it loads is not missed.
+    const phone = [];
+    const { page: bob } = await openLobby(browser, contexts, roomUrl, 'bob', {
+      init: context => context.on('request', r => { if (/vision_wasm_internal\.wasm$/.test(r.url())) phone.push(r); }),
+      userAgent: 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Mobile Safari/537.36',
+      isMobile: true,
+      hasTouch: true,
+      viewport: { width: 390, height: 844 },
+    });
+    await expect.poll(() => bob.evaluate(() => document.getElementById('preview').videoWidth)).toBeGreaterThan(0);
+    await bob.waitForTimeout(3000);
+    expect(phone.length).toBe(0);
   });
 
   test('a browser that cannot blur shows no button', async ({ browser, page }) => {
