@@ -238,8 +238,8 @@
             page (call handler :get (str "/room/" id))]
         (is (= 200 (:status page)))
         ;; The client library is vendored and served from the binary.
-        (is (str/includes? (:body page) "/static/livekit-client.umd.min.js"))
-        (is (str/includes? (:body page) "/static/track-processors.js"))
+        (is (re-find #"\"/static/v/[0-9a-f]+/livekit-client.umd.min.js\"" (:body page)))
+        (is (re-find #"\"/static/v/[0-9a-f]+/track-processors.js\"" (:body page)))
         (is (not (str/includes? (:body page) "jsdelivr"))))
       ;; A room page is served for any well-formed id: the token endpoint
       ;; is what checks the room exists.
@@ -258,7 +258,7 @@
         (is (= 200 (:status js)))
         (is (= "text/javascript; charset=utf-8" (get-in js [:headers "Content-Type"]))))
       (doseq [page ["/" "/signup" "/signin" "/settings" "/history" "/room/0123456789ab"]]
-        (is (str/includes? (:body (call handler :get page)) "/static/i18n.js") page))
+        (is (re-find #"/static/v/[0-9a-f]+/i18n.js" (:body (call handler :get page))) page))
       (doseq [page ["/signup" "/signin" "/settings" "/history" "/static/account.js"]]
         (is (= 200 (:status (call handler :get page))) page))
       ;; The service worker, at the root: a worker controls only the paths
@@ -273,6 +273,36 @@
 ;; that path is the one the server answers, with a year's cache. The model
 ;; arriving byte for byte is also the proof that binaries survive io/slurp.
 (def ^:private blur-base "/static/blur/tp0.8.1-tv0.10.14")
+
+(deftest static-files-are-cached-by-version
+  ;; Scripts, styles and the font are cached for a year under
+  ;; /static/v/<version>/, the version a hash of their contents, so a
+  ;; deploy that changes one moves them all. The pages name the current
+  ;; version and are themselves revalidated on every visit.
+  (with-handler
+    (fn [handler _]
+      (let [page (:body (call handler :get "/settings"))
+            [_ version] (re-find #"\"/static/v/([0-9a-f]+)/app.css\"" page)]
+        (is (string? version))
+        (is (= "no-cache" (get-in (call handler :get "/settings") [:headers "Cache-Control"])))
+        ;; Every page links only versioned scripts and styles.
+        (doseq [path ["/" "/signin" "/signup" "/settings" "/history" "/room/0123456789ab"]]
+          (let [body (:body (call handler :get path))]
+            (is (not (re-find #"\"/static/[a-z-]+(\.umd\.min)?\.(js|css)\"" body)) path)
+            (is (str/includes? body (str "/static/v/" version "/")) path)))
+        (doseq [file ["app.css" "ui.js" "i18n.js" "account.js" "fonts.css"
+                      "livekit-client.umd.min.js" "track-processors.js"]]
+          (let [res (call handler :get (str "/static/v/" version "/" file))]
+            (is (= 200 (:status res)) file)
+            (is (= "public, max-age=31536000, immutable" (get-in res [:headers "Cache-Control"])) file)
+            (is (= (:body (call handler :get (str "/static/" file))) (:body res)) file)))
+        ;; Another version, or a file that is not versioned: not found.
+        (is (= 404 (:status (call handler :get "/static/v/0000000000/app.css"))))
+        (is (= 404 (:status (call handler :get (str "/static/v/" version "/sw.js")))))
+        (is (= 404 (:status (call handler :get (str "/static/v/" version "/nope.js")))))
+        ;; The unversioned names still answer, uncached, for a page from
+        ;; before the version existed.
+        (is (= 200 (:status (call handler :get "/static/app.css"))))))))
 
 (deftest the-blur-assets
   (with-handler
