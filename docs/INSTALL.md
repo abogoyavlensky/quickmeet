@@ -73,9 +73,7 @@ curl -fsSLO https://raw.githubusercontent.com/abogoyavlensky/quickmeet/master/de
 ```
 
 Any other proxy works too: send `/rtc*` to 7880 and everything else to
-8080, and let it compress responses. The app serves its files raw, and
-background blur's wasm is 9.4 MB of them, about 3 MB gzipped; the
-repository's Caddyfiles turn on `encode`. Docker opens the
+8080. Docker opens the
 ports it publishes by itself, past `ufw`; the loopback ones stay private.
 
 `docker logs quickmeet` should end with `quickmeet on
