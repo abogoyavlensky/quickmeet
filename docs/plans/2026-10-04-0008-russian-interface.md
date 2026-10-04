@@ -242,6 +242,8 @@ by e2e: Playwright cannot receive a Web Push.
   > assumed 004 was the last migration and were updated. A new
   > `migration-005-both-ways` checks an existing account gets `auto` and
   > survives the rollback.
+  > Codex review: a non-object JSON body made `contains?` throw. Fixed:
+  > such a body is read as empty and answers 400, with a test.
 
 - [x] **Step 5: Commit**
   `git commit -m "Accounts: a language on the account, auto by default"`

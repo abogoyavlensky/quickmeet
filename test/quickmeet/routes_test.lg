@@ -400,6 +400,9 @@
             (is (string? (:error (:json res))) (pr-str body))))
         (let [res (post {:display_name "Lang 3" :language "de"})]
           (is (= 400 (:status res))))
+        ;; JSON that is not an object is refused the same way.
+        (doseq [raw ["1" "true" "\"text\"" "[]" "null"]]
+          (is (= 400 (:status (call handler :post "/api/me" raw (as cookie)))) raw))
         (is (= {:display_name "Lang 2" :language "auto"} (select-keys (me) [:display_name :language])))))))
 
 (deftest account-endpoints-take-json-only

@@ -387,6 +387,9 @@
                (fn [req]
                  (if-let [user (current-user req)]
                    (let [body (read-json-body req)
+                         ;; JSON that is not an object (1, "x", []) has
+                         ;; nothing to change.
+                         body (if (map? body) body {})
                          name? (contains? body :display_name)
                          language? (contains? body :language)
                          language (:language body)]
