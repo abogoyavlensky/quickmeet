@@ -24,7 +24,7 @@
   <header class="bar">
     <a id="back" class="back" href="/"></a>
     <a class="brand" href="/">quickmeet</a>
-    <span class="who"><span class="dot"></span><span id="remote-name" data-i18n>waiting for the other side…</span><span id="timer"></span></span>
+    <span class="who"><span class="dot"></span><span id="remote-name">waiting for the other side…</span><span id="timer"></span></span>
     <span class="end">
       <button id="full" hidden></button>
       <button id="copy" class="ghost" title="Copy link" data-i18n-title></button>
@@ -135,6 +135,17 @@
       setIcon($('leave'), 'hang', t('Leave'));
       setIcon($('back'), 'back', t('Back'));
       setIcon($('more'), 'more', t('Settings'));
+      drawRemoteName();
+    }
+
+    // Who is in the bar: nobody yet, the other person's name, or that they
+    // left. Kept here, not in the element, so a language that changes
+    // mid-call redraws the words and keeps the name.
+    const LEFT = {};
+    let remoteName = null;
+    function drawRemoteName() {
+      $('remote-name').textContent = remoteName === LEFT ? t('the other side left')
+        : remoteName || t('waiting for the other side…');
     }
     drawLabels();
 
@@ -883,7 +894,8 @@
     }
     // The other person is here: their name goes in the bar, the clock runs.
     function arrived(participant) {
-      $('remote-name').textContent = nameOf(participant);
+      remoteName = nameOf(participant);
+      drawRemoteName();
       startClock();
     }
     // The buttons show what the microphone and camera are doing now, in
@@ -960,7 +972,8 @@
         });
         room.on(RoomEvent.ParticipantConnected, participant => { arrived(participant); refreshStatus(room); });
         room.on(RoomEvent.ParticipantDisconnected, () => {
-          $('remote-name').textContent = t('the other side left');
+          remoteName = LEFT;
+          drawRemoteName();
           // The element can keep the last frame's size after the track
           // ends, so the reset does not ask it.
           clearRemote();

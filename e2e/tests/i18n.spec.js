@@ -2,7 +2,7 @@
 // Russian, English otherwise, unless the account pins one (Settings).
 // Every other spec runs in English (playwright.config.js, locale).
 import { test, expect } from '@playwright/test';
-import { newRoom, openLobby } from './helpers.js';
+import { newRoom, openLobby, joinAs } from './helpers.js';
 
 const RU = { locale: 'ru-RU' };
 
@@ -25,6 +25,23 @@ test.describe('the interface language', () => {
     // The host, an English browser, still reads English.
     await expect(page.locator('html')).toHaveAttribute('lang', 'en');
     await expect(page.locator('#join')).toHaveText('Join call');
+  });
+
+  test('a language that changes during a call keeps the other person\'s name', async ({ browser, page }) => {
+    const roomUrl = await newRoom(page);
+    const { page: alice } = await joinAs(browser, contexts, roomUrl, 'alice');
+    await joinAs(browser, contexts, roomUrl, 'bob');
+    await expect(alice.locator('#remote-name')).toHaveText('bob');
+    // What a late /api/me with another language does (room.html, fillName).
+    // Read at once: a later event that writes the name again must not
+    // hide a redraw that lost it.
+    const shown = await alice.evaluate(() => {
+      if (rememberLanguage('ru')) redraw();
+      return document.getElementById('remote-name').textContent;
+    });
+    expect(shown).toBe('bob');
+    await expect(alice.locator('html')).toHaveAttribute('lang', 'ru');
+    await expect(alice.locator('#mic')).toHaveAttribute('aria-label', 'Выключить микрофон');
   });
 
   test('the landing page and sign-in in Russian', async ({ browser }) => {

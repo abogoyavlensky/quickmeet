@@ -430,6 +430,11 @@ by e2e: Playwright cannot receive a Web Push.
   Expected: PASS: every other spec still finds its English labels.
   > 76 of 77 passed. The one failure was the known parallel-load timeout
   > of "blurred into the call…", which passed alone on one worker.
+  > Codex review: a late `/api/me` with another language re-translated
+  > the bar's `#remote-name` mark and wiped the other person's name.
+  > Fixed: the page keeps who is there and `drawRemoteName` draws it; the
+  > element is no longer marked. A test changes the language mid-call and
+  > reads the name at once.
 
 - [x] **Step 6: Commit**
   `git commit -m "Russian: every page in the browser's language"`
