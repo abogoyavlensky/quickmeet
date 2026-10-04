@@ -45,7 +45,9 @@
   <!-- Before joining: a preview (with the blur button in its corner, so
        the background is hidden before anyone sees it, and the microphone
        and camera buttons at its foot, so either can be off before anyone
-       hears or sees it), who is already there, the devices. -->
+       hears or sees it), who is already there, the devices. Everything
+       but the preview is one block, so a wide screen can set it beside
+       the preview (app.css). -->
   <section id="lobby" class="lobby" hidden>
     <div class="preview">
       <video id="preview" autoplay playsinline muted></video>
@@ -56,16 +58,18 @@
       </div>
       <button id="blur-preview" hidden></button>
     </div>
-    <p id="presence"></p>
-    <p id="notice" class="notice" hidden></p>
-    <div class="join-row">
-      <input id="identity" maxlength="64" placeholder="Your name" aria-label="Your name" autocomplete="name">
-      <button id="join" class="primary">Join call</button>
-    </div>
-    <p id="error" class="error" hidden></p>
-    <div class="devices">
-      <label>Camera <select id="cam-select"></select></label>
-      <label>Microphone <select id="mic-select"></select></label>
+    <div class="lobby-side">
+      <p id="presence"></p>
+      <p id="notice" class="notice" hidden></p>
+      <div class="join-row">
+        <input id="identity" maxlength="64" placeholder="Your name" aria-label="Your name" autocomplete="name">
+        <button id="join" class="primary">Join call</button>
+      </div>
+      <p id="error" class="error" hidden></p>
+      <div class="devices">
+        <label>Camera <select id="cam-select"></select></label>
+        <label>Microphone <select id="mic-select"></select></label>
+      </div>
     </div>
   </section>
 

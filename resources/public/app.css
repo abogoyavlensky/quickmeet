@@ -157,6 +157,7 @@ body.rear-camera .preview video, body.rear-camera .tile.self video { transform: 
 #presence { font-size: 20px; font-weight: 500; letter-spacing: -0.01em; min-height: 30px; }
 .join-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; }
 .devices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.lobby-side { display: grid; gap: 16px; }
 
 /* In a call the page is the stage. The bar lies over its top edge and
    shows the other person instead of the brand; the controls lie over its
@@ -250,6 +251,16 @@ body:not(.waiting) #invite, body:not(.waiting) #ring { display: none; }
 /* Faded controls take no taps: the tap that brings them back must not
    also hang up. */
 .immersive.idle .bar, .immersive.idle .controls, .immersive.idle .tile.self button { opacity: 0; pointer-events: none; }
+
+/* A desktop: the lobby is "check yourself before you join", so the preview
+   takes the width and the rest stands in a column beside it, the whole in
+   the middle of the page. From 900px: narrower, the column would squeeze
+   the preview below the size it has in one. Short windows are the phone
+   layout's, below. */
+@media (min-width: 900px) and (min-height: 501px) {
+  #lobby { grid-template-columns: minmax(0, 1fr) 320px; gap: 32px; align-items: center; max-width: 1120px; margin-block: auto; }
+  #lobby .devices { grid-template-columns: 1fr; }
+}
 
 /* Phones, portrait (narrow) or landscape (short). */
 @media (max-width: 700px), (max-height: 500px) {
