@@ -598,6 +598,22 @@ Why the stock blur ripples, and the patch, 2026-10-01:
   3 s while the screen's grew. `adaptiveStream` asks the SFU to stop a
   video nobody shows, so the hidden camera costs no bandwidth.
 
+## Caching, 2026-10-04
+
+- Measured from the dev machine on 2026-10-04, staging answered every
+  page and API call in about 145 ms, of which the app took under 5 ms;
+  the rest was one round trip each for TCP, TLS and the request. Twenty
+  parallel requests barely slowed it. Slowness felt elsewhere is the
+  network or the host, not let-go.
+- Before this, only the font and the blur files had caching headers:
+  every page fetched its scripts and styles again. Now `app.css`,
+  `fonts.css`, `ui.js`, `i18n.js`, `account.js`, `livekit-client` and
+  `track-processors.js` are served under `/static/v/<version>/` for a
+  year, the version a hash of their contents computed at start
+  (`routes.lg`, `versioned`). The pages rewrite their links to it and are
+  sent with `Cache-Control: no-cache`. A new file to cache this way goes
+  into `versioned`; a page links it as `/static/<name>` as before.
+
 ## The interface's languages, 2026-10-04
 
 - The English sentences are the dictionary's keys (`i18n.js`, `RU`).
@@ -728,7 +744,8 @@ Learned while setting up staging on uncloud, 2026-09-28:
   parallel calls against one binary (headless Chromium, fake media):
   peak RSS 122, 152 and 198 MB, so each call adds about 25 MB over a fixed
   base of about 100 MB. Two calls used 11% of one core on average, 24% at
-  peak. The container's `mem_limit: 256m` fits about five or six calls.
+  peak. The container's `mem_limit` was 256m then, about five or six
+  calls; it is 640m since 2026-10-04, when unison left the staging host.
   Real cameras send more than Chrome's fake device; memory should hold
   (it is mostly per-participant buffers), CPU scales with packet rate.
 - Until 2026-09-30 the service set `stop_grace_period: 2s` on the belief

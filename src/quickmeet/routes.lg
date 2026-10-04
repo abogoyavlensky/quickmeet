@@ -9,6 +9,7 @@
             [quickmeet.push :as push]
             [quickmeet.ratelimit :as ratelimit]
             [quickmeet.sfu :as sfu]
+            [hash :as hash]
             [ruuter.core :as r]
             [string :as str]))
 
@@ -41,9 +42,27 @@
    "wasm"   "application/wasm"
    "tflite" "application/octet-stream"})
 
-;; The font is 120 kB of base64 that changes only when the pinned version
-;; does, and every page links it: browsers keep it for a week.
-(def ^:private long-lived #{"fonts.css"})
+;; The scripts, the styles and the font are cached for a year under
+;; /static/v/<version>/, where the version is a hash of their contents: a
+;; deploy that changes any of them moves them all, and the pages, which are
+;; revalidated on every visit, name the new one. Only the current version
+;; is served, so a stale page gets a 404 rather than new files under an old
+;; URL. The unversioned /static/<name> still answers, uncached.
+(def ^:private versioned
+  ["app.css" "fonts.css" "ui.js" "i18n.js" "account.js"
+   "livekit-client.umd.min.js" "track-processors.js"])
+
+(def ^:private asset-version
+  (subs (hash/sha256 (apply str (map #(io/slurp (io/resource (str "public/" %))) versioned))) 0 10))
+
+(defn- versioned-links
+  "A page with its links to the versioned files pointed at the current
+   version."
+  [html]
+  (reduce (fn [page file]
+            (str/replace page (str "\"/static/" file "\"")
+                         (str "\"/static/v/" asset-version "/" file "\"")))
+          html versioned))
 
 ;; Background blur's wasm (9.4 MB), its loader and its model are cached for
 ;; a year, so they live under /static/blur/<tag>/, where the tag names the
@@ -64,7 +83,7 @@
    one that escapes the resource root, so `..` cannot reach outside it.
    `cache-control`, if given, is sent as that header."
   ([name]
-   (static-response name (when (long-lived name) "public, max-age=604800")))
+   (static-response name nil))
   ([name cache-control]
    (let [ct (content-types (last (str/split (str name) #"\.")))
          res (when ct (io/resource (str "public/" name)))]
@@ -74,6 +93,12 @@
                    cache-control (assoc "Cache-Control" cache-control))
         :body (io/slurp res)}
        (json-response 404 {:error "not found"})))))
+
+(defn- page-response
+  "An HTML page, its links versioned, revalidated on every visit."
+  [name]
+  (-> (static-response name "no-cache")
+      (update :body versioned-links)))
 
 ;; Room ids are short, URL-safe and unguessable enough for a link that is
 ;; shared on purpose: 12 hex chars of a random UUID.
@@ -322,23 +347,23 @@
                        :else (handle room))))]
   [{:path "/"
     :method :get
-    :response (fn [_] (static-response "index.html"))}
+    :response (fn [_] (page-response "index.html"))}
 
    {:path "/signup"
     :method :get
-    :response (fn [_] (static-response "signup.html"))}
+    :response (fn [_] (page-response "signup.html"))}
 
    {:path "/signin"
     :method :get
-    :response (fn [_] (static-response "signin.html"))}
+    :response (fn [_] (page-response "signin.html"))}
 
    {:path "/settings"
     :method :get
-    :response (fn [_] (static-response "settings.html"))}
+    :response (fn [_] (page-response "settings.html"))}
 
    {:path "/history"
     :method :get
-    :response (fn [_] (static-response "history.html"))}
+    :response (fn [_] (page-response "history.html"))}
 
    ;; Browsers ask for this path on their own, whatever a page links.
    {:path "/favicon.ico"
@@ -416,12 +441,20 @@
     :method :get
     :response (fn [req]
                 (if (valid-room-id? (-> req :params :id))
-                  (static-response "room.html")
+                  (page-response "room.html")
                   (json-response 404 {:error "not found"})))}
 
    {:path "/static/:file"
     :method :get
     :response (fn [req] (static-response (-> req :params :file)))}
+
+   {:path "/static/v/:version/:file"
+    :method :get
+    :response (fn [req]
+                (let [{:keys [version file]} (:params req)]
+                  (if (and (= asset-version version) (some #{file} versioned))
+                    (static-response file "public, max-age=31536000, immutable")
+                    (json-response 404 {:error "not found"}))))}
 
    {:path "/static/blur/:tag/:file"
     :method :get

@@ -31,10 +31,11 @@ services:
       - 7881:7881/tcp@host
     volumes:
       - /root/quickmeet-db:/app/db
-    # About 120 MB peak in a two-person call; the host has 1 GB and also runs
-    # unison's JVM, Postgres and MinIO.
-    mem_limit: 256m
-    mem_reservation: 128m
+    # About 120 MB peak in a two-person call, about 25 MB more per extra
+    # call. The host has 1 GB; with unison's JVM, Postgres and MinIO gone
+    # from it (2026-10-04), the rest is Caddy, Docker and uncloud.
+    mem_limit: 640m
+    mem_reservation: 256m
     # On SIGTERM the app stops serving, closes open calls in history and
     # exits, in well under a second; the SFU is left to die with it so
     # browsers reconnect to the next container. This is only the ceiling.
