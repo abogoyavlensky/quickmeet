@@ -128,6 +128,44 @@ test.describe('background blur', () => {
     expect(await blurOf(alice)).toBe(true);
   });
 
+  test('while the wasm loads, the button says so; switching off does not', async ({ browser, page }) => {
+    test.setTimeout(120_000);
+    const roomUrl = await newRoom(page);
+    // The wasm is held until the test lets it go, so the loading state is
+    // there for as long as the assertions need, whatever fetched it first.
+    let release;
+    const held = new Promise(resolve => { release = resolve; });
+    const init = context => context.route('**/vision_wasm_internal.wasm', async route => {
+      await held;
+      await route.continue();
+    });
+    const { page: alice } = await openLobby(browser, contexts, roomUrl, 'alice', { init });
+    const button = alice.locator('#blur-preview');
+    await expect(button).toBeVisible();
+
+    await alice.click('#blur-preview');
+    await expect(button).toHaveAttribute('data-busy', '');
+    await expect(button).toHaveAttribute('aria-busy', 'true');
+    await expect(button).toHaveAttribute('aria-label', 'Loading blur…');
+    release();
+    await expect.poll(() => blurOf(alice), SLOW).toBe(true);
+    await expect(button).not.toHaveAttribute('data-busy');
+    await expect(button).not.toHaveAttribute('aria-busy');
+    await expect(button).toHaveAttribute('aria-label', 'Stop blurring');
+
+    // Off is instant: no loading state on the way, at any moment.
+    await alice.evaluate(() => {
+      const b = document.getElementById('blur-preview');
+      window.sawBusy = false;
+      new MutationObserver(() => { if (b.hasAttribute('data-busy')) window.sawBusy = true; })
+        .observe(b, { attributes: true });
+    });
+    await alice.click('#blur-preview', { force: true });
+    await expect.poll(() => blurOf(alice), SLOW).toBe(false);
+    expect(await alice.evaluate(() => window.sawBusy)).toBe(false);
+    await expect(button).toHaveAttribute('aria-label', 'Blur background');
+  });
+
   test('a browser that cannot blur shows no button', async ({ browser, page }) => {
     const roomUrl = await newRoom(page);
     const init = context => context.addInitScript(() => { delete window.VideoFrame; });

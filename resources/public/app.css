@@ -222,6 +222,14 @@ body:not(.in-call) #more, body:not(.in-call) #settings { display: none; }
 #blur-preview[data-on], #blur-preview[data-on]:hover,
 #blur[data-on], #blur[data-on]:hover { background: #fff; color: #161917; }
 .controls .danger, .controls .danger:hover { width: 76px; background: var(--hang); }
+/* Blur loading its wasm (the first time on a device): a ring turns around
+   the button and the icon dims. Both blur buttons are positioned, so the
+   ring sits on them. */
+#blur-preview[data-busy] svg, #blur[data-busy] svg { opacity: .5; }
+#blur-preview[data-busy]::after, #blur[data-busy]::after {
+  content: ""; position: absolute; inset: -3px; border-radius: 50%; pointer-events: none;
+  border: 2px solid rgba(255,255,255,.35); border-top-color: #fff; animation: spin .9s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
 
 .overlay { position: absolute; z-index: 1; top: 64px; left: 0; right: 0; padding: 0 16px; display: grid; justify-items: center; gap: 12px; text-align: center; pointer-events: none; }
 .overlay button { pointer-events: auto; }
@@ -257,4 +265,5 @@ body:not(.waiting) #invite, body:not(.waiting) #ring { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
   .immersive .bar, .immersive .controls, .immersive .tile.self button { transition: none; }
+  #blur-preview[data-busy]::after, #blur[data-busy]::after { animation: none; }
 }

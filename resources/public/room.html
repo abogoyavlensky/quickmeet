@@ -630,22 +630,32 @@
     function remember(on) {
       try { on ? localStorage.setItem(BLUR_KEY, '1') : localStorage.removeItem(BLUR_KEY); } catch (e) { /* not remembered */ }
     }
-    // The promise of the switch in flight, null when there is none.
+    // The promise of the switch in flight, null when there is none, and
+    // whether it is switching on: only that one waits for the wasm, so
+    // only that one shows it is loading.
     let blurBusy = null;
+    let blurTarget = false;
 
     // Both buttons show the same state; on is the solid one. With the camera
     // off there is nothing to blur, so the button waits; so it does from the
     // Join click until the call is up, when the camera is being published
     // and a switch started then could reach the other side half done.
+    // Switching on the first time on a device downloads the wasm, seconds
+    // on a phone: meanwhile the button says it is loading (a ring turns
+    // around it, app.css).
     function drawBlur() {
       const track = camTrack(), on = blurOn();
       const publishing = lobby.joining && !window.call.joined;
+      const loading = !!blurBusy && blurTarget;
       for (const button of blurButtons) {
         button.hidden = !track || !blurSupported();
         button.disabled = !!blurBusy || !!busy.video || !!lobby.switching || publishing || !!(track && track.isMuted);
-        setIcon(button, 'blur', on ? 'Stop blurring' : 'Blur background');
+        setIcon(button, 'blur', loading ? 'Loading blur…' : on ? 'Stop blurring' : 'Blur background');
         button.setAttribute('aria-pressed', String(on));
         button.toggleAttribute('data-on', on);
+        button.toggleAttribute('data-busy', loading);
+        if (loading) button.setAttribute('aria-busy', 'true');
+        else button.removeAttribute('aria-busy');
       }
     }
 
@@ -677,6 +687,7 @@
       const track = camTrack();
       if (!track || !blurSupported() || blurBusy) return false;
       if (on === blurOn()) return true;
+      blurTarget = on;
       blurBusy = (async () => {
         let ok = true;
         try { await switchBlur(track, on); } catch (e) { ok = false; }
@@ -688,6 +699,7 @@
       drawMedia();
       const result = await blurBusy;
       blurBusy = null;
+      blurTarget = false;
       if (result === 'failed') { remember(false); blurFailed(); }
       drawBlur();
       drawMedia();
