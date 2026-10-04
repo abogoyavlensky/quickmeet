@@ -132,7 +132,7 @@
 ;; Users and sessions. The password hash is read only where sign-in needs
 ;; it; every other lookup returns user-columns.
 
-(def ^:private user-columns [:id :email :display_name :created_at])
+(def ^:private user-columns [:id :email :display_name :created_at :language])
 
 (def ^:private create-user-sql
   (sql-of {:insert-into :users
@@ -152,6 +152,12 @@
 (def ^:private update-display-name-sql
   (sql-of {:update :users
            :set {:display_name "name"}
+           :where [:= :id "id"]
+           :returning user-columns}))
+
+(def ^:private update-language-sql
+  (sql-of {:update :users
+           :set {:language "language"}
            :where [:= :id "id"]
            :returning user-columns}))
 
@@ -188,6 +194,9 @@
 
 (defn update-display-name! [conn id display-name]
   (sqlite/execute-one! conn [update-display-name-sql display-name id]))
+
+(defn update-language! [conn id language]
+  (sqlite/execute-one! conn [update-language-sql language id]))
 
 (defn create-session! [conn id user-id]
   (sqlite/execute-one! conn [create-session-sql id user-id]))

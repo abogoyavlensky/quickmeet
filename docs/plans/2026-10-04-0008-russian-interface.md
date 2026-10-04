@@ -203,7 +203,7 @@ by e2e: Playwright cannot receive a Web Push.
   `src/quickmeet/auth.lg`, `src/quickmeet/routes.lg`
 - Test: `test/quickmeet/routes_test.lg`, `test/quickmeet/migrations_test.lg`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
   `routes_test.lg`, in `accounts-and-sessions` or a new
   `the-account-language`: a fresh account's `GET /api/me` has
   `"language": "auto"`; `POST /api/me {"language":"ru"}` answers 200
@@ -215,14 +215,14 @@ by e2e: Playwright cannot receive a Web Push.
   Run: `lgx test`
   Expected: FAIL on the new assertions.
 
-- [ ] **Step 2: Migration and db**
+- [x] **Step 2: Migration and db**
   `migrations.lg`: `(migration "005-language" [{:alter-table :users :add-column [:language :text [:not nil] [:default "auto"]]}] [{:alter-table :users :drop-column :language}])`
   with a comment. `db.lg`: `:language` in `user-columns`; an
   `update-language-sql` and `update-language!` shaped like the display
   name's; `ring-targets-sql` selects `u.language` too and its docstring
   lists it.
 
-- [ ] **Step 3: auth and routes**
+- [x] **Step 3: auth and routes**
   `auth.lg`: `set-language!` taking `conn user-id language`, `bad-input`
   unless the value is one of `#{"auto" "en" "ru"}` (a `languages` set in
   the namespace). `routes.lg`: `public-user` selects `:language` too;
@@ -230,12 +230,20 @@ by e2e: Playwright cannot receive a Web Push.
   is present and `set-language!` when `language` is present, in that
   order, answering the first error or the final `public-user`. A body
   with neither answers 400.
+  > Deviation: the route checks the language before anything is written,
+  > so `{"display_name": "x", "language": "de"}` changes nothing rather
+  > than saving the name and refusing the language. An empty body answers
+  > 400 `Nothing to change.`
 
-- [ ] **Step 4: Run the tests**
+- [x] **Step 4: Run the tests**
   Run: `lgx test`
   Expected: PASS.
+  > 83 tests, 603 assertions, 0 failures. Two older migration tests
+  > assumed 004 was the last migration and were updated. A new
+  > `migration-005-both-ways` checks an existing account gets `auto` and
+  > survives the rollback.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git commit -m "Accounts: a language on the account, auto by default"`
 
 ### Task 2: The ring carries the recipient's language

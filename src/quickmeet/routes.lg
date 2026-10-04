@@ -173,7 +173,7 @@
       (too-many retry))))
 
 (defn- public-user [user]
-  (select-keys user [:email :display_name]))
+  (select-keys user [:email :display_name :language]))
 
 (def ^:private unauthorized
   (json-response 401 {:error "unauthorized"}))
@@ -378,16 +378,31 @@
                   (json-response 200 (public-user user))
                   unauthorized))}
 
-   ;; Body: {"display_name": "..."}.
+   ;; Body: {"display_name": "...", "language": "auto" | "en" | "ru"},
+   ;; either or both. Both are checked before either is saved, so a bad
+   ;; one changes nothing.
    {:path "/api/me"
     :method :post
     :response (json-only
                (fn [req]
                  (if-let [user (current-user req)]
-                   (let [result (auth/rename! conn (:id user) (:display_name (read-json-body req)))]
-                     (if (:error result)
-                       (error-response result)
-                       (json-response 200 (public-user (:user result)))))
+                   (let [body (read-json-body req)
+                         name? (contains? body :display_name)
+                         language? (contains? body :language)
+                         language (:language body)]
+                     (cond
+                       (not (or name? language?))
+                       (json-response 400 {:error "Nothing to change."})
+
+                       (and language? (auth/language-problem language))
+                       (json-response 400 {:error (auth/language-problem language)})
+
+                       :else
+                       (let [renamed (if name? (auth/rename! conn (:id user) (:display_name body)) {:user user})]
+                         (if (:error renamed)
+                           (error-response renamed)
+                           (let [result (if language? (auth/set-language! conn (:id user) language) renamed)]
+                             (json-response 200 (public-user (:user result))))))))
                    unauthorized)))}
 
    {:path "/room/:id"

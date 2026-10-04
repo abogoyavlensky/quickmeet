@@ -93,7 +93,15 @@
                                [:created_at :text [:not nil]
                                 [:default [:raw "CURRENT_TIMESTAMP"]]]]}]
               [{:drop-table :push_subscriptions}
-               {:drop-table :settings}])])
+               {:drop-table :settings}])
+
+   ;; The interface's language, chosen in Settings: "auto" follows the
+   ;; browser, "en" and "ru" pin one. The account holds it so it follows
+   ;; the person to every browser, and a ring is shown in it.
+   (migration "005-language"
+              [{:alter-table :users
+                :add-column [:language :text [:not nil] [:default "auto"]]}]
+              [{:alter-table :users :drop-column :language}])])
 
 (defn store
   "The ragtime DataStore over `conn`."
