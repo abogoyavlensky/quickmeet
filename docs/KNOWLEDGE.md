@@ -457,6 +457,22 @@ built binary, run by `lgx e2e` (2026-09-27).
   on, and why its e2e test uses `chromium.launchPersistentContext`.
   Request events fire for cache hits too, so only resource timing tells
   the two apart.
+- Blur switched off right after it went on could freeze the page for
+  good, found and fixed 2026-10-04 (`docs/plans/2026-10-04-2012-blur-off-race.md`).
+  In `BackgroundTransformer.ts` of 0.8.1, the newest release,
+  `transform` checks `isDisabled` once, then the first frame awaits
+  `requestVideoFrameCallback`; `destroy` closed the segmenter meanwhile,
+  and the frame went on into `segmentForVideo` on it. Its wasm never
+  returned. The fix is a section of `scripts/vendor-blur.patch`. Found by
+  pausing the frozen page over CDP (`Debugger.pause`), which answers with
+  the stack even when `page.evaluate` cannot. Delaying every
+  `requestVideoFrameCallback` by 2 s in an init script makes it
+  reproducible; `blur.spec.js` does that.
+- The blur test that sometimes times out under parallel load ("blurred
+  into the call…") is not this race: five of six failed with six
+  parallel workers on the fixed bundle, the page still answering, and
+  three of three passed on one worker. Blurring pages starve each other,
+  as noted above.
 - On a real iPhone (2026-10-01, staging): the button shows and
   blur works in the lobby; the stock blur rippled (see below). Frame
   rate and heat not measured; Android not tried.
