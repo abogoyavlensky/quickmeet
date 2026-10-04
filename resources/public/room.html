@@ -667,9 +667,10 @@
     // of background the segmenter took for hair stands out against it. The
     // patch, not the strength, is what keeps it from shimmering.
     const BLUR_RADIUS = 60;
+    const blurBase = () => location.origin + LivekitTrackProcessors.assetBase;
     async function switchBlur(track, on) {
       if (!on) return track.stopProcessor();
-      const base = location.origin + LivekitTrackProcessors.assetBase;
+      const base = blurBase();
       await track.setProcessor(LivekitTrackProcessors.BackgroundProcessor({
         mode: 'background-blur',
         blurRadius: BLUR_RADIUS,
@@ -710,11 +711,31 @@
       flash(BLUR_FAILED);
     }
 
+    // A desktop lobby fetches blur's files while the person looks at the
+    // preview, so the first click finds them in the cache (they are
+    // immutable, routes.lg) instead of waiting for 9.4 MB. Once per page,
+    // at low priority, and only where it is cheap: never on a phone or a
+    // tablet, which may never blur, nor when the browser asks to save
+    // data. A failure means nothing; the click handles its own.
+    let prefetched = false;
+    function prefetchBlur() {
+      if (prefetched || handheld || !blurSupported()) return;
+      if (navigator.connection && navigator.connection.saveData) return;
+      prefetched = true;
+      const base = blurBase();
+      for (const name of ['vision_wasm_internal.js', 'vision_wasm_internal.wasm', 'selfie_segmenter.tflite']) {
+        fetch(`${base}/${name}`, { priority: 'low' }).catch(() => {});
+      }
+    }
+
     // A switch still running for the previous lobby's camera ends first.
+    // A remembered blur loads the files itself; otherwise they are fetched
+    // ahead of a click.
     async function restoreBlur() {
       while (blurBusy) await blurBusy;
       drawBlur();
       if (remembered()) await setBlur(true);
+      else prefetchBlur();
     }
     for (const button of blurButtons) {
       button.addEventListener('click', async () => {
