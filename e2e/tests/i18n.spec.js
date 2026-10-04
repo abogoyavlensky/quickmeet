@@ -2,7 +2,7 @@
 // Russian, English otherwise, unless the account pins one (Settings).
 // Every other spec runs in English (playwright.config.js, locale).
 import { test, expect } from '@playwright/test';
-import { newRoom, openLobby, joinAs } from './helpers.js';
+import { newRoom, openLobby, joinAs, signUp } from './helpers.js';
 
 const RU = { locale: 'ru-RU' };
 
@@ -42,6 +42,81 @@ test.describe('the interface language', () => {
     expect(shown).toBe('bob');
     await expect(alice.locator('html')).toHaveAttribute('lang', 'ru');
     await expect(alice.locator('#mic')).toHaveAttribute('aria-label', 'Выключить микрофон');
+  });
+
+  test('the account pins a language, on every browser it signs in on', async ({ browser }) => {
+    const context = await browser.newContext({ locale: 'en-US' });
+    contexts.push(context);
+    const page = await context.newPage();
+    const email = await signUp(page, 'pin');
+
+    // Pinned in Settings: the page switches without a reload.
+    await page.goto('/settings');
+    await expect(page.locator('#language')).toHaveValue('auto');
+    await page.selectOption('#language', 'ru');
+    await expect(page.locator('h1')).toHaveText('Настройки');
+    await expect(page.locator('html')).toHaveAttribute('lang', 'ru');
+    await expect(page).toHaveTitle('Настройки · quickmeet');
+    await page.reload();
+    await expect(page.locator('h1')).toHaveText('Настройки');
+    await page.goto('/');
+    await expect(page.getByRole('button', { name: 'Новый звонок' })).toBeVisible();
+
+    // Back to English without a reload: the marks kept their English keys.
+    await page.goto('/settings');
+    await page.selectOption('#language', 'en');
+    await expect(page.locator('h1')).toHaveText('Settings');
+    await expect(page).toHaveTitle('Settings · quickmeet');
+    await expect(page.locator('#display-name')).toHaveValue(/^pin-/);
+    // History, opened directly: English.
+    const history = await context.newPage();
+    await history.goto('/history');
+    await expect(history.locator('h1')).toHaveText('History');
+
+    // Russian again, then a fresh English browser signs in: no cache, the
+    // account decides.
+    await page.selectOption('#language', 'ru');
+    await expect(page.locator('h1')).toHaveText('Настройки');
+    const other = await browser.newContext({ locale: 'en-US' });
+    contexts.push(other);
+    const elsewhere = await other.newPage();
+    await elsewhere.goto('/signin');
+    await expect(elsewhere.locator('h1')).toHaveText('Sign in');
+    await elsewhere.fill('#email', email);
+    await elsewhere.fill('#password', 'correct horse');
+    await elsewhere.click('#submit');
+    await expect(elsewhere).toHaveURL(/\/$/);
+    await expect(elsewhere.getByRole('button', { name: 'Новый звонок' })).toBeVisible();
+  });
+
+  test('a Russian browser can pin English', async ({ browser }) => {
+    const context = await browser.newContext(RU);
+    contexts.push(context);
+    const page = await context.newPage();
+    await signUp(page, 'en-pin');
+    await page.goto('/settings');
+    await expect(page.locator('h1')).toHaveText('Настройки');
+    await page.selectOption('#language', 'en');
+    await expect(page.locator('h1')).toHaveText('Settings');
+    await page.reload();
+    await expect(page.locator('h1')).toHaveText('Settings');
+    // Signing out forgets the account's choice: the browser decides again.
+    await page.goto('/');
+    await page.getByRole('button', { name: 'Sign out' }).click();
+    await expect(page.locator('#signed-out h1')).toHaveText('Говорите с людьми без совещаний.');
+  });
+
+  test('a refused save puts the select back and says why', async ({ page }) => {
+    await signUp(page, 'refused');
+    await page.goto('/settings');
+    await expect(page.locator('#language')).toHaveValue('auto');
+    await page.route('**/api/me', route => (route.request().method() === 'POST'
+      ? route.fulfill({ status: 400, contentType: 'application/json', body: '{"error":"The language must be auto, en or ru."}' })
+      : route.continue()));
+    await page.selectOption('#language', 'ru');
+    await expect(page.locator('#language-error')).toHaveText('The language must be auto, en or ru.');
+    await expect(page.locator('#language')).toHaveValue('auto');
+    await expect(page.locator('html')).toHaveAttribute('lang', 'en');
   });
 
   test('the landing page and sign-in in Russian', async ({ browser }) => {

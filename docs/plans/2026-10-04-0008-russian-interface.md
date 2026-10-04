@@ -445,7 +445,7 @@ by e2e: Playwright cannot receive a Web Push.
 - Modify: `resources/public/settings.html`, `i18n.js`
 - Test: `e2e/tests/i18n.spec.js`
 
-- [ ] **Step 1: Write the test**
+- [x] **Step 1: Write the test**
   "the account pins a language": sign up in an `en-US` context, open
   `/settings`, select `Русский` in `#language`; the page's `h1` becomes
   `Настройки` without a reload, `html[lang]` is `ru`; reload: still
@@ -461,7 +461,7 @@ by e2e: Playwright cannot receive a Web Push.
   Run: `lgx build && cd e2e && npx playwright test i18n`
   Expected: FAIL.
 
-- [ ] **Step 2: The section**
+- [x] **Step 2: The section**
   `settings.html`: a `<section class="form">` after Notifications, `h2`
   Language, a muted line (follows the browser unless pinned), and
   `<select id="language">` with options `auto`, `en`, `ru` labelled
@@ -473,12 +473,18 @@ by e2e: Playwright cannot receive a Web Push.
   shows the server's message in a `#language-error` line and puts the
   select back to the last saved value; nothing is cached. `load()` sets
   the select from `/api/me`.
+  > The select carries a label, "Language of the interface", and the
+  > section a line saying Auto follows this browser. A sixth e2e test
+  > covers a refused save: the select goes back and the error shows.
+  > The sign-out half of the Russian-browser test checks the cache is
+  > cleared: the landing page is Russian again.
 
-- [ ] **Step 3: Run the tests and the check**
+- [x] **Step 3: Run the tests and the check**
   Run: `lgx i18n-check && lgx build && cd e2e && npx playwright test i18n`
   Expected: PASS.
+  > 116 keys, 0 missing; i18n spec 6 passed.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
   `git commit -m "Settings: pin the language, or follow the browser"`
 
 ### Task 6: Docs

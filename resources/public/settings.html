@@ -44,6 +44,21 @@
       <p id="ring-status" class="muted" hidden></p>
       <p id="ring-error" class="error" hidden></p>
     </section>
+    <!-- The interface's language, the account's: it follows the person to
+         every browser they sign in on (i18n.js). The languages' own names
+         are not translated. -->
+    <section class="form">
+      <h2 data-i18n>Language</h2>
+      <label><span data-i18n>Language of the interface</span>
+        <select id="language">
+          <option value="auto" data-i18n>Auto (browser)</option>
+          <option value="en">English</option>
+          <option value="ru">Русский</option>
+        </select>
+      </label>
+      <p class="muted" data-i18n>Auto follows this browser's language.</p>
+      <p id="language-error" class="error" hidden></p>
+    </section>
   </main>
   <script>
     const $ = id => document.getElementById(id);
@@ -57,6 +72,8 @@
       const me = await res.json();
       if (rememberLanguage(me.language)) setIcon($('back'), 'back', t('Back'));
       email = me.email;
+      $('language').value = me.language;
+      savedLanguage = me.language;
       $('email').textContent = email;
       $('display-name').value = me.display_name;
       try { await push.sync(email); } catch (e) { /* offline: shown as it is */ }
@@ -109,6 +126,39 @@
       'Enter a name.': t('Enter a name.'),
       'The name must be at most 64 characters.': t('The name must be at most 64 characters.'),
     })[message] || message;
+
+    // ---- language -------------------------------------------------------
+
+    // Saved on change. A failed save says why and puts the select back on
+    // what the account has; nothing changes on this device.
+    let savedLanguage = 'auto';
+    $('language').addEventListener('change', async () => {
+      const language = $('language').value;
+      $('language').disabled = true;
+      $('language-error').hidden = true;
+      try {
+        const res = await fetch('/api/me', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ language }),
+        });
+        if (res.status === 401) { location.href = '/signin'; return; }
+        if (!res.ok) throw new Error(serverSentence((await res.json()).error));
+        savedLanguage = language;
+        if (rememberLanguage(language)) {
+          setIcon($('back'), 'back', t('Back'));
+          $('status').hidden = true;
+          $('error').hidden = true;
+          await drawRinging();
+        }
+      } catch (e) {
+        $('language').value = savedLanguage;
+        $('language-error').textContent = String(e.message || e);
+        $('language-error').hidden = false;
+      } finally {
+        $('language').disabled = false;
+      }
+    });
 
     $('form').addEventListener('submit', async event => {
       event.preventDefault();
