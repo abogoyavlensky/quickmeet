@@ -2,6 +2,8 @@
 
 > **For agentic workers:** Use executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+**Status: completed 2026-10-04** (summary at the end)
+
 **Goal:** On a wide screen the lobby uses the width: the camera preview large on the left, everything else in a column on the right; phones and narrow windows look as they do today.
 
 **Tech Stack:** CSS in `resources/public/app.css`, one wrapper element in `resources/public/room.html`, Playwright e2e (`lgx e2e`).
@@ -146,9 +148,30 @@ covers the phone layout already and is not touched.
 **Files:**
 - Modify: `docs/ROADMAP.md`
 
-- [ ] **Step 1: A Done line under "After v1"**
+- [x] **Step 1: A Done line under "After v1"**
   Dated, in the style of its neighbours: the lobby is two columns from
   900px wide.
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
   `git commit -m "docs: the lobby on a desktop"`
+
+## Summary
+
+**Status: completed.** From 900px wide, with at least 501px of height,
+the lobby is two columns: the preview on the left, up to about 730px
+wide, and a 320px column with presence, the name, Join and the stacked
+pickers. The lobby sits in the middle of the page. Narrower or shorter
+windows keep the single column, and phones are unchanged. One wrapper
+element holds the side, so the lobby grid has two items in both layouts.
+
+Verification: the new layout test in `lobby.spec.js` checks the desktop,
+narrow and wide-but-short cases. The full e2e suite passed 73 of 73, and
+`lgx test` needs no change for CSS and markup. Screenshots at three
+widths and of the missing-room page look right.
+
+Deviations, gathered:
+- The visual check used Playwright screenshots instead of `lgx run` by
+  hand.
+
+What the plan could have specified better: nothing.
+

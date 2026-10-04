@@ -306,6 +306,12 @@ in host mode. Two phones on different networks held a call there. See
   the preview, so the first click usually finds them in the cache;
   phones and tablets never do, and neither does a browser saving data.
   Compression is not yet verified on staging.
+- Done 2026-10-04: the lobby on a desktop
+  (`docs/plans/2026-10-04-0007-lobby-on-a-desktop.md`). From 900px wide
+  the camera preview takes the width on the left and who is there, the
+  name, Join and the pickers stand in a column beside it, the whole in
+  the middle of the page. Narrower windows and phones keep the one
+  column.
 - Mobile: LiveKit's Swift, Kotlin and React Native SDKs talk to the same
   SFU and the same token endpoint. Native ringing needs APNs and FCM
   signing that let-go does not have; a small Go shim or a hosted push
