@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#f4f5f2" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#111312" media="(prefers-color-scheme: dark)">
-  <title>History · quickmeet</title>
+  <title data-i18n>History · quickmeet</title>
   <link rel="icon" href="/favicon.ico" sizes="32x32">
   <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
@@ -20,41 +20,42 @@
     <a id="back" class="back" href="/"></a>
     <a class="brand" href="/">quickmeet</a>
     <nav>
-      <a href="/history" aria-current="page">History</a>
-      <a href="/settings">Settings</a>
-      <button id="signout" class="link">Sign out</button>
+      <a href="/history" aria-current="page" data-i18n>History</a>
+      <a href="/settings" data-i18n>Settings</a>
+      <button id="signout" class="link" data-i18n>Sign out</button>
     </nav>
   </header>
   <main class="page">
-    <h1>History</h1>
-    <p class="lead">Your calls, newest first.</p>
+    <h1 data-i18n>History</h1>
+    <p class="lead" data-i18n>Your calls, newest first.</p>
     <table id="calls" class="calls" hidden>
-      <thead><tr><th>With</th><th>When</th><th>Duration</th></tr></thead>
+      <thead><tr><th data-i18n>With</th><th data-i18n>When</th><th data-i18n>Duration</th></tr></thead>
       <tbody></tbody>
     </table>
     <nav id="pager" class="pager" hidden>
-      <button id="newer" class="link">← Newer</button>
-      <button id="older" class="link">Older →</button>
+      <button id="newer" class="link" data-i18n>← Newer</button>
+      <button id="older" class="link" data-i18n>Older →</button>
     </nav>
-    <p id="empty" class="muted" hidden>No calls yet. They appear here once you have talked to someone.</p>
+    <p id="empty" class="muted" hidden data-i18n>No calls yet. They appear here once you have talked to someone.</p>
     <p id="error" class="error" hidden></p>
   </main>
   <script>
     const $ = id => document.getElementById(id);
-    setIcon($('back'), 'back', 'Back');
+    setIcon($('back'), 'back', t('Back'));
 
     // sqlite's datetime text is UTC without a marker; the browser shows
-    // it in local time once told so.
-    const when = s => new Date(s.replace(' ', 'T') + 'Z').toLocaleString();
+    // it in local time once told so, in the format of the language the
+    // account pinned, or the browser's own.
+    const when = s => new Date(s.replace(' ', 'T') + 'Z').toLocaleString(localeOf());
     const duration = seconds => {
-      if (seconds === null || seconds === undefined) return 'in progress';
+      if (seconds === null || seconds === undefined) return t('in progress');
       const m = Math.floor(seconds / 60), s = seconds % 60;
       return m + ':' + String(s).padStart(2, '0');
     };
 
     function row(call) {
       const tr = document.createElement('tr');
-      for (const text of [call.with || 'nobody', when(call.started_at), duration(call.seconds)]) {
+      for (const text of [call.with || t('nobody'), when(call.started_at), duration(call.seconds)]) {
         const td = document.createElement('td');
         td.textContent = text;
         tr.append(td);
@@ -73,12 +74,26 @@
     let page = pageInUrl();
 
     // History is for a signed-in person; anyone else goes to sign in.
+    // The account says which language the dates are in before any row is
+    // drawn.
+    async function start() {
+      try {
+        const res = await fetch('/api/me');
+        if (res.status === 401) { rememberLanguage(null); location.href = '/signin'; return; }
+        if (res.ok) {
+          rememberLanguage((await res.json()).language);
+          setIcon($('back'), 'back', t('Back'));
+        }
+      } catch (e) { /* offline: the cached language stands, load() says what failed */ }
+      load();
+    }
+
     async function load(fellBack = false) {
       const asked = page;
       try {
         const res = await fetch('/api/calls?page=' + asked);
         if (res.status === 401) { location.href = '/signin'; return; }
-        if (!res.ok) throw new Error('could not load history (' + res.status + ')');
+        if (!res.ok) throw new Error(t('Could not load history ({status}).', { status: res.status }));
         const { items: calls, page: served, more } = await res.json();
         // Two quick clicks on the pager: only the last one's answer counts.
         if (page !== asked) return;
@@ -97,7 +112,7 @@
       }
     }
 
-    load();
+    start();
   </script>
 </body>
 </html>

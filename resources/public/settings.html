@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#f4f5f2" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#111312" media="(prefers-color-scheme: dark)">
-  <title>Settings · quickmeet</title>
+  <title data-i18n>Settings · quickmeet</title>
   <link rel="icon" href="/favicon.ico" sizes="32x32">
   <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
@@ -20,26 +20,26 @@
     <a id="back" class="back" href="/"></a>
     <a class="brand" href="/">quickmeet</a>
     <nav>
-      <a href="/history">History</a>
-      <a href="/settings" aria-current="page">Settings</a>
-      <button id="signout" class="link">Sign out</button>
+      <a href="/history" data-i18n>History</a>
+      <a href="/settings" aria-current="page" data-i18n>Settings</a>
+      <button id="signout" class="link" data-i18n>Sign out</button>
     </nav>
   </header>
   <main class="page">
-    <h1>Settings</h1>
-    <p class="lead">Signed in as <span id="email"></span>.</p>
+    <h1 data-i18n>Settings</h1>
+    <p class="lead"><span data-i18n>Signed in as</span> <span id="email"></span></p>
     <form id="form" class="form">
-      <label>Your name <input id="display-name" maxlength="64" required></label>
-      <p class="muted">Shown to the other person in a call.</p>
-      <button id="submit" class="primary" type="submit">Save name</button>
-      <p id="status" class="notice" hidden>Name saved.</p>
+      <label><span data-i18n>Your name</span> <input id="display-name" maxlength="64" required></label>
+      <p class="muted" data-i18n>Shown to the other person in a call.</p>
+      <button id="submit" class="primary" type="submit" data-i18n>Save name</button>
+      <p id="status" class="notice" hidden data-i18n>Name saved.</p>
       <p id="error" class="error" hidden></p>
     </form>
     <!-- Ringing on this device, on or off. The browser's subscription is
          the state; see push in ui.js. -->
     <section id="ringing" class="form">
-      <h2>Notifications</h2>
-      <p class="muted">When someone rings you from a call, this device shows it.</p>
+      <h2 data-i18n>Notifications</h2>
+      <p class="muted" data-i18n>When someone rings you from a call, this device shows it.</p>
       <button id="ring-toggle" hidden></button>
       <p id="ring-status" class="muted" hidden></p>
       <p id="ring-error" class="error" hidden></p>
@@ -47,14 +47,15 @@
   </main>
   <script>
     const $ = id => document.getElementById(id);
-    setIcon($('back'), 'back', 'Back');
+    setIcon($('back'), 'back', t('Back'));
 
     // Settings are for a signed-in person; anyone else goes to sign in.
     let email = null;
     async function load() {
       const res = await fetch('/api/me');
-      if (!res.ok) { location.href = '/signin'; return; }
+      if (!res.ok) { rememberLanguage(null); location.href = '/signin'; return; }
       const me = await res.json();
+      if (rememberLanguage(me.language)) setIcon($('back'), 'back', t('Back'));
       email = me.email;
       $('email').textContent = email;
       $('display-name').value = me.display_name;
@@ -71,16 +72,16 @@
       $('ring-status').hidden = true;
       if (!push.supported()) {
         say(push.needsInstall()
-          ? 'To be rung on this iPhone, add quickmeet to your home screen (Share, then Add to Home Screen) and open it from there.'
-          : 'This browser cannot receive rings.');
+          ? t('To be rung on this iPhone, add quickmeet to your home screen (Share, then Add to Home Screen) and open it from there.')
+          : t('This browser cannot receive rings.'));
         return;
       }
       if (Notification.permission === 'denied') {
-        say("Notifications are blocked for this site in the browser's settings.");
+        say(t("Notifications are blocked for this site in the browser's settings."));
         return;
       }
       const on = !!(await push.subscription().catch(() => null));
-      $('ring-toggle').textContent = on ? 'Stop ringing this device' : 'Let people ring me on this device';
+      $('ring-toggle').textContent = on ? t('Stop ringing this device') : t('Let people ring me on this device');
       $('ring-toggle').className = on ? '' : 'primary';
       $('ring-toggle').dataset.on = on ? '1' : '';
       $('ring-toggle').hidden = false;
@@ -102,6 +103,13 @@
       }
     });
 
+    // The sentences the API sends ready-made that this page can show, in
+    // the page's language; others are shown as the server wrote them.
+    const serverSentence = message => ({
+      'Enter a name.': t('Enter a name.'),
+      'The name must be at most 64 characters.': t('The name must be at most 64 characters.'),
+    })[message] || message;
+
     $('form').addEventListener('submit', async event => {
       event.preventDefault();
       $('submit').disabled = true;
@@ -114,7 +122,7 @@
           body: JSON.stringify({ display_name: $('display-name').value }),
         });
         if (res.status === 401) { location.href = '/signin'; return; }
-        if (!res.ok) throw new Error((await res.json()).error);
+        if (!res.ok) throw new Error(serverSentence((await res.json()).error));
         const { display_name } = await res.json();
         $('display-name').value = display_name;
         $('status').hidden = false;

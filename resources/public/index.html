@@ -19,19 +19,19 @@
   <header class="bar">
     <a class="brand" href="/">quickmeet</a>
     <nav id="nav" hidden>
-      <a href="/history">History</a>
-      <a href="/settings">Settings</a>
-      <button id="signout" class="link">Sign out</button>
+      <a href="/history" data-i18n>History</a>
+      <a href="/settings" data-i18n>Settings</a>
+      <button id="signout" class="link" data-i18n>Sign out</button>
     </nav>
   </header>
   <main class="page">
     <!-- Starting a call takes an account; both sections stay hidden until
          /api/me says which one applies. -->
     <section id="signed-out" class="hero" hidden>
-      <h1>Talk to people without the meeting.</h1>
-      <p class="lead">A video call between two people. Start one, send the link, talk.</p>
-      <p class="row"><a class="button primary" href="/signup">Sign up</a> <a href="/signin">Sign in</a></p>
-      <p class="account">Starting a call takes an account. Joining one takes only the link.</p>
+      <h1 data-i18n>Talk to people without the meeting.</h1>
+      <p class="lead" data-i18n>A video call between two people. Start one, send the link, talk.</p>
+      <p class="row"><a class="button primary" href="/signup" data-i18n>Sign up</a> <a href="/signin" data-i18n>Sign in</a></p>
+      <p class="account" data-i18n>Starting a call takes an account. Joining one takes only the link.</p>
     </section>
 
     <section id="signed-in" hidden>
@@ -41,22 +41,22 @@
         <p id="ring-offer-text"></p>
         <p id="ring-offer-error" class="error" hidden></p>
         <p class="row">
-          <button id="ring-on" class="primary">Turn on</button>
-          <button id="ring-later" class="link">Not now</button>
+          <button id="ring-on" class="primary" data-i18n>Turn on</button>
+          <button id="ring-later" class="link" data-i18n>Not now</button>
         </p>
       </div>
       <!-- Stays under the bar while the list scrolls. -->
-      <div class="pinned"><button id="new" class="primary">New call</button></div>
+      <div class="pinned"><button id="new" class="primary" data-i18n>New call</button></div>
       <!-- My rooms: the ones I made or joined, with who is in them now.
            Each is a permanent link, reused for every call with that
            person; naming one after them is how it is told from the others. -->
       <ul id="rooms" class="rooms"></ul>
-      <p id="no-rooms" class="empty" hidden>Nobody to call yet. Start a call and send its link; the link stays here for next time.</p>
+      <p id="no-rooms" class="empty" hidden data-i18n>Nobody to call yet. Start a call and send its link; the link stays here for next time.</p>
       <nav id="pager" class="pager" hidden>
-        <button id="newer" class="link">← Newer</button>
-        <button id="older" class="link">Older →</button>
+        <button id="newer" class="link" data-i18n>← Newer</button>
+        <button id="older" class="link" data-i18n>Older →</button>
       </nav>
-      <p class="account">Signed in as <span id="who"></span></p>
+      <p class="account"><span data-i18n>Signed in as</span> <span id="who"></span></p>
     </section>
 
     <p id="error" class="error" hidden></p>
@@ -73,6 +73,7 @@
         const res = await fetch('/api/me');
         if (res.ok) {
           const me = await res.json();
+          rememberLanguage(me.language);
           email = me.email;
           $('who').textContent = me.display_name;
           $('signed-in').hidden = false;
@@ -83,6 +84,7 @@
           // the tab is visible.
           setInterval(() => { if (!document.hidden) loadRooms(); }, 5000);
         } else {
+          rememberLanguage(null);
           $('signed-out').hidden = false;
         }
       } catch (e) { showError(e); }
@@ -102,11 +104,10 @@
       if (push.supported()) {
         if (Notification.permission === 'denied') return;
         if (await push.subscription().catch(() => null)) return;
-        $('ring-offer-text').textContent = 'Let people ring you on this device.';
+        $('ring-offer-text').textContent = t('Let people ring you on this device.');
         $('ring-on').hidden = false;
       } else if (push.needsInstall()) {
-        $('ring-offer-text').textContent = 'To be rung on this iPhone, add quickmeet to your home screen ' +
-          '(Share, then Add to Home Screen) and open it from there.';
+        $('ring-offer-text').textContent = t('To be rung on this iPhone, add quickmeet to your home screen (Share, then Add to Home Screen) and open it from there.');
         $('ring-on').hidden = true;
       } else {
         return;
@@ -136,27 +137,34 @@
 
     // ---- rooms ----------------------------------------------------------
 
+    // The sentences the API sends ready-made that this page can show, in
+    // the page's language; others are shown as the server wrote them.
+    const serverSentence = message => ({
+      'The name must be at most 64 characters.': t('The name must be at most 64 characters.'),
+      'Too many attempts. Try again later.': t('Too many attempts. Try again later.'),
+    })[message] || message;
+
     // The session ended (signed out elsewhere, expired, removed from the
     // allowlist): sign in again. Any other failure is shown.
     async function api(url, options) {
       const res = await fetch(url, options);
       if (res.status === 401) { location.href = '/signin'; throw new Error('signed out'); }
       if (!res.ok) {
-        let message = 'Something went wrong (' + res.status + ').';
-        try { message = (await res.json()).error || message; } catch (e) { /* not JSON */ }
+        let message = t('Something went wrong ({status}).', { status: res.status });
+        try { message = serverSentence((await res.json()).error) || message; } catch (e) { /* not JSON */ }
         throw new Error(message);
       }
       return res.json();
     }
 
-    const presenceOf = n => n >= 2 ? 'in a call' : n === 1 ? '1 waiting' : '';
+    const presenceOf = n => n >= 2 ? t('in a call') : n === 1 ? t('1 waiting') : '';
 
     // What of a row depends on the room's data: the disc, the name, who is
     // there. Used when the row is built and on every refresh.
     function fillRow(li, room) {
       li.room = room;
       setAvatar(li.querySelector('.avatar'), room.name);
-      li.querySelector('.room-name').textContent = room.name || 'Room ' + room.id;
+      li.querySelector('.room-name').textContent = room.name || t('Room {id}', { id: room.id });
       li.querySelector('.presence').textContent = presenceOf(room.present);
       li.classList.toggle('present', room.present > 0);
     }
@@ -178,10 +186,10 @@
         b.addEventListener('click', () => onClick(b).catch(showError));
         actions.append(b);
       };
-      button('link', 'Copy link', b => copyLink(b, location.origin + '/room/' + room.id));
+      button('link', t('Copy link'), b => copyLink(b, location.origin + '/room/' + room.id));
       if (room.owner) {
-        button('pencil', 'Rename', async () => {
-          const name = prompt('Who is this call with?', li.room.name || '');
+        button('pencil', t('Rename'), async () => {
+          const name = prompt(t('Who is this call with?'), li.room.name || '');
           if (name === null) return;
           await api('/api/rooms/' + room.id, {
             method: 'POST',
@@ -190,8 +198,8 @@
           });
           await loadRooms();
         });
-        button('trash', 'Delete', async () => {
-          if (!confirm('Delete this call? Its link will stop working.')) return;
+        button('trash', t('Delete'), async () => {
+          if (!confirm(t('Delete this call? Its link will stop working.'))) return;
           await api('/api/rooms/' + room.id, { method: 'DELETE' });
           await loadRooms();
         });

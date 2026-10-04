@@ -356,7 +356,7 @@ by e2e: Playwright cannot receive a Web Push.
   `settings.html`, `history.html`, `room.html`, `account.js`, `i18n.js`
 - Test: `e2e/playwright.config.js`, `e2e/tests/i18n.spec.js`
 
-- [ ] **Step 1: Pin the e2e locale and write the Russian test**
+- [x] **Step 1: Pin the e2e locale and write the Russian test**
   `playwright.config.js` `use`: `locale: 'en-US'`. New `i18n.spec.js`:
   - "a Russian browser gets the lobby in Russian": `newRoom(page)` with
     the default (English) page, then `openLobby` with
@@ -371,8 +371,11 @@ by e2e: Playwright cannot receive a Web Push.
   (Playwright runs `bin/quickmeet`, which embeds the pages: every
   targeted run rebuilds first.)
   Expected: FAIL.
+  > The sign-in test also submits a wrong password and expects the
+  > server's sentence in Russian. The sign-in heading is «Войти», not
+  > «Вход»: it shares the key "Sign in" with the link.
 
-- [ ] **Step 2: Mark the markup**
+- [x] **Step 2: Mark the markup**
   Every page: `<script src="/static/i18n.js">` after `ui.js`. Every
   user-visible text node gets `data-i18n` (empty); placeholders, titles
   and `aria-label`s get their `data-i18n-*`. Sentences with an inline
@@ -380,8 +383,10 @@ by e2e: Playwright cannot receive a Web Push.
   translated text (`Signed in as <span>` becomes `<span data-i18n>Signed in as</span> <span id="email">`;
   `No account yet? <a>Sign up</a>` is two marked elements). The
   `<title>` is translated by `applyLanguage` from its text.
+  > The room page's `<title>` is just "quickmeet" and is not marked.
+  > Settings' "Signed in as {email}." lost its full stop when split.
 
-- [ ] **Step 3: Route the scripts' strings through `t()`**
+- [x] **Step 3: Route the scripts' strings through `t()`**
   Every literal a person can see, in all six pages and `account.js`:
   the constants at the top of `room.html` become functions returning
   `t('...')` (so a language change after load takes effect), every
@@ -400,8 +405,15 @@ by e2e: Playwright cannot receive a Web Push.
   `drawRing` and re-sets the static icon labels (`leave`, `back`,
   `copy`/`invite`); the other pages' script text is all drawn after
   `/api/me` anyway.
+  > The room page gained `drawLabels` (link buttons, Leave, Back, the
+  > settings button) and `redraw`, which also redraws the call's buttons
+  > and status when joined. The server's ready-made sentences a page can
+  > show (sign-up and sign-in validation, the name limits, too many
+  > attempts) are mapped to `t('...')` literals on that page, so the
+  > check sees them. The push-endpoint errors stay English: they are
+  > technical and rare.
 
-- [ ] **Step 4: Run the check, fill the dictionary**
+- [x] **Step 4: Run the check, fill the dictionary**
   Run: `lgx i18n-check`
   Expected: a list of every missing key. Translate them all into `RU`
   in `i18n.js`: natural Russian, informal-polite (вы), short labels for
@@ -409,14 +421,17 @@ by e2e: Playwright cannot receive a Web Push.
   `Убрать размытие`, `Поделиться экраном`, `Завершить`). Re-run until
   it exits 0. `docs/DEVELOPMENT.md` gets a paragraph: how a string is
   added (mark it or wrap it, run `lgx i18n-check`, fill `RU`).
+  > 112 keys, 0 missing, 0 unused.
 
-- [ ] **Step 5: Run the e2e suites**
+- [x] **Step 5: Run the e2e suites**
   Run: `lgx build && cd e2e && npx playwright test i18n`
   Expected: PASS.
   Run: `lgx e2e`
   Expected: PASS: every other spec still finds its English labels.
+  > 76 of 77 passed. The one failure was the known parallel-load timeout
+  > of "blurred into the call…", which passed alone on one worker.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
   `git commit -m "Russian: every page in the browser's language"`
 
 ### Task 5: The language setting
