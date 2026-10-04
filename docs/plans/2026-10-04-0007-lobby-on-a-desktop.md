@@ -85,7 +85,7 @@ covers the phone layout already and is not touched.
 - Modify: `resources/public/room.html`, `resources/public/app.css`
 - Test: `e2e/tests/lobby.spec.js`
 
-- [ ] **Step 1: Write the e2e test**
+- [x] **Step 1: Write the e2e test**
   In `lobby.spec.js`, test "a wide screen puts the preview beside the
   controls": `newRoom(page)`, wait for `#preview` to have `videoWidth > 0`,
   read `boundingBox()` of `.preview` and `#join`; expect preview width
@@ -99,13 +99,13 @@ covers the phone layout already and is not touched.
   targeted run rebuilds first.)
   Expected: FAIL (the preview is at most 520 wide).
 
-- [ ] **Step 2: Wrap the lobby's side**
+- [x] **Step 2: Wrap the lobby's side**
   In `room.html`'s `#lobby`, move `#presence`, `#notice`, the `.join-row`,
   `#error` and `.devices` into `<div class="lobby-side">` after the
   `.preview`. Update the section's comment to say the side is one block
   so a wide screen can set it beside the preview.
 
-- [ ] **Step 3: Style it**
+- [x] **Step 3: Style it**
   In `app.css`, after the `.devices` rule: `.lobby-side { display: grid; gap: 16px; }`.
   Then the wide query, placed with the other room-page media queries,
   with a comment in the file's voice (a desktop has the width; the
@@ -122,7 +122,7 @@ covers the phone layout already and is not touched.
   the same time as the wide query (it cannot: the phone query needs
   width ≤ 700 or height ≤ 500).
 
-- [ ] **Step 4: Run the lobby tests and look at it**
+- [x] **Step 4: Run the lobby tests and look at it**
   Run: `lgx build && cd e2e && npx playwright test lobby`
   Expected: PASS.
   Then `lgx run`, open a room at a full desktop window, an 800px-wide
@@ -130,12 +130,15 @@ covers the phone layout already and is not touched.
   centred vertically; one column at 560 as today; the phone layout as
   before. Also `#gone` (`/room/000000000000`) at a desktop width:
   unchanged.
+  > Checked with Playwright screenshots at 1440x900, 800x720 and 390x844,
+  > and of `#gone` at 1440x900, rather than with `lgx run` by hand.
 
-- [ ] **Step 5: Run the whole e2e suite**
+- [x] **Step 5: Run the whole e2e suite**
   Run: `lgx e2e`
   Expected: PASS (`mobile.spec.js` in particular).
+  > 73 passed.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
   `git commit -m "Lobby: the preview beside the controls on a wide screen"`
 
 ### Task 2: Docs

@@ -16,6 +16,28 @@ test.describe('the lobby', () => {
     expect(await page.evaluate(() => document.getElementById('preview').videoWidth)).toBe(0);
   });
 
+  test('a wide screen puts the preview beside the controls', async ({ page }) => {
+    await newRoom(page);
+    await expect.poll(() => page.evaluate(() => document.getElementById('preview').videoWidth)).toBeGreaterThan(0);
+    const boxes = async () => ({ preview: await page.locator('.preview').boundingBox(), join: await page.locator('#join').boundingBox() });
+
+    // A desktop: two columns, the preview large on the left.
+    let { preview, join } = await boxes();
+    expect(preview.width).toBeGreaterThan(600);
+    expect(preview.x + preview.width).toBeLessThanOrEqual(join.x);
+
+    // A narrow window: one column, as before.
+    await page.setViewportSize({ width: 800, height: 720 });
+    ({ preview, join } = await boxes());
+    expect(join.y).toBeGreaterThanOrEqual(preview.y + preview.height);
+    expect(preview.width).toBeLessThanOrEqual(560);
+
+    // Wide but short, which the phone layout takes: one column.
+    await page.setViewportSize({ width: 1280, height: 480 });
+    ({ preview, join } = await boxes());
+    expect(join.y).toBeGreaterThanOrEqual(preview.y + preview.height);
+  });
+
   test('the lobby previews the camera and lists the devices', async ({ page }) => {
     await newRoom(page);
     await expect.poll(() => page.evaluate(() => document.getElementById('preview').videoWidth)).toBeGreaterThan(0);
