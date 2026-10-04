@@ -1,7 +1,9 @@
 # Caddy in front of quickmeet in deploy/docker/compose.yaml: TLS for the
-# domain in .env, the SFU's signalling WebSocket on /rtc*, everything else
-# to the app.
+# domain in .env, compression, the SFU's signalling WebSocket on /rtc*,
+# everything else to the app.
 {$QUICKMEET_DOMAIN} {
+	# The app serves raw bytes; background blur's wasm is 9.4 MB of them.
+	encode zstd gzip
 	handle /rtc* {
 		reverse_proxy quickmeet:7880
 	}
