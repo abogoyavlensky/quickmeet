@@ -9,8 +9,9 @@ POST /api/auth/signup            {"email", "password"}
 POST /api/auth/signin            {"email", "password"}
                                  -> 200 {"email", "display_name"} + Set-Cookie | 401 {"error": "invalid email or password"} | 403 | 429
 POST /api/auth/signout           -> 200 {} + Set-Cookie clearing the session
-GET  /api/me                     -> 200 {"email", "display_name"} | 401
-POST /api/me                     {"display_name"} -> 200 {"email", "display_name"} | 400 | 401
+GET  /api/me                     -> 200 {"email", "display_name", "language"} | 401
+POST /api/me                     {"display_name", "language"} (either or both)
+                                 -> 200 {"email", "display_name", "language"} | 400 | 401
 POST /api/rooms                  -> 201 {"id": "0123456789ab"} | 401 (needs a session) | 429
 GET  /api/rooms?page=N           -> 200 {"items": [{"id", "name", "created_at", "owner": bool, "present": n}],
                                          "page": n, "more": bool} | 401
@@ -33,6 +34,13 @@ GET  /room/:id                   the room page
 GET  /history                    the history page
 GET  /signup, /signin, /settings the account pages
 ```
+
+`language` is the interface's language for the account: `"auto"` (the
+default) follows the browser, `"en"` and `"ru"` pin one. Any other value
+is a 400, and both fields are checked before either is saved, so a bad
+one changes nothing. A ring's push payload carries the caller's name as
+`from` and the recipient's `language`, and the service worker shows it
+in Russian when it should.
 
 Sessions are opaque ids in sqlite, sent as an `HttpOnly` `SameSite=Lax`
 cookie (`Secure` behind TLS), valid for a year. Passwords are bcrypt

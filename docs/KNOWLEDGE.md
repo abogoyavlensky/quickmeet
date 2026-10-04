@@ -598,6 +598,32 @@ Why the stock blur ripples, and the patch, 2026-10-01:
   3 s while the screen's grew. `adaptiveStream` asks the SFU to stop a
   video nobody shows, so the hidden camera costs no bandwidth.
 
+## The interface's languages, 2026-10-04
+
+- The English sentences are the dictionary's keys (`i18n.js`, `RU`).
+  Markup keeps its English and is marked (`data-i18n`, `data-i18n-*`);
+  scripts wrap the literal in `t('...')`. An empty mark stores the key it
+  read on the first pass, so a second pass reads English, not the
+  Russian it wrote. `scripts/check-i18n.mjs` finds keys by literal, so a
+  sentence reaching `t` through a variable is invisible to it.
+- An element whose text scripts rewrite (the bar's name of the other
+  person) must not be marked: a later pass would put the key back over
+  what the script wrote. Draw it from state instead (`drawRemoteName`).
+- The account holds the choice; localStorage (`quickmeet.lang`) is a
+  cache so a page is drawn in the right language before `/api/me`
+  answers. Every page writes the answer into it, a 401 and Sign out
+  clear it. A control that saves the choice waits for the first answer,
+  or the older answer would undo the save.
+- "Auto" is decided on the device, from `navigator.language` (the first
+  preferred language), by the pages and by the service worker alike. The
+  server cannot decide it, so a ring's payload carries the recipient's
+  setting and the caller's name, and `sw.js` holds the two Russian
+  sentences itself.
+- The e2e browser is pinned to `en-US` (`playwright.config.js`): the
+  specs find buttons by English name. Playwright cannot receive a Web
+  Push, so the worker's Russian ring was checked in Node with a stubbed
+  `self`, not in a browser.
+
 ## Restarts and shutdown, verified 2026-09-30
 
 - A call survives the server process being killed. Two headless

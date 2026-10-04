@@ -495,12 +495,12 @@ by e2e: Playwright cannot receive a Web Push.
 **Files:**
 - Modify: `docs/API.md`, `docs/ROADMAP.md`, `docs/KNOWLEDGE.md`
 
-- [ ] **Step 1: Write it down**
+- [x] **Step 1: Write it down**
   `docs/API.md`: `/api/me`'s `language` field and the accepted values.
   `docs/ROADMAP.md`, "After v1": a dated Done line. `docs/KNOWLEDGE.md`:
   the choices that are not obvious from the code: keys are English
   sentences, the cache is not the truth, the worker translates the
   ring, the e2e locale is pinned.
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
   `git commit -m "docs: the Russian interface"`
