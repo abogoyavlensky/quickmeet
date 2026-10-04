@@ -217,6 +217,39 @@ test.describe('background blur', () => {
     expect(phone.length).toBe(0);
   });
 
+  test('blur switched off while its first frame waits does not freeze the page', async ({ browser, page }) => {
+    test.setTimeout(120_000);
+    const roomUrl = await newRoom(page);
+    // The library's first processed frame waits for the video to paint
+    // (requestVideoFrameCallback) before it segments. Delayed by 2 s, that
+    // wait is a window to switch blur off in; the flag says it has begun.
+    // Before the fix, the frame then went on into a closed segmenter and
+    // the page froze for good.
+    const init = context => context.addInitScript(() => {
+      const real = HTMLVideoElement.prototype.requestVideoFrameCallback;
+      HTMLVideoElement.prototype.requestVideoFrameCallback = function (callback) {
+        window.firstFrameWaiting = true;
+        return real.call(this, (...args) => setTimeout(() => callback(...args), 2000));
+      };
+    });
+    const { page: alice } = await openLobby(browser, contexts, roomUrl, 'alice', { init });
+
+    await alice.click('#blur-preview');
+    await alice.waitForFunction(() => window.call.blur === true && window.firstFrameWaiting === true, null, POLL);
+    await alice.evaluate(() => document.getElementById('blur-preview').click());
+    await alice.waitForTimeout(4000);
+    // A frozen page never answers, and Playwright's own timeout would not
+    // come first.
+    const answer = await Promise.race([
+      alice.evaluate(() => 'answers'),
+      new Promise(resolve => setTimeout(() => resolve('frozen'), 10_000)),
+    ]);
+    expect(answer).toBe('answers');
+    expect(await blurOf(alice)).toBe(false);
+    await alice.evaluate(() => document.getElementById('join').click());
+    await alice.waitForFunction(() => window.call.joined === true, null, POLL);
+  });
+
   test('a browser that cannot blur shows no button', async ({ browser, page }) => {
     const roomUrl = await newRoom(page);
     const init = context => context.addInitScript(() => { delete window.VideoFrame; });

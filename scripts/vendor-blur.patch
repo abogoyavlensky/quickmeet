@@ -15,6 +15,14 @@ with a lattice of its own; and the person's mask is new every frame.
 - every shader: highp. On phones mediump is a 16-bit float, too coarse to
   address a 720-pixel texture, so samples snap and the picture wobbles.
 
+And one fix (2026-10-04), in BackgroundTransformer.ts: blur switched off
+while its first frame waits to paint no longer freezes the page. transform
+checks isDisabled once, then the first frame awaits requestVideoFrameCallback;
+destroy closed the segmenter meanwhile, and the frame went on into it. The
+wasm never returned. Now transform checks again after the wait, destroy takes
+the segmenter off before closing it, and segmentation without one resolves at
+once.
+
 diff --git a/src/webgl/index.ts b/src/webgl/index.ts
 index f7608d1..2c14bdb 100644
 --- a/src/webgl/index.ts
@@ -297,3 +305,43 @@ index 0000000..46c8668
 +  gl.drawArrays(gl.TRIANGLES, 0, 6);
 +  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
 +}
+diff --git a/src/transformers/BackgroundTransformer.ts b/src/transformers/BackgroundTransformer.ts
+index 67ded07..46f4520 100644
+--- a/src/transformers/BackgroundTransformer.ts
++++ b/src/transformers/BackgroundTransformer.ts
+@@ -92,7 +92,11 @@ export default class BackgroundProcessor extends VideoTransformer<BackgroundOpti
+ 
+   async destroy(options?: TrackTransformerDestroyOptions) {
+     await super.destroy();
+-    await this.imageSegmenter?.close();
++    // quickmeet: taken off before it is closed, so a frame still in
++    // transform finds no segmenter rather than a closed one.
++    const segmenter = this.imageSegmenter;
++    this.imageSegmenter = undefined;
++    await segmenter?.close();
+     this.backgroundImageAndPath = null;
+ 
+     if (!options?.willProcessorRestart) {
+@@ -165,11 +169,22 @@ export default class BackgroundProcessor extends VideoTransformer<BackgroundOpti
+       }
+       this.isFirstFrame = false;
+ 
++      // quickmeet: destroyed while the first frame waited above. The copy is
++      // already enqueued; segmenting now would call into a closed
++      // segmenter, whose wasm never returns and freezes the page.
++      if (this.isDisabled || !this.imageSegmenter) {
++        return;
++      }
++
+       const filterStartTimeMs = performance.now();
+ 
+       const segmentationPromise = new Promise<void>((resolve, reject) => {
+         try {
+           let segmentationStartTimeMs = performance.now();
++          if (!this.imageSegmenter) {
++            resolve();
++            return;
++          }
+           // NOTE: this.imageSegmenter?.segmentForVideo is synchronous, and blocks the event loop
+           // for tens to ~100 ms! The promise wrapper is just used to flatten out the call hierarchy.
+           this.imageSegmenter?.segmentForVideo(frame, segmentationStartTimeMs, (result) => {
