@@ -2,6 +2,8 @@
 
 > **For agentic workers:** Use executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+**Status: completed 2026-10-04** (summary at the end)
+
 **Goal:** The interface reads in Russian for a browser set to Russian, in English otherwise, and a signed-in person can pin either language in Settings; everything a person sees, down to the ring notification, follows.
 
 **Tech Stack:** One shared script, `resources/public/i18n.js`, plain DOM on the pages; a `language` column on `users` (ragtime migration in `src/quickmeet/migrations.lg`, HoneySQL in `src/quickmeet/db.lg`), `/api/me` in `src/quickmeet/routes.lg`; the service worker `resources/public/sw.js`; a Node check script; `lgx test` and Playwright e2e (`lgx e2e`).
@@ -504,3 +506,52 @@ by e2e: Playwright cannot receive a Web Push.
 
 - [x] **Step 2: Commit**
   `git commit -m "docs: the Russian interface"`
+
+## Summary
+
+**Status: completed.** Every page reads in Russian for a browser whose
+first language is Russian, guests included, and in English otherwise.
+Settings has Auto, English and Русский. The choice lives on the account
+in the new `language` column and follows the person to every browser.
+`/api/me` returns and accepts it. A ring's payload carries the caller's
+name and the recipient's setting, and `sw.js` shows it in Russian when
+it should. History's dates follow a pinned language.
+`lgx i18n-check` finds 116 sentences, all translated, and fails on any
+new one without Russian.
+
+Verification: `lgx test` 83 tests, 617 assertions, 0 failures. The
+i18n e2e spec has 7 tests and passes. The full e2e suite passed 81 of 82.
+The one failure was the known parallel-load timeout of "blurred into the
+call…", which passed alone on one worker. Screenshots of a Russian lobby
+and Russian Settings read correctly. The worker's ring was checked in
+Node across pinned, auto and fallback cases.
+
+Codex found three real bugs, all fixed with tests:
+- A non-object JSON body to `POST /api/me` threw instead of answering 400.
+- A late `/api/me` in another language re-translated the bar and wiped
+  the other person's name mid-call.
+- The language select could be changed before the first `/api/me`
+  answered, and that older answer then undid the save.
+
+Deviations, gathered:
+- `POST /api/me` checks the language before writing anything; an empty
+  body answers 400.
+- The ring requires the caller's name to go Russian, so it is never half
+  translated.
+- `i18n.js` has its own localStorage wrapper, since the sign-in and
+  sign-up pages do not load `ui.js`. It sets `html[lang]` at once.
+- The script tags went onto the pages in task 3, not task 4, so nothing
+  broke between the commits.
+- The server's ready-made sentences a page can show are mapped to
+  `t('...')` literals on that page. Push-endpoint errors stay English.
+- The sign-in heading shares "Sign in" with the link: «Войти».
+- `#remote-name` is drawn from state (`drawRemoteName`), not marked.
+- Settings gained a refused-save test and a slow-load test.
+
+Not verified: the ring on a real Russian phone, and Russian on a real
+device at all.
+
+What the plan could have specified better: that an element whose text
+scripts rewrite must not be marked for translation, and that a control
+saving a server value must wait for the first load.
+
