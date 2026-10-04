@@ -298,14 +298,6 @@ in host mode. Two phones on different networks held a call there. See
   preview. On a desktop, a settings button (three dots) at the bar's
   right end opens the camera and microphone pickers. Not yet tried on a
   real phone or iPad.
-- Done 2026-10-04: the first blur on a device is faster and says it is
-  loading (`docs/plans/2026-10-04-0006-blur-first-use.md`). Caddy
-  compresses what the app serves, in all three Caddyfiles, so the 9.4 MB
-  wasm arrives as about 3 MB. While blur loads, a ring turns around its
-  button. A desktop lobby fetches the files while the person looks at
-  the preview, so the first click usually finds them in the cache;
-  phones and tablets never do, and neither does a browser saving data.
-  Compression is not yet verified on staging.
 - Mobile: LiveKit's Swift, Kotlin and React Native SDKs talk to the same
   SFU and the same token endpoint. Native ringing needs APNs and FCM
   signing that let-go does not have; a small Go shim or a hosted push
