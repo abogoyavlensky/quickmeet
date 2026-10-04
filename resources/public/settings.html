@@ -50,7 +50,7 @@
     <section class="form">
       <h2 data-i18n>Language</h2>
       <label><span data-i18n>Language of the interface</span>
-        <select id="language">
+        <select id="language" disabled>
           <option value="auto" data-i18n>Auto (browser)</option>
           <option value="en">English</option>
           <option value="ru">Русский</option>
@@ -74,6 +74,9 @@
       email = me.email;
       $('language').value = me.language;
       savedLanguage = me.language;
+      // Only now: a change before the account is known would be
+      // overwritten by this older answer.
+      $('language').disabled = false;
       $('email').textContent = email;
       $('display-name').value = me.display_name;
       try { await push.sync(email); } catch (e) { /* offline: shown as it is */ }
@@ -129,7 +132,8 @@
 
     // ---- language -------------------------------------------------------
 
-    // Saved on change. A failed save says why and puts the select back on
+    // Saved on change, once load() knows the account's choice (the select
+    // starts disabled). A failed save says why and puts the select back on
     // what the account has; nothing changes on this device.
     let savedLanguage = 'auto';
     $('language').addEventListener('change', async () => {

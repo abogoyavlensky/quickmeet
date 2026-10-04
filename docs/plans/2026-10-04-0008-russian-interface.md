@@ -483,6 +483,9 @@ by e2e: Playwright cannot receive a Web Push.
   Run: `lgx i18n-check && lgx build && cd e2e && npx playwright test i18n`
   Expected: PASS.
   > 116 keys, 0 missing; i18n spec 6 passed.
+  > Codex review: a change before the first `/api/me` answered could be
+  > undone by that older answer. Fixed: the select starts disabled and
+  > `load()` enables it. A seventh test holds the first load.
 
 - [x] **Step 4: Commit**
   `git commit -m "Settings: pin the language, or follow the browser"`

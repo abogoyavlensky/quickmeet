@@ -119,6 +119,22 @@ test.describe('the interface language', () => {
     await expect(page.locator('html')).toHaveAttribute('lang', 'en');
   });
 
+  test('the select waits for the account before it can be changed', async ({ page }) => {
+    await signUp(page, 'slow');
+    // The page's first /api/me is held, as on a slow network.
+    let release;
+    const held = new Promise(resolve => { release = resolve; });
+    await page.route('**/api/me', async route => {
+      if (route.request().method() === 'GET') await held;
+      await route.continue();
+    });
+    await page.goto('/settings');
+    await expect(page.locator('#language')).toBeDisabled();
+    release();
+    await expect(page.locator('#language')).toBeEnabled();
+    await expect(page.locator('#language')).toHaveValue('auto');
+  });
+
   test('the landing page and sign-in in Russian', async ({ browser }) => {
     const context = await browser.newContext(RU);
     contexts.push(context);
