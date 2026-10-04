@@ -391,7 +391,7 @@
 ;; other members whose session is still live. The window is the one
 ;; session-user-sql uses (auth/session-days).
 (def ^:private ring-targets-sql
-  "select p.endpoint, p.p256dh, p.auth, u.id as user_id, u.email, u.display_name
+  "select p.endpoint, p.p256dh, p.auth, u.id as user_id, u.email, u.display_name, u.language
    from push_subscriptions p
    join sessions s on s.id = p.session_id
    join users u on u.id = s.user_id
@@ -423,6 +423,6 @@
 
 (defn ring-targets
   "The devices a ring by `caller-id` in the room reaches: {:endpoint :p256dh
-   :auth :user_id :email :display_name}, one per subscription."
+   :auth :user_id :email :display_name :language}, one per subscription."
   [conn room-id caller-id]
   (sqlite/query conn [ring-targets-sql room-id caller-id]))

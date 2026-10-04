@@ -254,7 +254,7 @@ by e2e: Playwright cannot receive a Web Push.
 - Modify: `src/quickmeet/routes.lg`, `resources/public/sw.js`
 - Test: `test/quickmeet/routes_test.lg`
 
-- [ ] **Step 1: Extend the ring test**
+- [x] **Step 1: Extend the ring test**
   In `ringing-the-other-members` (routes_test.lg:726), the captured
   payload gains `:from "alice"` and `:language "auto"`; a second
   recipient whose language was set to `ru` gets `:language "ru"` in
@@ -262,26 +262,32 @@ by e2e: Playwright cannot receive a Web Push.
   Run: `lgx test`
   Expected: FAIL.
 
-- [ ] **Step 2: Build the message per target**
+- [x] **Step 2: Build the message per target**
   `ring-message` takes the target too and adds `:from` and `:language`
   (the target's, `auto` when nil). The ring route calls
   `push/deliver!` with a one-element vector per target, or `deliver!`
   gains an arity taking a `message-for` function; pick the one that
   keeps `push_test.lg` passing unchanged (the single-message arity must
   stay).
+  > One `deliver!` call per target, with a one-element vector. `push.lg`
+  > is unchanged. `db_test.lg` pins a ring target's shape and gains
+  > `:language`.
 
-- [ ] **Step 3: The worker renders it**
+- [x] **Step 3: The worker renders it**
   `sw.js`'s push handler: `const ru = ring.language === 'ru' || (ring.language !== 'en' && /^ru\b/i.test(navigator.language || ''));`
   then title `ru && ring.from ? ring.from + ' хочет поговорить' : ring.title || 'quickmeet'`,
   body `ru ? 'Нажмите, чтобы присоединиться' : ring.body || 'Someone wants to talk.'`.
   Update the comment at the top of the file: the worker translates
   the ring itself.
+  > Deviation: Russian also requires `from`, so a payload without it is
+  > all English rather than an English title over a Russian body. Checked
+  > in Node with a stubbed `self` across pinned, auto and fallback cases.
 
-- [ ] **Step 4: Run the tests**
+- [x] **Step 4: Run the tests**
   Run: `lgx test`
   Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git commit -m "Ring: the notification arrives in the recipient's language"`
 
 ### Task 3: `i18n.js` and the check script

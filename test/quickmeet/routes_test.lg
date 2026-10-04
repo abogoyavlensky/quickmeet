@@ -793,8 +793,11 @@
             (is (= 1 (count @sent)))
             (is (= {:endpoint (str fcm "bob") :p256dh "BPdh" :auth "au"}
                    (select-keys target [:endpoint :p256dh :auth])))
+            ;; The English text, plus what the device needs to show it in
+            ;; Bob's language: who rings, and his choice (sw.js).
             (is (= {:title "alice wants to talk" :body "Tap to join the call."
-                    :url (str "/room/" id) :tag (str "room-" id)}
+                    :url (str "/room/" id) :tag (str "room-" id)
+                    :from "alice" :language "auto"}
                    payload))
             (is (= id (:topic message)))
             (is (= "https://meet.example:8080" (:subject message))))
@@ -802,6 +805,14 @@
           (reset! sent [])
           (ring handler id alice)
           (is (= "quickmeet@localhost" (:subject (second (first @sent)))))
+          ;; Bob pins Russian: his device is told so; the text stays English
+          ;; for a worker that cannot translate yet.
+          (call handler :post "/api/me" (json/write-json {:language "ru"}) (as bob))
+          (reset! sent [])
+          (ring handler id alice)
+          (let [payload (json/read-json (:payload (second (first @sent))) {:keywords? true})]
+            (is (= {:language "ru" :from "alice" :title "alice wants to talk"}
+                   (select-keys payload [:language :from :title]))))
           ;; Bob signs out: his device goes with the session, and there is
           ;; nobody left to ring.
           (call handler :post "/api/auth/signout" nil (as bob))
