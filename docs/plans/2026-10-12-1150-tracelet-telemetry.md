@@ -272,26 +272,29 @@ The check that matters before staging: a real quickmeet, a real call path, a rea
 **Files:**
 - Modify: `lgx.edn` (only if still `:local/root`), `compose.yaml`, `.github/workflows/deploy.yml`, `docs/CONFIGURATION.md`, `docs/DEPLOYMENT.md`, `docs/KNOWLEDGE.md`
 
-- [ ] **Step 1: The coordinate**
+- [ ] **Step 1: The coordinate** (open: needs the tag from Task 3)
   If `lgx.edn` still points at `:local/root`, change it to `{:git/url "https://github.com/abogoyavlensky/letgo-packages" :git/tag "otel-v0.1.0" :deps/root "otel"}` (Task 3 must be done). One `lgx test` run proves the tag resolves.
   Run: `lgx test`
   Expected: PASS.
 
-- [ ] **Step 2: `compose.yaml`**
+- [x] **Step 2: `compose.yaml`**
   Add the environment from decision 9 to the `quickmeet-app` service, with a comment saying what each is for and that the headers secret holds `Authorization=Bearer <ingest token>`. Add `secrets: otel_headers: x-command: printenv OTEL_EXPORTER_OTLP_HEADERS`. Use `${OTEL_EXPORTER_OTLP_ENDPOINT:?...}` and `${APP_VERSION:?...}` so a missing value fails the load.
 
-- [ ] **Step 3: `deploy.yml`**
+- [x] **Step 3: `deploy.yml`**
   In the "Build and deploy" step's `env`, add `OTEL_EXPORTER_OTLP_ENDPOINT: ${{ vars.OTEL_EXPORTER_OTLP_ENDPOINT }}`, `OTEL_EXPORTER_OTLP_HEADERS: ${{ secrets.OTEL_EXPORTER_OTLP_HEADERS }}` and `APP_VERSION: ${{ github.sha }}` (use the first 7 characters: compute it in the step). Add the same kind of guard Tracelet's deploy has: `: "${OTEL_EXPORTER_OTLP_HEADERS:?the OTEL_EXPORTER_OTLP_HEADERS secret must be set}"` before the `uc deploy` line, because `printenv` passes an empty secret.
 
-- [ ] **Step 4: Offline check of the compose file**
+- [x] **Step 4: Offline check of the compose file**
   Same method as the Tracelet plan used: clone uncloud at the version in `.mise.toml` into `.tmp/uncloud`, add a scratch test under `pkg/client/compose/` that loads `compose.yaml` with the variables set and prints the service spec, and check the new environment and the secret; then with `OTEL_EXPORTER_OTLP_ENDPOINT` unset, loading must fail. Set `GOTMPDIR` to a directory off `/tmp` if the build hits a disk quota, and run with `-count=1` so Go does not replay a cached result. Delete the clone afterwards. Note whether `x-command` runs through a shell (the Tracelet secret relies on plain `printenv`, which works either way).
 
-- [ ] **Step 5: Docs**
+- [x] **Step 5: Docs**
   `docs/CONFIGURATION.md`: a table of the OTEL variables (all optional, telemetry off without an endpoint) and a sentence on what is recorded and what is not (decision 6). `docs/DEPLOYMENT.md`: the staging variable and secret, and how to read the data from Tracelet. `docs/KNOWLEDGE.md`: the `otel` package (what it wraps, the no-op rule, explicit parents and why, the log exporter being pre-1.0), under the existing package notes. Use /writing-clearly if available.
 
-- [ ] **Step 6: Run the checks and commit**
+- [x] **Step 6: Run the checks and commit**
   Run: `lgx test`. Expected: PASS.
   `git -C /home/agent/Projects/quickmeet add -A && git -C /home/agent/Projects/quickmeet commit -m "Configure staging to send telemetry to Tracelet"`
+
+> Task 7 notes: Step 1 stays open because Task 3 (the tag) is deferred; **`lgx.edn` still points at `../letgo-packages/otel`, so this branch cannot build in CI until the tag exists and the coordinate is flipped**. Step 4 was done offline against uncloud v0.20.0 (scratch test, clone deleted): the six OTEL variables arrive in the container environment with the headers secret resolved (space intact), and loading fails with "required variable ... is missing a value" when `OTEL_EXPORTER_OTLP_ENDPOINT` or `APP_VERSION` is unset or empty. `x-command` is run directly, not through a shell. `deploy.yml` was only YAML-parsed, not run.
+
 
 ## Task 8: Staging (owner steps), then look at it
 

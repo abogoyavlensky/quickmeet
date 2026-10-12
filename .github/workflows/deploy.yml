@@ -70,4 +70,13 @@ jobs:
           ALLOWED_EMAILS: ${{ vars.ALLOWED_EMAILS }}
           LIVEKIT_API_KEY: ${{ secrets.LIVEKIT_API_KEY }}
           LIVEKIT_API_SECRET: ${{ secrets.LIVEKIT_API_SECRET }}
-        run: uc --context unison-staging --connect root@${{ vars.SERVER_IP }} deploy -f compose.yaml --yes quickmeet-app
+          OTEL_EXPORTER_OTLP_ENDPOINT: ${{ vars.OTEL_EXPORTER_OTLP_ENDPOINT }}
+          OTEL_EXPORTER_OTLP_HEADERS: ${{ secrets.OTEL_EXPORTER_OTLP_HEADERS }}
+        run: |
+          # printenv hands an unset secret over as an empty one, so check it
+          # here; the endpoint and the version are checked by the :? forms
+          # in compose.yaml.
+          : "${OTEL_EXPORTER_OTLP_HEADERS:?the OTEL_EXPORTER_OTLP_HEADERS secret must be set}"
+          # service.version in Tracelet: the short commit SHA.
+          export APP_VERSION="${GITHUB_SHA::7}"
+          uc --context unison-staging --connect root@${{ vars.SERVER_IP }} deploy -f compose.yaml --yes quickmeet-app
