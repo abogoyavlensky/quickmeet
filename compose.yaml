@@ -55,9 +55,24 @@ services:
       ALLOWED_EMAILS: ${ALLOWED_EMAILS:-}
       LIVEKIT_API_KEY: secret://livekit_api_key
       LIVEKIT_API_SECRET: secret://livekit_api_secret
+      # Traces and logs to Tracelet, in the SDK's own standard variables
+      # (docs/CONFIGURATION.md). The endpoint comes from the GitHub variable
+      # of the same name; missing, the :? form fails loading the file rather
+      # than deploying with telemetry silently off. The headers hold
+      # "Authorization=Bearer <ingest token>" and are a secret, below.
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:?OTEL_EXPORTER_OTLP_ENDPOINT must be set}
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+      OTEL_EXPORTER_OTLP_COMPRESSION: gzip
+      OTEL_SERVICE_NAME: quickmeet
+      # Tracelet files records under these two; APP_VERSION is the short
+      # commit SHA, set by deploy.yml.
+      OTEL_RESOURCE_ATTRIBUTES: deployment.environment.name=staging,service.version=${APP_VERSION:?APP_VERSION must be set}
+      OTEL_EXPORTER_OTLP_HEADERS: secret://otel_headers
 
 secrets:
   livekit_api_key:
     x-command: printenv LIVEKIT_API_KEY
   livekit_api_secret:
     x-command: printenv LIVEKIT_API_SECRET
+  otel_headers:
+    x-command: printenv OTEL_EXPORTER_OTLP_HEADERS

@@ -1,0 +1,92 @@
+(ns quickmeet.telemetry-test
+  (:require [clojure.test :refer [deftest is]]
+            [http :as http]
+            [integrant.core :as ig]
+            [otel.core :as otel]
+            [quickmeet.telemetry :as telemetry]
+            [string :as str]))
+
+;; The helpers read one process-wide handle. With none (the component never
+;; started, or started without an endpoint) they fall through: no spans, the
+;; log line is only printed. With a handle pointed at a stub receiver, halting
+;; the component flushes and the receiver sees the OTLP requests.
+
+(defn- receiver
+  "A stub OTLP receiver: {:url :seen :stop!}; `seen` collects request paths."
+  []
+  (let [seen (atom [])
+        srv (http/start (fn [req] (swap! seen conj (:path req)) {:status 200 :body ""})
+                        "127.0.0.1:0")]
+    {:url (str "http://127.0.0.1:" (:port srv))
+     :seen seen
+     :stop! #(http/stop srv)}))
+
+(defn- with-receiver [f]
+  (let [rcv (receiver)]
+    (try (f rcv) (finally ((:stop! rcv))))))
+
+(defn- started [rcv]
+  (ig/init {::telemetry/otel {:service-name "quickmeet-test" :endpoint (:url rcv)}}))
+
+(deftest helpers-pass-through-without-a-handle
+  (is (= 7 (telemetry/in-span "x" {} (fn [span] (is (nil? span)) 7))))
+  (is (thrown? Exception (telemetry/in-span "x" {} (fn [_] (throw (ex-info "boom" {}))))))
+  (let [out (with-out-str (is (nil? (telemetry/log! :warn "quickmeet: hello" {"a" 1} {}))))]
+    (is (= "quickmeet: hello\n" out)))
+  (is (= "quickmeet: shown\n"
+         (with-out-str (telemetry/log! :warn "quickmeet: shown" {} {:export-message "exported"})))))
+
+(deftest a-component-without-an-endpoint-leaves-the-helpers-passing-through
+  (let [system (ig/init {::telemetry/otel {:service-name "quickmeet-test"}})]
+    (try
+      (is (nil? (telemetry/in-span "x" {} (fn [span] span))))
+      (finally (ig/halt! system)))))
+
+(deftest spans-and-logs-are-exported-when-the-component-halts
+  (with-receiver
+    (fn [rcv]
+      (let [system (started rcv)]
+        (is (= :v (telemetry/in-span "work" {:kind :server} (fn [span] (is (some? span)) :v))))
+        (with-out-str (telemetry/log! :error "quickmeet: failed" {"k" "v"} {}))
+        (ig/halt! system)
+        (is (= #{"/v1/traces" "/v1/logs"} (set @(:seen rcv))))
+        ;; The component is gone: the helpers fall through again, so a second
+        ;; system in the same process starts clean.
+        (is (nil? (telemetry/in-span "after" {} (fn [span] span))))))))
+
+(deftest a-child-takes-its-parent-from-a-request-or-a-span
+  (with-receiver
+    (fn [rcv]
+      (let [system (started rcv)]
+        (telemetry/in-span "root" {}
+          (fn [root]
+            (telemetry/in-span "from-request" {:parent {:otel/span root}}
+              (fn [child] (is (= (otel/trace-id root) (otel/trace-id child)))))
+            (telemetry/in-span "from-span" {:parent root}
+              (fn [child] (is (= (otel/trace-id root) (otel/trace-id child)))))
+            (telemetry/in-span "orphan" {:parent {}}
+              (fn [child] (is (not= (otel/trace-id root) (otel/trace-id child)))))))
+        (ig/halt! system)))))
+
+(deftest wrap-route-without-a-handle-returns-the-route-untouched
+  (let [route {:path "/api/x" :method :get :response (fn [_] {:status 200})}]
+    (is (= route (telemetry/wrap-route route)))))
+
+(deftest wrap-route-passes-the-response-through-and-adds-the-span
+  (with-receiver
+    (fn [rcv]
+      (let [system (started rcv)
+            seen (atom nil)
+            route (telemetry/wrap-route {:path "/api/rooms/:id" :method :get
+                                         :response (fn [req] (reset! seen req) {:status 201 :body "b"})})
+            req {:request-method :get :uri "/api/rooms/abc"}]
+        (is (= {:status 201 :body "b"} ((:response route) req)))
+        (is (some? (:otel/span @seen)))
+        (is (= "/api/rooms/:id" (:path route)))
+        (is (= :get (:method route)))
+        ;; A throwing handler still throws, and the span is ended (exported).
+        (let [boom (telemetry/wrap-route {:path :not-found
+                                          :response (fn [_] (throw (ex-info "boom" {})))})]
+          (is (thrown? Exception ((:response boom) req))))
+        (ig/halt! system)
+        (is (contains? (set @(:seen rcv)) "/v1/traces"))))))

@@ -24,3 +24,40 @@ set), the app refuses to start with that key's secret and says so.
 | `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` | dev values | token signing; the secret must be 32+ characters, and the dev one is refused on an exposed SFU |
 | `LIVEKIT_LOG_LEVEL` | `warn` | |
 | `LIVEKIT_PUBLIC_URL` | unset | the signalling URL handed to browsers; otherwise derived from the request |
+
+## Telemetry
+
+quickmeet can send one trace per HTTP request and its warning and error
+log lines to any OTLP/HTTP receiver ([Tracelet](https://github.com/abogoyavlensky/tracelet),
+an OpenTelemetry Collector, a vendor). It is **off** unless an endpoint is
+set. The standard OpenTelemetry variables configure it, so the same lines
+work for any SDK; all are optional:
+
+| Variable | Purpose |
+|---|---|
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | the receiver's base URL, e.g. `https://tracelet.absky.dev`; `/v1/traces` and `/v1/logs` are added. `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` and `_LOGS_ENDPOINT` set one signal's full URL. Unset (and no per-signal one), nothing is sent |
+| `OTEL_EXPORTER_OTLP_HEADERS` | `Authorization=Bearer <ingest token>`: the credential the receiver wants |
+| `OTEL_EXPORTER_OTLP_PROTOCOL` | `http/protobuf`, the only encoding there is |
+| `OTEL_EXPORTER_OTLP_COMPRESSION` | `gzip` or none |
+| `OTEL_SERVICE_NAME` | the service name; defaults to `quickmeet` |
+| `OTEL_RESOURCE_ATTRIBUTES` | e.g. `deployment.environment.name=staging,service.version=abc1234`; Tracelet files records under these two |
+| `OTEL_TRACES_SAMPLER` | sampling; the default records every request |
+
+What is recorded: for each request, a server span named by the route
+*pattern* (`GET /api/rooms/:id`, never the raw path), with
+`http.request.method`, `http.route` and `http.response.status_code`, an error
+status for a 5xx or an exception, and a child span for each question put to
+the SFU. Log lines: the startup line, the shutdown lines and push delivery
+failures, tied to a request's trace where there is one.
+
+What is not recorded: raw URLs and query strings, cookies, the
+`Authorization` header, request and response bodies, email addresses, room
+ids (the link that grants entry), push endpoints. A push failure is exported
+as `push to <host> failed`, with the status if there was one, and never with
+the HTTP client's error text, which can hold the whole subscription URL. The
+same line printed to stdout keeps that text.
+
+Exports are batched (every 5 s or when a batch fills) and flushed when the
+process stops on SIGTERM or SIGINT. A rejected token or an unreachable
+endpoint shows as `otel: ...` lines on stderr, and does not affect requests.
+

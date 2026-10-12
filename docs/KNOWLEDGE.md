@@ -656,6 +656,49 @@ Why the stock blur ripples, and the patch, 2026-10-01:
   Push, so the worker's Russian ring was checked in Node with a stubbed
   `self`, not in a browser.
 
+## Telemetry: the otel package and Tracelet, 2026-10-12
+
+- The `otel` package in letgo-packages (`otel/`, tag `otel-vX.Y.Z`, Shape B:
+  a hand-written shim in-tree under `:go/local`) wraps the Go OpenTelemetry
+  SDK: otel and sdk v1.47.0, `otlptracehttp` v1.47.0, log SDK v1.47.0 and
+  `otlploghttp` v0.23.0. The log exporter was still pre-1.0, so its API may
+  move; the shim pins it exactly. All pure Go, so `CGO_ENABLED=0` works.
+- The SDK's own environment variables do the configuration. The SDK lets an
+  explicit option beat the environment, which is the wrong way round for an
+  application default, so the shim passes `:endpoint` and `:headers` to an
+  exporter only when that exporter's own variables are unset. `:service-name`
+  is a resource default that `OTEL_SERVICE_NAME` overrides (checked against a
+  real Tracelet: the service listed was the variable's).
+- With no endpoint configured `start!` returns a no-op handle, so callers
+  never branch on "is telemetry on". It cannot be told from a live handle by
+  looking at it: `otel/enabled?` answers, and `quickmeet.telemetry` keeps its
+  atom nil for a no-op handle so the helpers fall straight through.
+- A span's parent is an argument, never a dynamic var: let-go 1.13.0 runs
+  every HTTP handler on one shared dynamic-binding stack
+  (docs/backlog/letgo-http-handlers-share-dynamic-bindings.md), so a "current
+  span" would leak between concurrent requests. The request span rides in the
+  request map under `:otel/span`.
+- `quickmeet.telemetry/wrap-route` names a span after the route pattern; the
+  catch-all is `GET :not-found`. Raw paths hold room ids, which are the link
+  that grants entry. Checked against a real Tracelet with a room id and a
+  distinctive missing path in the traffic: neither appears anywhere in the
+  data.
+- `system/shutdown!` halts the server and the database only, and telemetry is
+  a dependency of those, so nothing flushed it. `main.lg` calls
+  `system/halt-telemetry!` last on every path, after the final message and
+  before `os/exit`. A test mirrors that order.
+- `OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer tl_...`, with the space,
+  works as written against Tracelet; no `%20` is needed.
+- The Go SDK sends OTLP/HTTP protobuf, uncompressed unless
+  `OTEL_EXPORTER_OTLP_COMPRESSION=gzip`. A let-go test server sees the raw
+  body as a string whose protobuf strings are literal, so a test can look for
+  a span name in it without decoding.
+- uncloud 0.20.0 resolves a secret's `x-command` by running it directly, not
+  through a shell (`shellwords` split, then exec), so `printenv NAME` is
+  right and anything with a pipe needs an explicit `sh -c`. A `${VAR:?msg}`
+  in `compose.yaml` fails loading the file when the variable is unset or
+  empty, which is how a missing endpoint stops the deploy.
+
 ## Restarts and shutdown, verified 2026-09-30
 
 - A call survives the server process being killed. Two headless

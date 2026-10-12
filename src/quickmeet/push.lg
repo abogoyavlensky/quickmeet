@@ -1,5 +1,6 @@
 (ns quickmeet.push
   (:require [quickmeet.db :as db]
+            [quickmeet.telemetry :as telemetry]
             [string :as str]
             [webpush.shim :as shim]))
 
@@ -86,9 +87,16 @@
         (cond
           (gone status) (db/delete-subscription! conn (:endpoint target))
           (<= 200 status 299) nil
-          :else (println (str "quickmeet: push to " host " failed: status " status))))
+          :else (telemetry/log! :warn (str "quickmeet: push to " host " failed: status " status)
+                                {"push.host" host}
+                                {:export-message (str "push to " host " failed status " status)})))
       (catch Exception e
-        (println (str "quickmeet: push to " host " failed: " (ex-message e)))))))
+        ;; The printed line keeps the exception message; the exported record
+        ;; never does: an HTTP client error can carry the whole subscription
+        ;; URL, which is a credential.
+        (telemetry/log! :warn (str "quickmeet: push to " host " failed: " (ex-message e))
+                        {"push.host" host}
+                        {:export-message (str "push to " host " failed")})))))
 
 (defn deliver!
   "Send `message` to every target, each on its own through `(:spawn push)`,

@@ -62,6 +62,31 @@ secrets `SSH_PRIVATE_KEY` (a key the server accepts for root),
 random characters, e.g. `openssl rand -hex 32`). DNS for `APP_DOMAIN`
 points at the server.
 
+Telemetry goes to the Tracelet at `https://tracelet.absky.dev`, project
+`quickmeet` (docs/CONFIGURATION.md, "Telemetry"). The workflow needs one more
+variable and one more secret: variable `OTEL_EXPORTER_OTLP_ENDPOINT`
+(`https://tracelet.absky.dev`) and secret `OTEL_EXPORTER_OTLP_HEADERS`,
+whose whole value is `Authorization=Bearer <ingest token>`. The token comes
+from `tracelet tokens create --project quickmeet --scope ingest --name
+"quickmeet staging"` against that Tracelet, after
+`tracelet projects create quickmeet --name quickmeet`. A missing value
+fails the deploy (`compose.yaml` and the workflow check them) rather than
+deploying with telemetry silently off. `service.version` is the deployed
+short commit SHA, set by the workflow.
+
+To read what staging sent, with `TRACELET_URL=https://tracelet.absky.dev` and
+a read or admin token in `TRACELET_TOKEN`:
+
+```
+tracelet services --project quickmeet --last 30m
+tracelet spans search --project quickmeet --root --last 30m
+tracelet traces get <trace id> --project quickmeet
+tracelet logs search --project quickmeet --last 30m
+```
+
+`--json` shows what the text output leaves out: attributes, the status
+message and a log line's trace id.
+
 Starting a meeting takes an account. Staging's `ALLOWED_EMAILS` holds
 the operator's address, so nobody else can sign up or sign in there;
 unset, sign-up would be open. Rooms are permanent and hold two people.

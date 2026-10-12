@@ -5,6 +5,7 @@
             [quickmeet.db :as db]
             [quickmeet.id :as id]
             [quickmeet.push :as push]
+            [quickmeet.telemetry :as telemetry]
             [sqlite.core :as sqlite]
             [string :as str]))
 
@@ -127,3 +128,38 @@
         ;; 404 and 410 are gone for good; anything else may pass.
         (is (= #{(str fcm "ok") (str fcm "busy") (str fcm "down")}
                (set (map :endpoint (sqlite/query conn ["select endpoint from push_subscriptions"])))))))))
+
+;; The line printed to stdout keeps whatever the HTTP client said, but the
+;; exported record never does: a client error can carry the whole
+;; subscription URL, which is a credential.
+(deftest an-exported-push-failure-never-carries-the-exception-text
+  (let [bodies (atom [])
+        stub (http/start (fn [req] (swap! bodies conj (str (:body req))) {:status 200 :body ""})
+                         "127.0.0.1:0")
+        system (ig/init {::telemetry/otel {:endpoint (str "http://127.0.0.1:" (:port stub))}})
+        secret-url "https://fcm.googleapis.com/fcm/send/SECRET-TOKEN"
+        busy "https://fcm.googleapis.com/fcm/send/busy"
+        down "https://fcm.googleapis.com/fcm/send/down"
+        push {:public-key "pk"
+              :spawn (fn [f] (f))
+              :send! (fn [target _]
+                       (if (= down (:endpoint target))
+                         (throw (ex-info (str "Post \"" secret-url "\": connection refused") {}))
+                         429))}]
+    (try
+      (with-db
+        (fn [conn]
+          (let [printed (with-out-str
+                          (push/deliver! push conn [{:endpoint busy :p256dh "p" :auth "a"}
+                                                    {:endpoint down :p256dh "p" :auth "a"}]
+                                         {:payload "{}" :topic "0123456789ab" :subject "https://meet.example"}))]
+            (ig/halt! system)
+            (let [body (apply str @bodies)]
+              (is (str/includes? printed "quickmeet: push to fcm.googleapis.com failed: status 429"))
+              (is (str/includes? printed "SECRET-TOKEN") "stdout keeps the exception message")
+              (is (str/includes? body "push to fcm.googleapis.com failed status 429"))
+              (is (str/includes? body "push to fcm.googleapis.com failed"))
+              (is (not (str/includes? body "SECRET-TOKEN")))
+              (is (not (str/includes? body "connection refused")))))))
+      (finally
+        (http/stop stub)))))
