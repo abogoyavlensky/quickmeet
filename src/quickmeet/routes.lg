@@ -9,6 +9,7 @@
             [quickmeet.push :as push]
             [quickmeet.ratelimit :as ratelimit]
             [quickmeet.sfu :as sfu]
+            [quickmeet.telemetry :as telemetry]
             [hash :as hash]
             [ruuter.core :as r]
             [string :as str]))
@@ -313,6 +314,12 @@
   (let [identity (:identity (participant-identity user nil))]
     (boolean (some #(= identity (:identity %)) (participants room-id)))))
 
+;; A question to the SFU, the one call inside a request that leaves the
+;; process besides SQLite: a child span of the request's (telemetry.lg), so
+;; a slow request shows whether the SFU was why. Returns what `f` returns.
+(defn- sfu-call [req span-name f]
+  (telemetry/in-span span-name {:kind :client :parent req} (fn [_] (f))))
+
 (defn- ring-message
   "What a ring sends to `target`'s device: the notification the service
    worker shows, the room as the topic (so a newer ring replaces one still
@@ -482,7 +489,7 @@
     :method :get
     :response (fn [req]
                 (if-let [user (current-user req)]
-                  (let [active (or (active-rooms) {})
+                  (let [active (or (sfu-call req "sfu.active-rooms" active-rooms) {})
                         result (paged req #(db/rooms-of-user conn (:id user) %1 %2))]
                     (json-response 200 (update result :items
                                                (fn [rooms] (mapv #(public-room % user active) rooms)))))
@@ -519,7 +526,7 @@
                     ;; lookup that could not ask the SFU reads as nobody.
                     (json-response 200 (-> room
                                            (dissoc :owner_id)
-                                           (assoc :participants (or (participants id) []))))
+                                           (assoc :participants (or (sfu-call req "sfu.participants" #(participants id)) []))))
                     (json-response 404 {:error "not found"}))))}
 
    ;; A join token for a known room. Body: {"identity": "..."}, the name a
@@ -535,7 +542,7 @@
                     (not (and (valid-room-id? id) (db/get-room conn id)))
                     (json-response 404 {:error "not found"})
 
-                    (>= (count (participants id)) 2)
+                    (>= (count (sfu-call req "sfu.participants" #(participants id))) 2)
                     (json-response 409 {:error "full"})
 
                     :else
@@ -568,7 +575,8 @@
                   (cond
                     (not user) unauthorized
                     (not (and (valid-room-id? id) (db/get-room conn id))) room-not-found
-                    (not (in-room? participants id user)) forbidden
+                    (not (in-room? (fn [room-id] (sfu-call req "sfu.participants" #(participants room-id)))
+                                         id user)) forbidden
                     :else
                     (let [targets (ring-targets conn auth id user)]
                       (if (empty? targets)
@@ -648,7 +656,7 @@
    {:public-key, :send! (fn [target message]) -> status, :spawn (fn [f])}
    (quickmeet.push/service)."
   [conn livekit lookups auth push]
-  (let [table (routes conn livekit lookups auth push)]
+  (let [table (mapv telemetry/wrap-route (routes conn livekit lookups auth push))]
     (fn [req]
       ;; let-go's :uri is the request URI, query string included, and
       ;; ruuter matches it whole: routes see the path alone. The query

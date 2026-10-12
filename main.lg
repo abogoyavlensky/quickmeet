@@ -1,6 +1,7 @@
 (ns main
   (:require [http :as http]
-            [quickmeet.system :as system]))
+            [quickmeet.system :as system]
+            [quickmeet.telemetry :as telemetry]))
 
 ;; quickmeet: 1-to-1 video calls from a single binary. The LiveKit SFU runs
 ;; inside this process; the browser talks to it directly for media, and to
@@ -37,21 +38,27 @@
     (go (<! signals)
         (http/stop server))
     ;; os/exit makes the status explicit. The SFU is not stopped; it dies
-    ;; with the process (see system/shutdown!).
-    (os/exit
-     (try
-       ;; http/start serves in the background; wait blocks until the server
-       ;; stops, which keeps the process (and the SFU) up. It throws only if
-       ;; the server failed on its own; history is closed either way.
-       (let [failure (try (http/wait server) nil (catch Exception e e))]
-         (println "quickmeet: shutting down")
-         (system/shutdown! system)
-         (if failure
-           (do (println (str "quickmeet: the http server failed: " (cause-of failure))) 1)
-           0))
-       (catch Exception e
-         (println (str "quickmeet: shutdown failed: " (cause-of e)))
-         1)))))
+    ;; with the process (see system/shutdown!). Telemetry is flushed last, on
+    ;; every path, after the final message: shutdown! does not halt it.
+    (let [code
+          (try
+            ;; http/start serves in the background; wait blocks until the
+            ;; server stops, which keeps the process (and the SFU) up. It
+            ;; throws only if the server failed on its own; history is
+            ;; closed either way.
+            (let [failure (try (http/wait server) nil (catch Exception e e))]
+              (telemetry/log! :info "quickmeet: shutting down")
+              (system/shutdown! system)
+              (if failure
+                (do (telemetry/log! :error (str "quickmeet: the http server failed: " (cause-of failure))) 1)
+                0))
+            (catch Exception e
+              (telemetry/log! :error (str "quickmeet: shutdown failed: " (cause-of e)))
+              1))]
+      (try (system/halt-telemetry! system)
+           (catch Exception e
+             (println (str "quickmeet: telemetry shutdown failed: " (cause-of e)))))
+      (os/exit code))))
 
 ;; lg -b runs top-level forms at compile time, so without this guard
 ;; `lgx build` would start an SFU and open the database while bundling.

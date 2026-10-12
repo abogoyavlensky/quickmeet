@@ -1,6 +1,7 @@
 (ns quickmeet.server
   (:require [http :as http]
-            [integrant.core :as ig]))
+            [integrant.core :as ig]
+            [quickmeet.telemetry :as telemetry]))
 
 ;; The http server component. http/start binds the address, serves in the
 ;; background and returns a record with the resolved :addr and :port (so
@@ -12,7 +13,7 @@
 
 (defmethod ig/init-key ::http [_ {:keys [addr handler]}]
   (let [srv (http/start handler addr)]
-    (println (str "quickmeet on http://localhost:" (:port srv)))
+    (telemetry/log! :info (str "quickmeet on http://localhost:" (:port srv)))
     srv))
 
 (defmethod ig/halt-key! ::http [_ srv]

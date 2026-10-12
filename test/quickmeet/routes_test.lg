@@ -6,7 +6,9 @@
             [livekit.core :as lk]
             [quickmeet.db]
             [quickmeet.history :as history]
+            [http :as http]
             [quickmeet.routes :as routes]
+            [quickmeet.telemetry :as telemetry]
             [sqlite.core :as sqlite]
             [string :as str]))
 
@@ -904,3 +906,52 @@
             (is (= 429 (:status res)))
             (is (= "42" (str (get-in res [:headers "Retry-After"]))))
             (is (= [:ring (str alice-id ":" id)] (last @seen)))))))))
+
+;; Telemetry on: a stub OTLP receiver keeps the raw bodies it is sent. The
+;; protobuf is uncompressed and its strings are literal, so span names can be
+;; looked for in the body; the structure is read back from a real Tracelet
+;; (the plan's Task 6).
+(defn- with-telemetry [f]
+  (let [bodies (atom [])
+        stub (http/start (fn [req]
+                           (swap! bodies conj [(:path req) (str (:body req))])
+                           {:status 200 :body ""})
+                         "127.0.0.1:0")
+        system (ig/init {::telemetry/otel {:service-name "quickmeet-test"
+                                           :endpoint (str "http://127.0.0.1:" (:port stub))}})]
+    (try
+      (f (fn [] (ig/halt! system) @bodies))
+      (finally
+        (http/stop stub)))))
+
+(defn- traces-body [bodies]
+  (apply str (map second (filter #(= "/v1/traces" (first %)) bodies))))
+
+(deftest requests-are-spans-named-by-route-pattern
+  (with-telemetry
+    (fn [flush!]
+      (with-handler livekit
+        (fn [handler _]
+          (let [cookie (:cookie (signup handler))
+                id (:id (:json (call handler :post "/api/rooms" nil (as cookie))))]
+            (is (= 200 (:status (call handler :get (str "/api/rooms/" id)))))
+            (is (= 404 (:status (call handler :get "/no/such/path/secret-segment"))))
+            (let [body (traces-body (flush!))]
+              (is (str/includes? body "GET /api/rooms/:id"))
+              (is (str/includes? body "POST /api/rooms"))
+              (is (str/includes? body "GET :not-found"))
+              ;; The SFU lookup is a child span of the request.
+              (is (str/includes? body "sfu.participants"))
+              ;; Room ids are the link that grants entry, and raw paths have
+              ;; unbounded cardinality: neither is recorded.
+              (is (not (str/includes? body id)))
+              (is (not (str/includes? body "secret-segment"))))))))))
+
+(deftest a-response-is-unchanged-by-telemetry
+  (let [plain (with-handler livekit (fn [handler _] (call handler :get "/api/push/key")))]
+    (with-telemetry
+      (fn [flush!]
+        (with-handler livekit
+          (fn [handler _]
+            (is (= (dissoc plain :json) (dissoc (call handler :get "/api/push/key") :json)))
+            (flush!)))))))

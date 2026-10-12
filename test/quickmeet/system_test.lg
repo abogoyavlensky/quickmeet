@@ -341,7 +341,6 @@
         base (str "http://" (:addr (:quickmeet.server/http system)))]
     (try
       (is (= 200 (:status (http/get (str base "/")))))
-      (telemetry/in-span "test" {} (fn [_] nil))
       (with-out-str (telemetry/log! :info "quickmeet: shutting down"))
       (system/shutdown! system)
       (is (empty? @seen) "nothing is flushed by shutdown! alone")

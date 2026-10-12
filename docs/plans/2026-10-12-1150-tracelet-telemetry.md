@@ -206,7 +206,7 @@ Work in `/home/agent/Projects/quickmeet`. Read `src/quickmeet/db.lg` (the integr
   Expected: PASS, including the existing suites.
 
 > Deviation: added `otel/enabled?` to the package (commit `c664e3e` on `otel-package`). `start!` returns a no-op handle when nothing is configured, so "no handle" cannot be told from "handle that exports nothing"; the component keeps the atom nil for a no-op handle so the spec's fall-through (and `wrap-route` returning the route untouched) holds. Additive; no other task's interface changes.
-> Deviation: the production-path test in `system_test.lg` makes its own span, because requests only produce spans after Task 5 wraps the routes.
+> (Task 5 note: the production-path test briefly made its own span, because requests only produce spans once Task 5 wraps the routes; it now relies on the real request.)
 
 - [x] **Step 6: Commit**
   `git -C /home/agent/Projects/quickmeet add -A && git -C /home/agent/Projects/quickmeet commit -m "Add the telemetry component over the otel package"`
@@ -217,23 +217,23 @@ Work in `/home/agent/Projects/quickmeet`. Read `src/quickmeet/db.lg` (the integr
 - Modify: `src/quickmeet/routes.lg`, `src/quickmeet/push.lg`, `src/quickmeet/server.lg`, and `main.lg` (at the repository root)
 - Test: `test/quickmeet/routes_test.lg`
 
-- [ ] **Step 1: Failing tests**
+- [x] **Step 1: Failing tests**
   In `routes_test.lg`: the existing handler tests keep passing unchanged (no handle). Add one with a started telemetry component and a stub receiver: a request through `handler` produces a span named `GET /api/rooms/:id` (assert on the exported request count after halt; names, status codes and parenting are checked by reading the data back from a real Tracelet in Task 6, since the let-go side cannot decode protobuf), and a request to an unknown path is named with the `:not-found` route. If the handler is hard to exercise this way, test `wrap-route` directly in `telemetry_test.lg` and keep one system-level request in `system_test.lg`.
 
-- [ ] **Step 2: Wrap the routes**
+- [x] **Step 2: Wrap the routes**
   In `routes.lg`, `handler` builds `table` from `routes`; map `telemetry/wrap-route` over it before `r/route` sees it. The wrapper must not change a route's `:path` or `:method`. Confirm ruuter still matches (routes with and without `:method`).
 
-- [ ] **Step 3: Child spans for the SFU lookups**
+- [x] **Step 3: Child spans for the SFU lookups**
   The lookups are `participants` and `active-rooms`, called at about `routes.lg:485` (`GET /api/rooms`), `:522` and `:538` (`GET /api/rooms/:id` and the token route), and through `in-room?` at `:312`/`:571` (the ring route). At each call site, where `req` is in scope, wrap the call in `telemetry/in-span` named `sfu.participants` or `sfu.active-rooms`, options `{:kind :client :parent req}`. `in-room?` takes the lookup function; pass it a function that already closes over the request's span rather than adding a parameter if that is smaller. The lookups must still return exactly what they returned.
 
-- [ ] **Step 4: Switch the log lines**
+- [x] **Step 4: Switch the log lines**
   `push.lg` (the two failure lines in `deliver-one!`, level `:warn`, attrs `{:push.host host}`, with `:export-message` set to `push to <host> failed` plus `status <n>` for the status case and never the exception text), `server.lg` (the startup line, `:info`), `main.lg` (the three shutdown lines: `:info` for "shutting down", `:error` for the failures). `main.lg:18`, the configuration refusal at startup, stays a `println`. The printed text does not change. Restructure the end of `-main` so `halt-telemetry!` runs last on every path, after the final message and before `os/exit` (decision 5). Add a test that a push failure whose exception message contains a URL exports a body without it (stub the `:send!` that throws).
 
-- [ ] **Step 5: Run everything**
+- [x] **Step 5: Run everything**
   Run: `lgx test`
   Expected: PASS. Then `lgx e2e` (the browser suite, which also checks the page still serves with telemetry off). Expected: PASS. If `e2e` cannot run on this machine, say so and rely on CI.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
   `git -C /home/agent/Projects/quickmeet add -A && git -C /home/agent/Projects/quickmeet commit -m "Trace requests and SFU calls, and export warnings and errors"`
 
 ## Task 6: Run quickmeet against a local Tracelet
