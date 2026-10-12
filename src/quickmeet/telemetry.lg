@@ -46,6 +46,12 @@
     (otel/in-span h name (assoc opts :parent (span-of (:parent opts))) f)
     (f nil)))
 
+(defn set-error!
+  "Mark `span` (a span or nil) as failed, with `message`. Nil, as with
+   telemetry off, is nothing to mark."
+  [span message]
+  (when span (otel/set-error! span message)))
+
 (defn log!
   "Print `line` to stdout, as the old println did, and export it as a log
    record at `level` (:debug, :info, :warn or :error). `opts`: :span, a

@@ -974,3 +974,13 @@
                   (is (= 401 (:status (call handler :post "/api/webhooks/livekit" "{}"
                                             {:headers {"authorization" "Bearer nope"}})))))]
         (is (str/includes? out "quickmeet: a webhook failed verification"))))))
+
+(deftest a-failed-sfu-lookup-marks-its-child-span
+  (with-telemetry
+    (fn [flush!]
+      (with-handler livekit (fn [_] nil)
+        (fn [handler conn]
+          (db/create-user! conn "u-1" "one@example.com" "x" "One")
+          (db/create-room! conn "0123456789ab" "u-1")
+          (is (= 200 (:status (call handler :get "/api/rooms/0123456789ab"))))
+          (is (str/includes? (traces-body (flush!)) "the SFU could not be asked")))))))

@@ -55,7 +55,7 @@ printed to stdout, whether or not telemetry is on.
 |---|---|---|
 | error | `GET /api/rooms/:id failed: <message>` | a handler threw (the client got a 500) |
 | error | `GET /api/rooms/:id answered 503` | a handler answered 5xx |
-| error | `the SFU could not be asked (ListParticipants): <reason>` | a lookup failed, which reads as "nobody there" to the lobby, the two-person check and the ring |
+| error | `the SFU could not be asked (ListParticipants): <reason>` | a lookup failed, which reads as "nobody there" to the lobby, the two-person check and the ring. Not tied to a trace; the request's `sfu.*` child span is marked an error instead |
 | warn | `a webhook failed verification` | something posted to the webhook URL without the SFU's signature |
 | warn | `push to <host> failed` | a ring did not reach a device |
 
