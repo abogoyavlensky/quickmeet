@@ -67,26 +67,34 @@
    never the raw path, which holds room ids (the link that grants entry) and
    would make the name's cardinality unbounded. The span rides to the handler
    in the request under :otel/span. A status of 500 or above, or an
-   exception (rethrown), marks the span an error. :path and :method are
-   untouched. With telemetry off the route comes back as it is."
+   exception (rethrown), marks the span an error and is logged at :error,
+   by pattern and tied to the span. :path and :method are untouched.
+
+   With telemetry off there is no span, but the error lines are still
+   printed: a 500 is otherwise silent in `uc logs`."
   [route]
-  (if-not @handle
-    route
-    (let [respond (:response route)
-          pattern (str (:path route))]
-      (assoc route :response
-             (fn [req]
-               (if-not @handle
-                 (respond req)
-                 (in-span (str (str/upper-case (name (or (:request-method req) :get))) " " pattern)
-                          {:kind :server
-                           :attrs {"http.request.method" (str/upper-case (name (or (:request-method req) :get)))
-                                   "http.route" pattern}}
-                          (fn [span]
-                            (let [res (respond (assoc req :otel/span span))
+  (let [respond (:response route)
+        pattern (str (:path route))]
+    (assoc route :response
+           (fn [req]
+             (let [method (str/upper-case (name (or (:request-method req) :get)))
+                   label (str method " " pattern)
+                   attrs {"http.request.method" method "http.route" pattern}]
+               (in-span label {:kind :server :attrs attrs}
+                        (fn [span]
+                          (try
+                            (let [res (respond (if span (assoc req :otel/span span) req))
                                   status (:status res)]
                               (when (number? status)
-                                (otel/set-attrs! span {"http.response.status_code" status})
+                                (when span
+                                  (otel/set-attrs! span {"http.response.status_code" status}))
                                 (when (>= status 500)
-                                  (otel/set-error! span (str "HTTP " status))))
-                              res)))))))))
+                                  (when span (otel/set-error! span (str "HTTP " status)))
+                                  (log! :error (str "quickmeet: " label " answered " status)
+                                        (assoc attrs "http.response.status_code" status)
+                                        {:span span})))
+                              res)
+                            (catch Exception e
+                              (log! :error (str "quickmeet: " label " failed: " (or (ex-message e) (str e)))
+                                    attrs {:span span})
+                              (throw e))))))))))

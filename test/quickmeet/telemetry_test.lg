@@ -68,9 +68,39 @@
               (fn [child] (is (not= (otel/trace-id root) (otel/trace-id child)))))))
         (ig/halt! system)))))
 
-(deftest wrap-route-without-a-handle-returns-the-route-untouched
-  (let [route {:path "/api/x" :method :get :response (fn [_] {:status 200})}]
-    (is (= route (telemetry/wrap-route route)))))
+(deftest wrap-route-without-a-handle-still-passes-through-and-logs-failures
+  (let [route {:path "/api/rooms/:id" :method :get :response (fn [_] {:status 200})}
+        req {:request-method :get :uri "/api/rooms/0123456789ab"}
+        wrapped (telemetry/wrap-route route)]
+    (is (= {:status 200} ((:response wrapped) req)))
+    (is (= "/api/rooms/:id" (:path wrapped)))
+    (is (= :get (:method wrapped)))
+    ;; A 5xx and an exception are error lines, by route pattern: the raw
+    ;; path holds the room id, which is the link that grants entry.
+    (let [out (with-out-str
+                ((:response (telemetry/wrap-route (assoc route :response (fn [_] {:status 503})))) req))]
+      (is (str/includes? out "quickmeet: GET /api/rooms/:id answered 503"))
+      (is (not (str/includes? out "0123456789ab"))))
+    (let [out (with-out-str
+                (is (thrown? Exception
+                             ((:response (telemetry/wrap-route (assoc route :response (fn [_] (throw (ex-info "boom" {})))))) req))))]
+      (is (str/includes? out "quickmeet: GET /api/rooms/:id failed: boom"))
+      (is (not (str/includes? out "0123456789ab"))))
+    ;; Success and client errors print nothing.
+    (is (= "" (with-out-str ((:response (telemetry/wrap-route (assoc route :response (fn [_] {:status 404})))) req))))))
+
+(deftest a-5xx-and-an-exception-are-exported-as-error-logs
+  (with-receiver
+    (fn [rcv]
+      (let [system (started rcv)
+            route {:path "/api/x" :method :post}
+            req {:request-method :post :uri "/api/x"}]
+        (with-out-str
+          ((:response (telemetry/wrap-route (assoc route :response (fn [_] {:status 502})))) req)
+          (is (thrown? Exception
+                       ((:response (telemetry/wrap-route (assoc route :response (fn [_] (throw (ex-info "boom" {})))))) req))))
+        (ig/halt! system)
+        (is (contains? (set @(:seen rcv)) "/v1/logs"))))))
 
 (deftest wrap-route-passes-the-response-through-and-adds-the-span
   (with-receiver

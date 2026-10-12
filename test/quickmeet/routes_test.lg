@@ -4,7 +4,7 @@
             [hash :as hash]
             [json :as json]
             [livekit.core :as lk]
-            [quickmeet.db]
+            [quickmeet.db :as db]
             [quickmeet.history :as history]
             [http :as http]
             [quickmeet.routes :as routes]
@@ -955,3 +955,22 @@
           (fn [handler _]
             (is (= (dissoc plain :json) (dissoc (call handler :get "/api/push/key") :json)))
             (flush!)))))))
+
+(deftest a-handler-that-throws-is-an-error-line-by-pattern
+  (let [id "0123456789ab"]
+    (with-handler livekit (fn [_] (throw (ex-info "sfu exploded" {})))
+      (fn [handler conn]
+        (db/create-user! conn "u-1" "one@example.com" "x" "One")
+        (db/create-room! conn id "u-1")
+        (let [out (with-out-str
+                    (is (thrown? Exception (call handler :get (str "/api/rooms/" id)))))]
+          (is (str/includes? out "quickmeet: GET /api/rooms/:id failed: sfu exploded"))
+          (is (not (str/includes? out id))))))))
+
+(deftest a-webhook-that-fails-verification-is-a-warning
+  (with-handler livekit
+    (fn [handler _]
+      (let [out (with-out-str
+                  (is (= 401 (:status (call handler :post "/api/webhooks/livekit" "{}"
+                                            {:headers {"authorization" "Bearer nope"}})))))]
+        (is (str/includes? out "quickmeet: a webhook failed verification"))))))

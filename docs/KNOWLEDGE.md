@@ -683,6 +683,13 @@ Why the stock blur ripples, and the patch, 2026-10-01:
   that grants entry. Checked against a real Tracelet with a room id and a
   distinctive missing path in the traffic: neither appears anywhere in the
   data.
+- Error lines, 2026-10-12: `wrap-route` prints and exports an `error` line for
+  a handler that throws or answers 5xx, always, even with telemetry off (a 500
+  is otherwise silent in `uc logs`); `sfu.lg` logs a failed lookup with its
+  reason, since a failure reads as "nobody there" to every caller; a webhook
+  that fails verification is a `warn`. Not logged: 4xx answers, rate limits
+  (429), and the calls closed at startup (the db component does not depend
+  on telemetry, so its line could not be exported).
 - `system/shutdown!` halts the server and the database only, and telemetry is
   a dependency of those, so nothing flushed it. `main.lg` calls
   `system/halt-telemetry!` last on every path, after the final message and

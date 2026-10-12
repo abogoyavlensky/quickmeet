@@ -47,8 +47,19 @@ What is recorded: for each request, a server span named by the route
 *pattern* (`GET /api/rooms/:id`, never the raw path), with
 `http.request.method`, `http.route` and `http.response.status_code`, an error
 status for a 5xx or an exception, and a child span for each question put to
-the SFU. Log lines: the startup line, the shutdown lines and push delivery
-failures, tied to a request's trace where there is one.
+the SFU. Log lines: the startup line, the shutdown lines, and the errors
+below, tied to a request's trace where there is one. Every one is also
+printed to stdout, whether or not telemetry is on.
+
+| Level | Line | Meaning |
+|---|---|---|
+| error | `GET /api/rooms/:id failed: <message>` | a handler threw (the client got a 500) |
+| error | `GET /api/rooms/:id answered 503` | a handler answered 5xx |
+| error | `the SFU could not be asked (ListParticipants): <reason>` | a lookup failed, which reads as "nobody there" to the lobby, the two-person check and the ring |
+| warn | `a webhook failed verification` | something posted to the webhook URL without the SFU's signature |
+| warn | `push to <host> failed` | a ring did not reach a device |
+
+Lines name the route pattern, never the raw path, which holds a room id.
 
 What is not recorded: raw URLs and query strings, cookies, the
 `Authorization` header, request and response bodies, email addresses, room

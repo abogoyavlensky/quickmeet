@@ -635,7 +635,8 @@
                   (if (verify (get-in req [:headers "authorization"]) body)
                     (do (history/record! conn (json/read-json body {:keywords? true}))
                         (json-response 200 {}))
-                    unauthorized)))}
+                    (do (telemetry/log! :warn "quickmeet: a webhook failed verification" {} {:span req})
+                        unauthorized))))}
 
    {:path :not-found
     :response (fn [_] (json-response 404 {:error "not found"}))}]))

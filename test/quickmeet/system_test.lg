@@ -99,9 +99,13 @@
         (sfu/create-room! livekit "0123456789ab")
         (is (= {"0123456789ab" 0} (sfu/active-rooms livekit)))
         (is (= [] (sfu/participants livekit "0123456789ab")))
-        ;; An SFU that is not there: nil for both.
-        (is (nil? (sfu/participants (assoc livekit :port 1) "0123456789ab")))
-        (is (nil? (sfu/active-rooms (assoc livekit :port 1))))))))
+        ;; An SFU that is not there: nil for both, and an error line each,
+        ;; since a lookup that fails reads as "nobody" everywhere else.
+        (let [out (with-out-str
+                    (is (nil? (sfu/participants (assoc livekit :port 1) "0123456789ab")))
+                    (is (nil? (sfu/active-rooms (assoc livekit :port 1)))))]
+          (is (str/includes? out "quickmeet: the SFU could not be asked (ListParticipants)"))
+          (is (str/includes? out "quickmeet: the SFU could not be asked (ListRooms)")))))))
 
 (def ^:private real-secret "a-real-secret-a-real-secret-a-real-secret")
 
