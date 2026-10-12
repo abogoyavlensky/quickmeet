@@ -240,23 +240,32 @@ Work in `/home/agent/Projects/quickmeet`. Read `src/quickmeet/db.lg` (the integr
 
 The check that matters before staging: a real quickmeet, a real call path, a real Tracelet.
 
-- [ ] **Step 1: Start the pieces**
+- [x] **Step 1: Start the pieces**
   Reuse the local Tracelet from Task 2 (restart it if it is gone; its data directory, outside the Tracelet checkout, keeps the project and the ingest token). Run quickmeet from `/home/agent/Projects/quickmeet`:
   `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:18080 OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf OTEL_EXPORTER_OTLP_HEADERS="Authorization=Bearer <ingest token>" OTEL_SERVICE_NAME=quickmeet OTEL_RESOURCE_ATTRIBUTES="deployment.environment.name=local,service.version=dev" CGO_ENABLED=0 lgx run`
   Expected: quickmeet starts as before and prints its usual lines; no `otel:` error lines.
 
-- [ ] **Step 2: Generate traffic**
+- [x] **Step 2: Generate traffic**
   With `curl` against `http://localhost:8080`: sign up (`POST /api/auth/signup`), create a room (`POST /api/rooms` with the session cookie), read it (`GET /api/rooms/<id>`), request a join token (`POST /api/rooms/<id>/token`), hit a missing path, and post a bad body to provoke a 4xx. See `docs/API.md` for the request shapes. Then stop quickmeet with Ctrl-C (SIGINT) so the batch flushes.
 
-- [ ] **Step 3: Read it back**
+- [x] **Step 3: Read it back**
   `tracelet services --project quickmeet --last 15m` (expect `quickmeet`);
   `tracelet spans search --project quickmeet --service quickmeet --root --last 15m` (expect one root span per request, named by route pattern, with the status codes);
   `tracelet traces get <id of the GET /api/rooms/:id trace> --project quickmeet` (expect the request span with `sfu.participants` below it);
   `tracelet logs search --project quickmeet --service quickmeet --last 15m` (expect the "shutting down" line).
   Expected: all present, with `deployment.environment.name=local`. Check that no raw room id appears in any span name or in `http.route` (it may appear nowhere in the data).
 
-- [ ] **Step 4: Look at what you see**
+- [x] **Step 4: Look at what you see**
   Write down, in a scratch note for Task 8, anything that felt wrong in Tracelet: a missing field, a confusing output, a slow query, anything the CLI could not answer. That is the point of the exercise.
+
+> Task 6 result (local Tracelet `b3b9f8a`, quickmeet built with `lgx build` and stopped with SIGINT): 9 root spans, one per request, named by route pattern (`GET /api/rooms/:id`, `GET :not-found`, ...), with `http.route` and `http.response.status_code`; `GET /api/rooms/:id` and `POST /api/rooms/:id/ring` each had an `sfu.participants` child (`GET /api/rooms` had none in the data because its lookup returned inside the same span only when called, see below); the "on http://localhost:8080" and "shutting down" lines arrived as logs; `deployment.environment.name=local` and `service.version=dev` were on every record. Neither the room id nor the raw missing path appears anywhere in the data. Health after the run: 23 rows accepted, 0 rejected, 0 duplicates.
+>
+> Observations for Task 8 (what felt wrong in Tracelet, all minor):
+> - `spans search` and `traces get` print no attributes and no status message: a span in `error` shows only the word, and its reason (`status_message`) and `http.response.status_code` are visible only with `--json`.
+> - `logs search` prints no trace id or attributes either, so correlation needs `--json`.
+> - In `--json` output `kind` and `status_code` are bare numbers (2, 2), not names.
+> - A malformed JSON body on `POST /api/auth/signup` made the handler throw: the request span was marked `error` with the parser's message, and the client got a 500. That is quickmeet's existing behaviour, not caused by this plan; filed in `docs/backlog/`.
+
 
 ## Task 7: Staging configuration, docs, and the release coordinate
 
