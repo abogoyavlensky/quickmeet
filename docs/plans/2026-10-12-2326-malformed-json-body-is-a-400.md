@@ -1,6 +1,6 @@
 # A Malformed JSON Body Is a 400: Implementation Plan
 
-> **For agentic workers:** Use executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** Use executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** A request body that is not valid JSON gets `400 {"error": "invalid JSON"}` instead of a 500, and no longer shows up as a server error in telemetry.
 
@@ -88,9 +88,9 @@ valid-body paths.
 **Files:**
 - Modify: `docs/backlog/malformed-json-body-is-a-500.md`
 
-- [ ] **Step 1:** Replace `**Status: open**` with `**Status: planned**`
+- [x] **Step 1:** Replace `**Status: open**` with `**Status: planned**`
   and, on the next line, `Plan: docs/plans/2026-10-12-2326-malformed-json-body-is-a-400.md`.
-- [ ] **Step 2:** Commit together with this plan:
+- [x] **Step 2:** Commit together with this plan:
   `git commit -m "Plan: a malformed JSON body is a 400"`
 
 ### Task 2: The failing test
@@ -98,7 +98,7 @@ valid-body paths.
 **Files:**
 - Test: `test/quickmeet/routes_test.lg`
 
-- [ ] **Step 1: Write the test** `a-malformed-json-body-is-a-400`, placed
+- [x] **Step 1: Write the test** `a-malformed-json-body-is-a-400`, placed
   after `account-endpoints-take-json-only`. Inside `with-handler`, sign a
   user up (`signup`), make a room as them (`POST /api/rooms` with
   `(as cookie)`), then call each route with body `"not json"` via `call`
@@ -117,7 +117,7 @@ valid-body paths.
   Then, for sign-up, wrap the call in `with-out-str` and assert the output
   does not include `"failed:"`.
 
-- [ ] **Step 2: Run it to make sure it fails**
+- [x] **Step 2: Run it to make sure it fails**
   Run: `lgx test`
   Expected: the new test fails (the calls throw, the test errors); every
   other test passes.
@@ -127,28 +127,28 @@ valid-body paths.
 **Files:**
 - Modify: `src/quickmeet/routes.lg`
 
-- [ ] **Step 1:** In `read-json-body`, wrap `json/read-json` in `try`;
+- [x] **Step 1:** In `read-json-body`, wrap `json/read-json` in `try`;
   `(catch Exception _ (throw (ex-info "invalid JSON" {::invalid-json true})))`.
   Add a short comment: a body that is not JSON is the client's mistake;
   `answer-invalid-json` turns this into a 400.
-- [ ] **Step 2:** Add `answer-invalid-json` (private, next to
+- [x] **Step 2:** Add `answer-invalid-json` (private, next to
   `read-json-body`): `[route]` → `route` with `:response` replaced by a fn
   that calls the original in `try` and, in `catch Exception e`, returns
   `(json-response 400 {:error "invalid JSON"})` when
   `(::invalid-json (ex-data e))`, else `(throw e)`. Docstring says it must
   sit inside `telemetry/wrap-route` so a bad body is not logged as an error.
-- [ ] **Step 3:** In `handler`, change
+- [x] **Step 3:** In `handler`, change
   `(mapv telemetry/wrap-route (routes ...))` to
   `(mapv (comp telemetry/wrap-route answer-invalid-json) (routes ...))`.
-- [ ] **Step 4: Run the tests**
+- [x] **Step 4: Run the tests**
   Run: `lgx test`
   Expected: all pass, the new one included.
-- [ ] **Step 5: Check by hand**
+- [x] **Step 5: Check by hand**
   Run the app (`lgx run`, see `docs/DEVELOPMENT.md`), then
   `curl -s -w '\n%{http_code}\n' -X POST localhost:<port>/api/auth/signup -H 'Content-Type: application/json' -d 'not json'`
   Expected: `{"error":"invalid JSON"}` and `400`; no `failed:` line in the
   app's output.
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
   `git commit -m "A malformed JSON body is a 400, not a 500"`
 
 ### Task 4: Close the backlog entry
@@ -156,8 +156,25 @@ valid-body paths.
 **Files:**
 - Modify: `docs/backlog/malformed-json-body-is-a-500.md`
 
-- [ ] **Step 1:** Replace the planned status and plan line with
+- [x] **Step 1:** Replace the planned status and plan line with
   `**Status: done**` and a line saying where it landed:
   `Landed in "A malformed JSON body is a 400, not a 500" (src/quickmeet/routes.lg, answer-invalid-json).`
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
   `git commit -m "Backlog: a malformed JSON body is done"`
+
+## Completion
+
+Done. `read-json-body` throws a tagged `ex-info`; `answer-invalid-json` turns it into
+`400 {"error":"invalid JSON"}` inside `telemetry/wrap-route`, so no span error and no
+`failed:` line. New test `a-malformed-json-body-is-a-400` covers all seven routes, a
+truncated body, trailing garbage and the no-log check. Full suite: 99 tests, 0 failures;
+manual `curl` against `lgx run` gave `{"error":"invalid JSON"}` / 400. Codex review: no findings.
+
+Issues: the shell's `lgx` resolves to 0.1.2, but the project pins 0.4.2, so `lgx test` fails
+on `lgx.edn`; run it as `mise exec -- lgx test`. `participants-of-an-unknown-room` failed once
+with an SFU connection reset and passed on three reruns (flaky, unrelated).
+
+Deviations: none.
+
+What the plan could have specified better: it didn't mention that `lgx` needs to be run through
+`mise exec --` in this environment.
