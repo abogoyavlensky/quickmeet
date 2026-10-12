@@ -99,18 +99,18 @@ Work in `/home/agent/Projects/letgo-packages`. Read `livekit/lgx.edn`, `livekit/
 **Files:**
 - Create: `otel/lgx.edn`, `otel/shim/go.mod`, `otel/shim/shim.go`, `otel/src/otel/core.lg`, `otel/test/otel/core_test.lg`
 
-- [ ] **Step 1: Branch**
+- [x] **Step 1: Branch**
   `git -C /home/agent/Projects/letgo-packages switch -c otel-package` from `master`.
 
-- [ ] **Step 2: Write the failing tests first**
+- [x] **Step 2: Write the failing tests first**
   Write `otel/test/otel/core_test.lg` for the cases listed under "Tests", with the fake receiver as a helper in the test file. Receiver handler: records `{:path :content-type :authorization :bytes}` in an atom and returns 200 with an empty body (an empty body is a valid OTLP/HTTP protobuf success response). let-go lowercases header names. Start it with `(http/start handler "127.0.0.1:0")` and read the port from the returned record, as `quickmeet`'s `system_test.lg` does. Use `:endpoint (str "http://127.0.0.1:" port)` and `:headers {"Authorization" "Bearer tl_test"}`.
   Run: `cd otel && lgx test`
   Expected: FAIL (the namespace does not exist yet).
 
-- [ ] **Step 3: Write `otel/lgx.edn` and `otel/shim/go.mod`**
+- [x] **Step 3: Write `otel/lgx.edn` and `otel/shim/go.mod`**
   Same shape as `livekit/lgx.edn`: `:paths ["src"]`, `:lg-runtime :built`, `:lg-version "1.13.0"`, the shim as `github.com/abogoyavlensky/letgo-packages/otel/shim {:go/local "shim"}`. No `:go/replace` block is needed (that was for LiveKit's pion forks). `go.mod`: module `github.com/abogoyavlensky/letgo-packages/otel/shim`, `go 1.26` (raise it if the SDK's `go.mod` demands more), `require github.com/nooga/let-go v0.0.0` as the other shims do (the placeholder is deliberate, see the repository README), plus the six OpenTelemetry modules from decision 8 at the versions you looked up.
 
-- [ ] **Step 4: Write `otel/shim/shim.go`**
+- [x] **Step 4: Write `otel/shim/shim.go`**
   Types: `Handle` (tracer provider, logger provider, tracer, logger, a flag for no-op) and `Span` (the SDK span plus the `context.Context` that carries it, which is how a child gets its parent and how a log record is correlated). Behaviour per the API table. Details that are easy to get wrong:
   - `Start(opts vm.Value)`: read `:service-name`, `:endpoint`, `:headers`, `:resource` from the map. Decide "configured" by an `:endpoint` option or any of `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT`; otherwise return the no-op handle (a tracer from `noop`/an unexported provider is fine; all later functions check the flag).
   - Exporters: construct them with no endpoint option so the SDK reads the environment, and add an explicit option only when the corresponding `opts` key is present **and** that exporter's own two environment variables, the common one and its signal-specific one, are both unset (decision 2; evaluate it separately for the traces and the logs exporter). Add a test for it: with `OTEL_EXPORTER_OTLP_ENDPOINT` pointing at the fake receiver and a different `:endpoint` option, the receiver named by the variable gets the request. If let-go cannot set environment variables in a test, put the precedence rule in a small Go function the test of Step 6 reaches by another route, or record in the plan's outcome that it was checked by hand with the example. For an explicit `:endpoint`, use the host-and-port option plus `WithInsecure` for an `http://` URL so the exporter appends its default `/v1/traces` and `/v1/logs`; do not use the option that takes a full URL unless a test proves the default path survives.
@@ -121,14 +121,14 @@ Work in `/home/agent/Projects/letgo-packages`. Read `livekit/lgx.edn`, `livekit/
   - Attribute conversion: string, bool, integer and float values only; skip everything else.
   - Register as namespace `otel.shim` in `init()`, as `livekit.shim` is.
 
-- [ ] **Step 5: Write `otel/src/otel/core.lg`**
+- [x] **Step 5: Write `otel/src/otel/core.lg`**
   The veneer: docstrings for every function in the API table, `in-span` built from `start-span`, `try`/`finally`, `set-error!` and `end-span!`. Keep Go-shaped things out of it.
 
-- [ ] **Step 6: Run the tests**
+- [x] **Step 6: Run the tests**
   Run: `cd /home/agent/Projects/letgo-packages/otel && lgx test`
   Expected: PASS. The first run builds a runtime that links the SDK and takes a while; later runs are cached. If the path assertion fails (`/` or an empty path instead of `/v1/traces`), fix the exporter options as described in Step 4.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
   `git -C /home/agent/Projects/letgo-packages add otel && git -C /home/agent/Projects/letgo-packages commit -m "otel: traces and logs over OTLP/HTTP through the Go SDK"`
 
 ## Task 2: Run the package against a real Tracelet
@@ -139,32 +139,34 @@ A fake receiver proves what the package sends; only Tracelet proves it accepts i
 - Create: `otel/example/lgx.edn`, `otel/example/main.lg`, `otel/README.md`
 - Modify: `README.md`
 
-- [ ] **Step 1: The example**
+- [x] **Step 1: The example**
   `otel/example/main.lg` starts the package with `{:service-name "otel-example"}`, runs `in-span` with a child span inside it, logs one info and one error line (the error one correlated to the span), calls `shutdown!` and prints the root span's trace id. `otel/example/lgx.edn`: like `livekit/example/lgx.edn` with `abogoyavlensky/letgo-otel {:local/root ".."}` and a `bin/app` target.
 
-- [ ] **Step 2: Start a local Tracelet**
+- [x] **Step 2: Start a local Tracelet**
   Run: `cd /home/agent/Projects/tracelet && rite build && mkdir -p /tmp/tracelet-dogfood && ./bin/tracelet serve --data-dir /tmp/tracelet-dogfood --addr :18080` (the build writes only gitignored files into that checkout; if `/tmp` is full, use a directory under `/home/agent/.cache`) in the background (check `tracelet serve --help` for the flag names; a binary built on this machine runs fine locally, only the Docker image has the glibc limit). It prints an admin token on stderr once. Then:
   `export TRACELET_URL=http://localhost:18080 TRACELET_TOKEN=<admin token>`
   `./bin/cli/tracelet projects create quickmeet --name quickmeet` (build the CLI with `rite build-cli` if `bin/cli/tracelet` is missing) and `./bin/cli/tracelet tokens create --project quickmeet --scope ingest --name dogfood` (prints the ingest token once).
 
-- [ ] **Step 3: Send from the example**
+- [x] **Step 3: Send from the example**
   Run: `cd /home/agent/Projects/letgo-packages/otel/example && OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:18080 OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf OTEL_EXPORTER_OTLP_HEADERS="Authorization=Bearer <ingest token>" OTEL_RESOURCE_ATTRIBUTES="deployment.environment.name=local,service.version=0.0.1" lgx run`
   Expected: it prints a trace id and exits 0; the Tracelet server log shows no error.
 
-- [ ] **Step 4: Read it back**
+- [x] **Step 4: Read it back**
   Run, with the trace id from Step 3:
   `tracelet services --project quickmeet --last 10m` (expect `otel-example` with log and span counts),
   `tracelet traces get <trace id> --project quickmeet` (expect the root span with its child, as a tree),
   `tracelet logs search --project quickmeet --service otel-example --last 10m` (expect both lines, the error one carrying the trace id).
   Expected: all three match what the example sent. If the bearer header is rejected, check how the Go SDK parses `OTEL_EXPORTER_OTLP_HEADERS` (it percent-decodes values; a space inside `Bearer tl_...` may need to be `%20`). That is a finding for the Tracelet and quickmeet docs: record it in the package README and in Task 8's observations, and use whichever form works everywhere.
 
-- [ ] **Step 5: README**
+- [x] **Step 5: README**
   `otel/README.md`: what it is, requirements (lgx 0.4.2, let-go 1.13.0, Go, no C toolchain), a usage snippet, the API in one table, the variables from decision 2, the no-op rule, the "explicit parents" rule and why (the dynamic-binding bug), and that the log exporter is pre-1.0. Add the package's row to the root `README.md`.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
   `git -C /home/agent/Projects/letgo-packages add -A && git -C /home/agent/Projects/letgo-packages commit -m "otel: example, README, and the package table row"`
 
 ## Task 3: Release the package (owner go-ahead needed)
+
+> Deferred: the owner asked that nothing be pushed for now, so no PR, merge or tag. `letgo-packages` branch `otel-package` holds two local commits (`5d58456`, `e5b1755`). Tasks 4 to 6 use `:local/root`; Task 7 Step 1 (the tag coordinate) stays open until the tag exists.
 
 - [ ] **Step 1: PR**
   Push `otel-package` and open a PR against `master` in `abogoyavlensky/letgo-packages`. CI (`test.yml`) runs `lgx test` for the changed package. Expected: green. Link the PR with `link_pull_request` if that tool is available.
