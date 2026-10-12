@@ -1,6 +1,7 @@
 # A malformed JSON body is a 500, not a 400
 
-**Status: open**
+**Status: planned**
+Plan: docs/plans/2026-10-12-2326-malformed-json-body-is-a-400.md
 
 ## Problem
 
