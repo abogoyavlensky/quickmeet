@@ -7,6 +7,7 @@
             [integrant.core :as ig]
             [quickmeet.db :as db]
             [quickmeet.sfu :as sfu]
+            [quickmeet.telemetry :as telemetry]
             [sqlite.core :as sqlite]
             [quickmeet.system :as system]
             [string :as str]))
@@ -318,4 +319,35 @@
           (finally (sqlite/close! c))))
       (finally
         (ig/halt! system [:livekit/server])
+        (os/sh "rm" "-f" path (str path "-wal") (str path "-shm"))))))
+
+;; What main.lg does on the way out: shutdown!, then halt-telemetry! last.
+;; shutdown! alone never flushes telemetry (it is a dependency of what it
+;; halts), so this is the production path, which an ig/halt! of the whole
+;; system would not cover.
+(deftest shutdown-then-halt-telemetry-flushes-to-the-receiver
+  (let [seen (atom [])
+        stub (http/start (fn [req] (swap! seen conj (:path req)) {:status 200 :body ""})
+                         "127.0.0.1:0")
+        path (str "/tmp/quickmeet-system-" (rand-int 100000000) ".db")
+        system (system/start! (-> (system/config)
+                                  (assoc-in [:quickmeet.db/conn :path] path)
+                                  (assoc-in [:quickmeet.server/http :addr] "127.0.0.1:0")
+                                  (assoc-in [:livekit/server :config :port] lk-port)
+                                  (assoc-in [:livekit/server :config :rtc :tcp_port] 7891)
+                                  (assoc-in [:quickmeet.routes/handler :livekit :port] lk-port)
+                                  (assoc-in [:quickmeet.telemetry/otel :endpoint]
+                                            (str "http://127.0.0.1:" (:port stub)))))
+        base (str "http://" (:addr (:quickmeet.server/http system)))]
+    (try
+      (is (= 200 (:status (http/get (str base "/")))))
+      (telemetry/in-span "test" {} (fn [_] nil))
+      (with-out-str (telemetry/log! :info "quickmeet: shutting down"))
+      (system/shutdown! system)
+      (is (empty? @seen) "nothing is flushed by shutdown! alone")
+      (system/halt-telemetry! system)
+      (is (= #{"/v1/traces" "/v1/logs"} (set @seen)))
+      (finally
+        (ig/halt! system [:livekit/server])
+        (http/stop stub)
         (os/sh "rm" "-f" path (str path "-wal") (str path "-shm"))))))

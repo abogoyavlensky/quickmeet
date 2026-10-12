@@ -4,6 +4,7 @@
             [quickmeet.db :as db]
             [quickmeet.routes]
             [quickmeet.server]
+            [quickmeet.telemetry]
             [string :as str]))
 
 ;; One config map describes the app; integrant starts the components in
@@ -109,6 +110,11 @@
      (check-secret! lookup api-secret)
      {:quickmeet.db/conn {:path (env lookup "DB_PATH" "quickmeet.db")}
 
+      ;; Traces and logs, off unless an OTEL_EXPORTER_OTLP_*ENDPOINT is set
+      ;; (the SDK reads the OTEL_* variables itself; docs/CONFIGURATION.md).
+      ;; The handler refs it, so it starts before anything serves a request.
+      :quickmeet.telemetry/otel {:service-name "quickmeet"}
+
       :livekit/server
       {:config {:port lk-port
                 :bind_addresses [(env lookup "LIVEKIT_BIND" "127.0.0.1")]
@@ -129,6 +135,7 @@
                 :logging {:level (env lookup "LIVEKIT_LOG_LEVEL" "warn")}}}
 
       :quickmeet.routes/handler {:db (ig/ref :quickmeet.db/conn)
+                                 :telemetry (ig/ref :quickmeet.telemetry/otel)
                                  :livekit {:api-key api-key
                                            :api-secret api-secret
                                            :port lk-port
@@ -166,3 +173,12 @@
   ;; Halting the db also halts its dependents: the handler (nothing to do)
   ;; and the server again, which http/stop allows.
   (ig/halt! system [:quickmeet.db/conn]))
+
+(defn halt-telemetry!
+  "Flush and stop telemetry. main.lg calls it as the very last step, after
+   the final message and before os/exit: shutdown! halts only the server and
+   the database, and telemetry is a dependency of those, so it would never be
+   flushed otherwise. (Halting it also halts its dependents, the handler and
+   the server, which are stopped by then; http/stop allows that.)"
+  [system]
+  (ig/halt! system [:quickmeet.telemetry/otel]))

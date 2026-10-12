@@ -185,27 +185,30 @@ Work in `/home/agent/Projects/quickmeet`. Read `src/quickmeet/db.lg` (the integr
 - Create: `src/quickmeet/telemetry.lg`, `test/quickmeet/telemetry_test.lg`
 - Modify: `lgx.edn`, `src/quickmeet/system.lg`
 
-- [ ] **Step 1: Branch and dependency**
+- [x] **Step 1: Branch and dependency**
   `git -C /home/agent/Projects/quickmeet switch master && git -C /home/agent/Projects/quickmeet switch -c tracelet-telemetry`. In `lgx.edn` add `abogoyavlensky/letgo-otel {:local/root "../letgo-packages/otel"}` with a comment that it becomes the tag in Task 7. (Tasks 4 to 6 need only the working tree; if Task 3's tag already exists you may use it from the start and skip the flip in Task 7.)
 
-- [ ] **Step 2: Write the failing tests**
+- [x] **Step 2: Write the failing tests**
   `test/quickmeet/telemetry_test.lg`: with no component started (the atom nil), `in-span` calls its function and returns its value, and rethrows its exception; `log!` prints the line and returns nil without throwing. With the component started against a stub receiver (the same helper as the package test), one `in-span` plus one `log!` followed by `ig/halt!` makes the receiver see a `POST /v1/traces` and a `POST /v1/logs`. After halt the atom is nil again, so a second system in the same process starts clean.
   Run: `lgx test`
   Expected: the new tests FAIL; all existing tests still run (they should not notice the dependency).
 
-- [ ] **Step 3: Write `src/quickmeet/telemetry.lg`**
+- [x] **Step 3: Write `src/quickmeet/telemetry.lg`**
   - `(defmethod ig/init-key ::otel [_ opts])` calls `otel/start!` with `opts` (`{:service-name "quickmeet"}` plus anything the tests pass) and resets the atom to the handle; `ig/halt-key!` clears the atom first, then `shutdown!`s, so nothing logs into a handle that is shutting down.
   - `in-span` (name, an options map, function; the options are those of `otel.core/start-span` plus `:parent`, which may be a request map carrying `:otel/span`, a span, or nil) and `log!` (level, message, attrs, and an options map with `:span` and `:export-message`): both read the atom; a nil handle means call through / print only. `log!` prints exactly the line the old `println` printed (`quickmeet: ...`); the exported body is `:export-message` when given, else the printed line.
   - `wrap-route`: given a route map, returns it with `:response` replaced by a function that starts a `:server` span named `<METHOD> <pattern>` (method uppercase; the pattern is the route's `:path`, `:not-found` for the catch-all), with `http.request.method` and `http.route`; calls the original with the request plus `:otel/span`; sets `http.response.status_code`; marks the span an error for a status of 500 or above or for an exception (rethrown); ends the span in a `finally`. With no handle it must return the original `:response` untouched, so the no-telemetry path adds no work.
 
-- [ ] **Step 4: Wire it in `system.lg`**
+- [x] **Step 4: Wire it in `system.lg`**
   Add `:quickmeet.telemetry/otel {}` to the config map and `:telemetry (ig/ref :quickmeet.telemetry/otel)` to the `:quickmeet.routes/handler` map (a dependency edge only, as `:livekit` is for the server). Use `{:service-name "quickmeet"}` as the component's opts. Add `(defn halt-telemetry! [system])`, which halts only `:quickmeet.telemetry/otel` (`(ig/halt! system [:quickmeet.telemetry/otel])` would also halt its dependents, the handler and the server, which are already stopped by then and which `http/stop` tolerates; check that in the test). Add a test that mirrors `main.lg`: `shutdown!` then `halt-telemetry!`, against a stub receiver, and the receiver sees the traces and logs request. That is the production path; the `ig/halt!` test alone does not cover it. Check that `system/config`'s docstring and the tests that compare the config map still agree.
 
-- [ ] **Step 5: Run the tests**
+- [x] **Step 5: Run the tests**
   Run: `lgx test`
   Expected: PASS, including the existing suites.
 
-- [ ] **Step 6: Commit**
+> Deviation: added `otel/enabled?` to the package (commit `c664e3e` on `otel-package`). `start!` returns a no-op handle when nothing is configured, so "no handle" cannot be told from "handle that exports nothing"; the component keeps the atom nil for a no-op handle so the spec's fall-through (and `wrap-route` returning the route untouched) holds. Additive; no other task's interface changes.
+> Deviation: the production-path test in `system_test.lg` makes its own span, because requests only produce spans after Task 5 wraps the routes.
+
+- [x] **Step 6: Commit**
   `git -C /home/agent/Projects/quickmeet add -A && git -C /home/agent/Projects/quickmeet commit -m "Add the telemetry component over the otel package"`
 
 ## Task 5: Instrument requests, SFU calls and log lines

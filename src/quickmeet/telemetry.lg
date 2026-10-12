@@ -1,0 +1,92 @@
+(ns quickmeet.telemetry
+  (:require [integrant.core :as ig]
+            [otel.core :as otel]
+            [string :as str]))
+
+;; Traces and logs for Tracelet (or any OTLP receiver), through the otel
+;; package. docs/KNOWLEDGE.md has the decisions; the short version:
+;;
+;; - One process-wide handle, in an atom this namespace owns. Warnings are
+;;   printed in places with no handle to hand (push delivery), and a dynamic
+;;   var is out: let-go 1.13.0 runs every http handler on one shared
+;;   dynamic-binding stack, so a "current span" would leak between requests
+;;   (docs/backlog/letgo-http-handlers-share-dynamic-bindings.md). The request
+;;   span rides in the request map under :otel/span instead.
+;; - The atom holds a handle only while telemetry is on: no endpoint in the
+;;   environment gives otel's no-op handle, which is left out, so every
+;;   helper here falls through to "call the function" / "just print".
+;; - Configuration is the standard OTEL_* variables (docs/CONFIGURATION.md);
+;;   the component's own opts are defaults and what the tests pass.
+
+(def ^:private handle (atom nil))
+
+(defmethod ig/init-key ::otel [_ opts]
+  (let [h (otel/start! opts)]
+    (reset! handle (when (otel/enabled? h) h))
+    h))
+
+;; The atom is cleared first, so nothing logs into a handle that is shutting
+;; down, and only if it still holds this handle.
+(defmethod ig/halt-key! ::otel [_ h]
+  (when (= h @handle)
+    (reset! handle nil))
+  (otel/shutdown! h))
+
+(defn- span-of
+  "The span `x` stands for: a request map carrying :otel/span, a span, or nil."
+  [x]
+  (if (map? x) (:otel/span x) x))
+
+(defn in-span
+  "Call `(f span)` inside a span named `name`. `opts` are otel.core/start-span's
+   (:kind, :attrs); :parent may be a request map carrying :otel/span, a span,
+   or nil. With telemetry off, `span` is nil and this is just `(f nil)`."
+  [name opts f]
+  (if-let [h @handle]
+    (otel/in-span h name (assoc opts :parent (span-of (:parent opts))) f)
+    (f nil)))
+
+(defn log!
+  "Print `line` to stdout, as the old println did, and export it as a log
+   record at `level` (:debug, :info, :warn or :error). `opts`: :span, a
+   request map or a span, to tie the record to its trace; :export-message,
+   the body to export instead of `line` (for a line that may carry something
+   that must not leave the process). Returns nil."
+  ([level line] (log! level line {} {}))
+  ([level line attrs] (log! level line attrs {}))
+  ([level line attrs opts]
+   (println line)
+   (when-let [h @handle]
+     (otel/log! h level (or (:export-message opts) line) attrs
+                {:span (span-of (:span opts))}))
+   nil))
+
+(defn wrap-route
+  "`route` with its :response run inside a :server span named
+   \"<METHOD> <pattern>\", e.g. \"GET /api/rooms/:id\": the route's pattern,
+   never the raw path, which holds room ids (the link that grants entry) and
+   would make the name's cardinality unbounded. The span rides to the handler
+   in the request under :otel/span. A status of 500 or above, or an
+   exception (rethrown), marks the span an error. :path and :method are
+   untouched. With telemetry off the route comes back as it is."
+  [route]
+  (if-not @handle
+    route
+    (let [respond (:response route)
+          pattern (str (:path route))]
+      (assoc route :response
+             (fn [req]
+               (if-not @handle
+                 (respond req)
+                 (in-span (str (str/upper-case (name (or (:request-method req) :get))) " " pattern)
+                          {:kind :server
+                           :attrs {"http.request.method" (str/upper-case (name (or (:request-method req) :get)))
+                                   "http.route" pattern}}
+                          (fn [span]
+                            (let [res (respond (assoc req :otel/span span))
+                                  status (:status res)]
+                              (when (number? status)
+                                (otel/set-attrs! span {"http.response.status_code" status})
+                                (when (>= status 500)
+                                  (otel/set-error! span (str "HTTP " status))))
+                              res)))))))))
