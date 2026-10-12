@@ -318,3 +318,25 @@ The check that matters before staging: a real quickmeet, a real call path, a rea
 ## Completion
 
 Mark the plan done in this file: check off the steps, add the summary the executing-plans skill asks for, and set `docs/backlog/` statuses only if an entry here was resolved (none are expected).
+
+## Outcome (2026-10-12)
+
+**Status: code complete; stopped at the owner steps.** Tasks 1, 2 and 4 to 7 are done, except Task 7 Step 1. Task 3 (PR, merge, tag `otel-v0.1.0`) and Task 8 (production project and token, GitHub variable and secret, PR, merge, watching the deploy, reading staging back) need pushes and shared state, and the owner asked that nothing be pushed yet, so both are untouched. Nothing was pushed in any repository.
+
+**What exists, all in local branches:**
+- `../letgo-packages`, branch `otel-package` (3 commits): the `otel` package (shim over the Go SDK, `otel.core`, 11 tests with a fake receiver, example, README, table row).
+- this repository, branch `tracelet-telemetry`: `quickmeet.telemetry` (component, `in-span`, `log!`, `wrap-route`), a span per request named by route pattern, `sfu.*` child spans, the log sites switched over, `halt-telemetry!` last in `main.lg`, staging configuration in `compose.yaml` and `deploy.yml`, docs, and the backlog entry `malformed-json-body-is-a-500.md`.
+- `../tracelet`: untouched (only gitignored build output). No Tracelet gaps needed a backlog entry there yet; the minor observations are under Task 6.
+
+**Verification:** `lgx test` 94 tests, 696 assertions, 0 failures; `lgx e2e` 83 passed (telemetry off, run at Task 5; later commits changed only config and docs); the package's own `lgx test` 11 tests, 31 assertions, 0 failures. End to end: the example and then the built quickmeet binary (SIGINT to flush) against a local Tracelet, read back with its CLI: 9 root spans named by pattern with status codes, 4 `sfu.*` children, startup and shutdown logs, the environment and version attributes, no room id or raw path anywhere. Codex reviewed every code task: no findings in any round. `deploy.yml` was only YAML-parsed, never run.
+
+**Before this can merge:** push `otel-package`, merge it, tag `otel-v0.1.0` (Task 3), then flip `lgx.edn` from `:local/root "../letgo-packages/otel"` to the tag (Task 7 Step 1). Until then CI for the quickmeet branch cannot resolve the dependency.
+
+**Deviations (all additive):**
+1. Added `otel/enabled?` to the package API (`c664e3e`): `start!` returns a no-op handle when nothing is configured, so "no handle" and "handle that exports nothing" could not be told apart, and the spec's fall-through (and `wrap-route` returning the route untouched) needed to.
+2. Package tests for the env-over-option rule use `os/setenv` in let-go (the plan allowed a fallback; none was needed). `:service-name` precedence cannot be read back from a fake receiver, so it was checked against the real Tracelet (service listed as `svc-override`).
+3. The `routes_test.lg` tests assert on span names inside the raw protobuf body (strings are literal in it), a stronger check than the plan's request counts; they also assert the room id and a raw path are absent.
+4. Task 6 and Task 8 Step 5 observations were written under Task 6 rather than a scratch note.
+
+**What the plan could have specified better:** it said `start!` returns a no-op handle and also that helpers see "no handle" when telemetry is off, without saying how quickmeet would tell the two apart (Deviation 1); and the tag/merge dependency of Tasks 3 and 7 on a push meant the branch could not be finished without the owner, so a note up front saying "Tasks 4 to 6 build against `:local/root` and the branch cannot merge until Task 3" would have saved a decision.
+
