@@ -1,6 +1,7 @@
 # A malformed JSON body is a 500, not a 400
 
-**Status: open**
+**Status: done**
+Landed in "A malformed JSON body is a 400, not a 500" (src/quickmeet/routes.lg, answer-invalid-json).
 
 ## Problem
 

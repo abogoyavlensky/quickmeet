@@ -109,10 +109,30 @@
 (defn- valid-room-id? [id]
   (some? (re-find #"^[0-9a-f]{12}$" (str id))))
 
+;; A body that is not JSON is the client's mistake: this throws a tagged
+;; ex-info, and answer-invalid-json turns it into a 400.
 (defn- read-json-body [req]
   (let [body (:body req)]
     (when-not (str/blank? (str body))
-      (json/read-json body {:keywords? true}))))
+      (try
+        (json/read-json body {:keywords? true})
+        (catch Exception _
+          (throw (ex-info "invalid JSON" {::invalid-json true})))))))
+
+(defn- answer-invalid-json
+  "`route` with a body that is not JSON answered 400. Must sit inside
+   telemetry/wrap-route, so a bad body is a plain 400 there and not an
+   exception logged as an error."
+  [route]
+  (let [respond (:response route)]
+    (assoc route :response
+           (fn [req]
+             (try
+               (respond req)
+               (catch Exception e
+                 (if (::invalid-json (ex-data e))
+                   (json-response 400 {:error "invalid JSON"})
+                   (throw e))))))))
 
 (defn- request-host
   "The host the request was addressed to, port included. Go's server moves
@@ -665,7 +685,7 @@
    {:public-key, :send! (fn [target message]) -> status, :spawn (fn [f])}
    (quickmeet.push/service)."
   [conn livekit lookups auth push]
-  (let [table (mapv telemetry/wrap-route (routes conn livekit lookups auth push))]
+  (let [table (mapv (comp telemetry/wrap-route answer-invalid-json) (routes conn livekit lookups auth push))]
     (fn [req]
       ;; let-go's :uri is the request URI, query string included, and
       ;; ruuter matches it whole: routes see the path alone. The query

@@ -467,6 +467,29 @@
           (is (= 200 (:status (call handler :post "/api/me" "{\"display_name\":\"x\"}"
                                     (assoc-in (as cookie) [:headers "content-type"] "application/json; charset=utf-8"))))))))))
 
+(deftest a-malformed-json-body-is-a-400
+  (with-handler
+    (fn [handler _]
+      (let [{:keys [cookie]} (signup handler)
+            id (:id (:json (call handler :post "/api/rooms" nil (as cookie))))
+            bad (fn [path body extra]
+                  (let [res (call handler :post path body extra)]
+                    (is (= 400 (:status res)) path)
+                    (is (= {:error "invalid JSON"} (:json res)) path)
+                    (is (not (str/includes? (str (:body res)) "invalid character")) path)))]
+        (doseq [path ["/api/auth/signup" "/api/auth/signin"]]
+          (bad path "not json" nil))
+        (doseq [path ["/api/me" (str "/api/rooms/" id) "/api/push/subscriptions"
+                      "/api/push/unsubscribe"]]
+          (bad path "not json" (as cookie)))
+        (bad (str "/api/rooms/" id "/token") "not json" nil)
+        ;; Truncated, and valid JSON followed by garbage.
+        (bad "/api/auth/signup" "{\"email\":" nil)
+        (bad "/api/auth/signup" "{\"email\":\"a@b.c\"} x" nil)
+        ;; A client's mistake is not a server fault: nothing is logged as one.
+        (let [out (with-out-str (bad "/api/auth/signup" "not json" nil))]
+          (is (not (str/includes? out "failed:"))))))))
+
 (deftest the-cookie-is-secure-behind-tls
   (with-handler
     (fn [handler _]
