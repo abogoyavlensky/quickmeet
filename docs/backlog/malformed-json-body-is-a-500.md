@@ -12,8 +12,9 @@ status 500. The routes that read a body (`POST /api/auth/signup`, sign-in,
 rename, token, push subscriptions, ...) all go through it.
 
 It is a client mistake, so it should be a 400 with `{"error": ...}`, and it
-should not show up as a server error in telemetry (the request span is marked
-`error` for an exception).
+should not show up as a server error in telemetry: the request span is marked
+`error` for an exception, and since 2026-10-12 it is an `error` log line too
+(`POST /api/auth/signup failed: ...`), so a scanner posting garbage makes noise.
 
 ## Idea
 

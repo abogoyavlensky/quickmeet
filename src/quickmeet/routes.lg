@@ -316,9 +316,17 @@
 
 ;; A question to the SFU, the one call inside a request that leaves the
 ;; process besides SQLite: a child span of the request's (telemetry.lg), so
-;; a slow request shows whether the SFU was why. Returns what `f` returns.
+;; a slow request shows whether the SFU was why. A lookup that could not ask
+;; returns nil (sfu.lg logs the reason, without a span to tie it to), and the
+;; child span is marked failed so the trace shows it. Returns what `f`
+;; returns.
 (defn- sfu-call [req span-name f]
-  (telemetry/in-span span-name {:kind :client :parent req} (fn [_] (f))))
+  (telemetry/in-span span-name {:kind :client :parent req}
+                     (fn [span]
+                       (let [res (f)]
+                         (when (nil? res)
+                           (telemetry/set-error! span "the SFU could not be asked"))
+                         res))))
 
 (defn- ring-message
   "What a ring sends to `target`'s device: the notification the service
@@ -635,7 +643,8 @@
                   (if (verify (get-in req [:headers "authorization"]) body)
                     (do (history/record! conn (json/read-json body {:keywords? true}))
                         (json-response 200 {}))
-                    unauthorized)))}
+                    (do (telemetry/log! :warn "quickmeet: a webhook failed verification" {} {:span req})
+                        unauthorized))))}
 
    {:path :not-found
     :response (fn [_] (json-response 404 {:error "not found"}))}]))
