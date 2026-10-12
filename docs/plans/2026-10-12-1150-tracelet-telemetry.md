@@ -166,7 +166,7 @@ A fake receiver proves what the package sends; only Tracelet proves it accepts i
 
 ## Task 3: Release the package (owner go-ahead needed)
 
-> Deferred: the owner asked that nothing be pushed for now, so no PR, merge or tag. `letgo-packages` branch `otel-package` holds two local commits (`5d58456`, `e5b1755`). Tasks 4 to 6 use `:local/root`; Task 7 Step 1 (the tag coordinate) stays open until the tag exists.
+> Done later the same day, once the owner said to push and merge: PR abogoyavlensky/letgo-packages#5, squash-merged as `8fa0828`, tag `otel-v0.1.0` pushed on it. (Originally deferred: the owner asked that nothing be pushed for now.) `letgo-packages` branch `otel-package` holds two local commits (`5d58456`, `e5b1755`). Tasks 4 to 6 use `:local/root`; Task 7 Step 1 (the tag coordinate) stays open until the tag exists.
 
 - [ ] **Step 1: PR**
   Push `otel-package` and open a PR against `master` in `abogoyavlensky/letgo-packages`. CI (`test.yml`) runs `lgx test` for the changed package. Expected: green. Link the PR with `link_pull_request` if that tool is available.
@@ -272,7 +272,7 @@ The check that matters before staging: a real quickmeet, a real call path, a rea
 **Files:**
 - Modify: `lgx.edn` (only if still `:local/root`), `compose.yaml`, `.github/workflows/deploy.yml`, `docs/CONFIGURATION.md`, `docs/DEPLOYMENT.md`, `docs/KNOWLEDGE.md`
 
-- [ ] **Step 1: The coordinate** (open: needs the tag from Task 3)
+- [x] **Step 1: The coordinate**
   If `lgx.edn` still points at `:local/root`, change it to `{:git/url "https://github.com/abogoyavlensky/letgo-packages" :git/tag "otel-v0.1.0" :deps/root "otel"}` (Task 3 must be done). One `lgx test` run proves the tag resolves.
   Run: `lgx test`
   Expected: PASS.
@@ -330,7 +330,7 @@ Mark the plan done in this file: check off the steps, add the summary the execut
 
 **Verification:** `lgx test` 94 tests, 696 assertions, 0 failures; `lgx e2e` 83 passed (telemetry off, run at Task 5; later commits changed only config and docs); the package's own `lgx test` 11 tests, 31 assertions, 0 failures. End to end: the example and then the built quickmeet binary (SIGINT to flush) against a local Tracelet, read back with its CLI: 9 root spans named by pattern with status codes, 4 `sfu.*` children, startup and shutdown logs, the environment and version attributes, no room id or raw path anywhere. Codex reviewed every code task: no findings in any round. `deploy.yml` was only YAML-parsed, never run.
 
-**Before this can merge:** push `otel-package`, merge it, tag `otel-v0.1.0` (Task 3), then flip `lgx.edn` from `:local/root "../letgo-packages/otel"` to the tag (Task 7 Step 1). Until then CI for the quickmeet branch cannot resolve the dependency.
+**Update:** Task 3 and Task 7 Step 1 are done (package PR #5 merged, `otel-v0.1.0` tagged, `lgx.edn` on the tag, `lgx test` green against it). Task 8 remains with the owner.
 
 **Deviations (all additive):**
 1. Added `otel/enabled?` to the package API (`c664e3e`): `start!` returns a no-op handle when nothing is configured, so "no handle" and "handle that exports nothing" could not be told apart, and the spec's fall-through (and `wrap-route` returning the route untouched) needed to.

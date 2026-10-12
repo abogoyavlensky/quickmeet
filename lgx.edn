@@ -19,10 +19,11 @@
          :deps/root "livekit"}
 
         ;; Traces and logs over OTLP/HTTP: a hand-written shim over the Go
-        ;; OpenTelemetry SDK. A :local/root while the package is unreleased;
-        ;; it becomes the otel-v0.1.0 tag once that exists.
+        ;; OpenTelemetry SDK.
         abogoyavlensky/letgo-otel
-        {:local/root "../letgo-packages/otel"}
+        {:git/url "https://github.com/abogoyavlensky/letgo-packages"
+         :git/tag "otel-v0.1.0"
+         :deps/root "otel"}
 
         ;; sqlite over Go's database/sql; brings the sql layer and the
         ;; modernc.org/sqlite driver in transitively.
