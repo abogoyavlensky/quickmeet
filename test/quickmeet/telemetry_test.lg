@@ -12,13 +12,19 @@
 ;; the component flushes and the receiver sees the OTLP requests.
 
 (defn- receiver
-  "A stub OTLP receiver: {:url :seen :stop!}; `seen` collects request paths."
+  "A stub OTLP receiver: {:url :seen :bodies :stop!}; `seen` collects request
+   paths, `bodies` the raw bodies, as strings."
   []
   (let [seen (atom [])
-        srv (http/start (fn [req] (swap! seen conj (:path req)) {:status 200 :body ""})
+        bodies (atom [])
+        srv (http/start (fn [req]
+                          (swap! seen conj (:path req))
+                          (swap! bodies conj (str (:body req)))
+                          {:status 200 :body ""})
                         "127.0.0.1:0")]
     {:url (str "http://127.0.0.1:" (:port srv))
      :seen seen
+     :bodies bodies
      :stop! #(http/stop srv)}))
 
 (defn- with-receiver [f]
@@ -49,7 +55,7 @@
         (is (= :v (telemetry/in-span "work" {:kind :server} (fn [span] (is (some? span)) :v))))
         (with-out-str (telemetry/log! :error "quickmeet: failed" {"k" "v"} {}))
         (ig/halt! system)
-        (is (= #{"/v1/traces" "/v1/logs"} (set @(:seen rcv))))
+        (is (= #{"/v1/traces" "/v1/logs" "/v1/metrics"} (set @(:seen rcv))))
         ;; The component is gone: the helpers fall through again, so a second
         ;; system in the same process starts clean.
         (is (nil? (telemetry/in-span "after" {} (fn [span] span))))))))
@@ -120,3 +126,57 @@
           (is (thrown? Exception ((:response boom) req))))
         (ig/halt! system)
         (is (contains? (set @(:seen rcv)) "/v1/traces"))))))
+
+(deftest a-request-is-timed-under-its-route-pattern
+  (with-receiver
+    (fn [rcv]
+      (let [system (started rcv)
+            route (telemetry/wrap-route {:path "/api/rooms/:id" :method :get
+                                         :response (fn [_] {:status 201})})]
+        ((:response route) {:request-method :get :uri "/api/rooms/0123456789ab"})
+        (ig/halt! system)
+        (let [body (apply str @(:bodies rcv))]
+          (is (str/includes? body "http.server.request.duration"))
+          (is (str/includes? body "http.route"))
+          (is (str/includes? body "http.response.status_code"))
+          ;; The pattern is the route; the raw path holds the room id, which
+          ;; is the link that grants entry.
+          (is (str/includes? body "/api/rooms/:id"))
+          (is (not (str/includes? body "0123456789ab"))))))))
+
+(deftest a-request-that-throws-is-still-timed
+  (with-receiver
+    (fn [rcv]
+      (let [system (started rcv)
+            route (telemetry/wrap-route {:path "/api/x" :method :post
+                                         :response (fn [_] (throw (ex-info "boom" {})))})]
+        (with-out-str
+          (is (thrown? Exception ((:response route) {:request-method :post :uri "/api/x"}))))
+        (ig/halt! system)
+        (is (str/includes? (apply str @(:bodies rcv)) "http.server.request.duration"))))))
+
+(deftest enabled-follows-the-handle
+  (is (false? (telemetry/enabled?)))
+  (with-receiver
+    (fn [rcv]
+      (let [system (started rcv)]
+        (is (true? (telemetry/enabled?)))
+        (ig/halt! system)
+        (is (false? (telemetry/enabled?)))))))
+
+(deftest an-unknown-http-method-is-one-series-not-one-per-verb
+  ;; The catch-all route answers any method, so a client chooses the verb. The
+  ;; metric folds the unknown ones into _OTHER (the span name is another
+  ;; matter).
+  (with-receiver
+    (fn [rcv]
+      (let [system (started rcv)
+            route (telemetry/wrap-route {:path :not-found :response (fn [_] {:status 404})})]
+        ((:response route) {:request-method :brewcoffee :uri "/x"})
+        ((:response route) {:request-method :post :uri "/x"})
+        (ig/halt! system)
+        (let [body (apply str (map second (filter #(= "/v1/metrics" (first %))
+                                                  (map vector @(:seen rcv) @(:bodies rcv)))))]
+          (is (str/includes? body "_OTHER"))
+          (is (str/includes? body "POST"))
+          (is (not (str/includes? (str/upper-case body) "BREWCOFFEE"))))))))

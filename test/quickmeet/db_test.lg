@@ -139,3 +139,23 @@
         ;; A dead subscription is deleted whoever holds it.
         (db/delete-subscription! conn (str fcm "bob"))
         (is (= #{} (left)))))))
+
+(deftest call-counts-and-length
+  (with-db
+    (fn [conn]
+      (db/create-user! conn "u-alice" "alice@example.com" "x" "Alice")
+      (db/create-room! conn "aaaaaaaaaaaa" "u-alice")
+      (is (= 0 (db/open-call-count conn)))
+      (is (= 0 (db/present-participant-count conn)))
+      (is (nil? (db/call-seconds conn "c-1" 2000)) "no participants, no length")
+      (db/create-call! conn "c-1" "aaaaaaaaaaaa" "RM_1")
+      (db/add-call-participant! conn "p-1" "c-1" "u-alice" "Alice" 1000)
+      (db/add-call-participant! conn "p-2" "c-1" nil "Bob" 1010)
+      (is (= 1 (db/open-call-count conn)))
+      (is (= 2 (db/present-participant-count conn)))
+      (db/set-left-at! conn "p-2" 1020)
+      (is (= 1 (db/present-participant-count conn)) "someone who left is not present")
+      (is (= 90 (db/call-seconds conn "c-1" 1090)) "from the first join to the given end")
+      (db/close-call! conn "c-1" 1090)
+      (is (= 0 (db/open-call-count conn)))
+      (is (= 0 (db/present-participant-count conn)) "closing a call empties it"))))

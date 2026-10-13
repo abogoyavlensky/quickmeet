@@ -1,6 +1,8 @@
 (ns quickmeet.history
   (:require [quickmeet.db :as db]
-            [quickmeet.id :as id]))
+            [quickmeet.id :as id]
+            [quickmeet.metrics :as metrics]
+            [quickmeet.telemetry :as telemetry]))
 
 ;; Call history from the SFU's webhooks. The embedded LiveKit posts every
 ;; event to the app (system.lg wires the URL); routes.lg verifies the
@@ -59,18 +61,56 @@
 (defn- left! [conn {:keys [participant createdAt]}]
   (db/set-left-at! conn (:sid participant) createdAt))
 
+;; Only a room_finished says how long a call lasted. A call closed at startup
+;; or shutdown, or because a stale one was found at the next join, has an end
+;; time that is overstated (db.lg), and would skew the histogram.
 (defn- finished! [conn {:keys [room createdAt]}]
   (when-let [call (db/open-call conn (:name room))]
+    (let [seconds (db/call-seconds conn (:id call) createdAt)]
+      (when (and seconds (>= seconds 0))
+        (metrics/call-duration! seconds)))
     (db/close-call! conn (:id call) createdAt)))
+
+(defn publish-until-settled!
+  "Publish `(counts)` with `(publish counts)`, then look again, and publish
+   again while the counts have moved, at most five more times. Webhooks for
+   different rooms run concurrently: a handler that counted, then paused,
+   would otherwise overwrite a newer value with its stale one. Re-reading
+   after the write catches that, because the handler that moved the counts
+   has already written them to the database, so the stale writer sees them
+   and repeats. No lock: let-go has none. Returns the counts last published."
+  [counts publish]
+  (loop [tries 0]
+    (let [seen (counts)]
+      (publish seen)
+      (if (and (< tries 5) (not= seen (counts)))
+        (recur (inc tries))
+        seen))))
+
+(defn publish-gauges!
+  "Set the calls and participants gauges from the database. Every join, leave
+   and room end reaches the app as a webhook, so this is called after each,
+   and once at startup (the db closes stale calls first, so a restart reads
+   0). A lost webhook leaves the gauges stale until the next event. With
+   telemetry off nothing reads the database: the counts scan the call tables,
+   which have no index on the open columns, and nobody would see them.
+   Returns nil."
+  [conn]
+  (when (telemetry/enabled?)
+    (publish-until-settled! (fn [] [(db/open-call-count conn) (db/present-participant-count conn)])
+                            (fn [[calls participants]]
+                              (metrics/calls-active! calls)
+                              (metrics/participants-active! participants))))
+  nil)
 
 (defn record!
   "Apply one verified webhook event (the parsed JSON, keyword keys) to the
    history tables. Other event types are ignored. Returns nil."
   [conn event]
   (case (:event event)
-    "participant_joined" (joined! conn event)
-    "participant_left" (left! conn event)
-    "room_finished" (finished! conn event)
+    "participant_joined" (do (joined! conn event) (publish-gauges! conn))
+    "participant_left" (do (left! conn event) (publish-gauges! conn))
+    "room_finished" (do (finished! conn event) (publish-gauges! conn))
     nil)
   nil)
 

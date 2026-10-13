@@ -3,8 +3,8 @@
             [otel.core :as otel]
             [string :as str]))
 
-;; Traces and logs for Tracelet (or any OTLP receiver), through the otel
-;; package. docs/KNOWLEDGE.md has the decisions; the short version:
+;; Traces, logs and metrics for Tracelet (or any OTLP receiver), through the
+;; otel package. docs/KNOWLEDGE.md has the decisions; the short version:
 ;;
 ;; - One process-wide handle, in an atom this namespace owns. Warnings are
 ;;   printed in places with no handle to hand (push delivery), and a dynamic
@@ -67,6 +67,62 @@
                 {:span (span-of (:span opts))}))
    nil))
 
+(defn enabled?
+  "Whether telemetry is on: false before the component starts, after it
+   halts, and when no endpoint is configured. For work that exists only to
+   feed telemetry, such as reading counts for a gauge."
+  []
+  (some? @handle))
+
+(defn count!
+  "Add `n` (a positive integer) to the counter `name`. `opts` (:unit,
+   :description) are read when the name is first used. Nothing with
+   telemetry off. Returns nil."
+  [name n attrs opts]
+  (when-let [h @handle] (otel/counter-add! h name n attrs opts))
+  nil)
+
+(defn record!
+  "Record `v` in the histogram `name`; `opts` as otel.core/record!
+   (:unit, :description, :buckets). Nothing with telemetry off. Returns nil."
+  [name v attrs opts]
+  (when-let [h @handle] (otel/record! h name v attrs opts))
+  nil)
+
+(defn set-gauge!
+  "Set the gauge `name` to `v`; the last value is exported at every
+   interval. Nothing with telemetry off. Returns nil."
+  [name v attrs opts]
+  (when-let [h @handle] (otel/gauge-set! h name v attrs opts))
+  nil)
+
+;; The methods a request may carry as a metric attribute. The catch-all route
+;; answers any method, so the client chooses the verb: anything else is
+;; _OTHER (the OpenTelemetry HTTP conventions' name for it), or each distinct
+;; verb would be a series of its own.
+(def ^:private known-methods
+  #{"CONNECT" "DELETE" "GET" "HEAD" "OPTIONS" "PATCH" "POST" "PUT" "TRACE"})
+
+;; The one metric recorded here rather than in metrics.lg, which requires this
+;; namespace. Seconds, with the OpenTelemetry HTTP conventions' boundaries.
+(def ^:private request-duration-opts
+  {:unit "s"
+   :description "How long the server took to answer a request, by route."
+   :buckets [0.005 0.01 0.025 0.05 0.1 0.25 0.5 1 2.5 5 10]})
+
+(defn- request-timed!
+  "Record a request that took from `started` (epoch ms) until now, under the
+   route's pattern. `status` is nil when the response had none."
+  [method pattern status started]
+  (record! "http.server.request.duration"
+           ;; The wall clock is all let-go has; a step backwards must not
+           ;; record a negative duration.
+           (max 0.0 (/ (- (System/currentTimeMillis) started) 1000.0))
+           (cond-> {"http.request.method" (if (known-methods method) method "_OTHER")
+                    "http.route" pattern}
+             (number? status) (assoc "http.response.status_code" status))
+           request-duration-opts))
+
 (defn wrap-route
   "`route` with its :response run inside a :server span named
    \"<METHOD> <pattern>\", e.g. \"GET /api/rooms/:id\": the route's pattern,
@@ -74,7 +130,9 @@
    would make the name's cardinality unbounded. The span rides to the handler
    in the request under :otel/span. A status of 500 or above, or an
    exception (rethrown), marks the span an error and is logged at :error,
-   by pattern and tied to the span. :path and :method are untouched.
+   by pattern and tied to the span. Every request is also timed into the
+   http.server.request.duration histogram, by method, pattern and status (a
+   throw counts as 500). :path and :method are untouched.
 
    With telemetry off there is no span, but the error lines are still
    printed: a 500 is otherwise silent in `uc logs`."
@@ -83,7 +141,8 @@
         pattern (str (:path route))]
     (assoc route :response
            (fn [req]
-             (let [method (str/upper-case (name (or (:request-method req) :get)))
+             (let [started (System/currentTimeMillis)
+                   method (str/upper-case (name (or (:request-method req) :get)))
                    label (str method " " pattern)
                    attrs {"http.request.method" method "http.route" pattern}]
                (in-span label {:kind :server :attrs attrs}
@@ -91,6 +150,7 @@
                           (try
                             (let [res (respond (if span (assoc req :otel/span span) req))
                                   status (:status res)]
+                              (request-timed! method pattern status started)
                               (when (number? status)
                                 (when span
                                   (otel/set-attrs! span {"http.response.status_code" status}))
@@ -101,6 +161,7 @@
                                         {:span span})))
                               res)
                             (catch Exception e
+                              (request-timed! method pattern 500 started)
                               (log! :error (str "quickmeet: " label " failed: " (or (ex-message e) (str e)))
                                     attrs {:span span})
                               (throw e))))))))))

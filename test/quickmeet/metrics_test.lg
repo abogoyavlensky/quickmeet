@@ -1,0 +1,57 @@
+(ns quickmeet.metrics-test
+  (:require [clojure.test :refer [deftest is]]
+            [http :as http]
+            [integrant.core :as ig]
+            [quickmeet.metrics :as metrics]
+            [quickmeet.telemetry :as telemetry]
+            [string :as str]))
+
+;; The catalog goes through telemetry's one handle. With none, every function
+;; is nothing. With a handle pointed at a stub receiver, halting the
+;; component exports; the stub cannot decode protobuf, but names and attribute
+;; values are literal strings in the body.
+
+(defn- receiver
+  "A stub OTLP receiver: {:url :seen :stop!}; `seen` collects {:path :body}."
+  []
+  (let [seen (atom [])
+        srv (http/start (fn [req] (swap! seen conj {:path (:path req) :body (str (:body req))})
+                          {:status 200 :body ""})
+                        "127.0.0.1:0")]
+    {:url (str "http://127.0.0.1:" (:port srv))
+     :seen seen
+     :stop! #(http/stop srv)}))
+
+(defn- with-receiver [f]
+  (let [rcv (receiver)]
+    (try (f rcv) (finally ((:stop! rcv))))))
+
+(defn- metrics-body [rcv]
+  (apply str (map :body (filter #(= "/v1/metrics" (:path %)) @(:seen rcv)))))
+
+(deftest every-function-is-nothing-without-a-handle
+  (is (nil? (metrics/calls-active! 1)))
+  (is (nil? (metrics/participants-active! 2)))
+  (is (nil? (metrics/call-duration! 61)))
+  (is (nil? (metrics/token-request! :ok)))
+  (is (nil? (metrics/push-delivery! :sent)))
+  (is (nil? (metrics/rate-limited! :create-room))))
+
+(deftest each-metric-is-exported-when-the-component-halts
+  (with-receiver
+    (fn [rcv]
+      (let [system (ig/init {::telemetry/otel {:service-name "quickmeet-test" :endpoint (:url rcv)}})]
+        (metrics/calls-active! 1)
+        (metrics/participants-active! 2)
+        (metrics/call-duration! 61)
+        (metrics/token-request! :not-found)
+        (metrics/push-delivery! :gone)
+        (metrics/rate-limited! :create-room)
+        (ig/halt! system)
+        (let [body (metrics-body rcv)]
+          (doseq [needle ["quickmeet.calls.active" "quickmeet.participants.active"
+                          "quickmeet.call.duration" "quickmeet.token.requests"
+                          "quickmeet.push.deliveries" "quickmeet.rate_limit.rejected"
+                          ;; attribute values: keywords become snake_case
+                          "not_found" "gone" "create_room"]]
+            (is (str/includes? body needle) needle)))))))

@@ -349,7 +349,7 @@
       (system/shutdown! system)
       (is (empty? @seen) "nothing is flushed by shutdown! alone")
       (system/halt-telemetry! system)
-      (is (= #{"/v1/traces" "/v1/logs"} (set @seen)))
+      (is (= #{"/v1/traces" "/v1/logs" "/v1/metrics"} (set @seen)))
       (finally
         (ig/halt! system [:livekit/server])
         (http/stop stub)

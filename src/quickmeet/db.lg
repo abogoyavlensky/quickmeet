@@ -303,6 +303,37 @@
   [conn sid left-at]
   (sqlite/execute! conn [set-left-at-sql left-at sid]))
 
+;; Counts and lengths for the metrics (quickmeet.history). Plain SQL: a join
+;; and an aggregate, fixed statements.
+(def ^:private open-call-count-sql
+  "select count(*) as n from calls where ended_at is null")
+
+(def ^:private present-participant-count-sql
+  "select count(*) as n
+   from call_participants p join calls c on c.id = p.call_id
+   where p.left_at is null and c.ended_at is null")
+
+;; Null for a call with no participants: min() of nothing.
+(def ^:private call-seconds-sql
+  "select strftime('%s', datetime(?, 'unixepoch')) - strftime('%s', min(joined_at)) as seconds
+   from call_participants where call_id = ?")
+
+(defn open-call-count
+  "How many calls are open, across all rooms."
+  [conn]
+  (:n (sqlite/execute-one! conn [open-call-count-sql])))
+
+(defn present-participant-count
+  "How many participants are in an open call and have not left."
+  [conn]
+  (:n (sqlite/execute-one! conn [present-participant-count-sql])))
+
+(defn call-seconds
+  "Seconds from the call's first join to `ended-at` (unix seconds), or nil if
+   it has no participants."
+  [conn call-id ended-at]
+  (:seconds (sqlite/execute-one! conn [call-seconds-sql ended-at call-id])))
+
 (defn close-call!
   "End the call at `ended-at`: participants still without a leave time get
    it, then the call is closed."

@@ -1007,3 +1007,40 @@
           (db/create-room! conn "0123456789ab" "u-1")
           (is (= 200 (:status (call handler :get "/api/rooms/0123456789ab"))))
           (is (str/includes? (traces-body (flush!)) "the SFU could not be asked")))))))
+
+(defn- metrics-body [bodies]
+  (apply str (map second (filter #(= "/v1/metrics" (first %)) bodies))))
+
+(deftest token-requests-are-counted-by-outcome
+  (with-telemetry
+    (fn [flush!]
+      (let [present (atom [])]
+        (with-handler livekit (fn [_] @present)
+          (fn [handler _]
+            (let [id (new-room handler)]
+              ;; Not found: a valid id that is no room.
+              (is (= 404 (:status (call handler :post "/api/rooms/0123456789ab/token" "{}"))))
+              (reset! present [{:identity "alice"} {:identity "bob"}])
+              (is (= 409 (:status (call handler :post (str "/api/rooms/" id "/token") "{}"))))
+              (reset! present [])
+              (is (= 200 (:status (call handler :post (str "/api/rooms/" id "/token") "{}"))))
+              (let [body (metrics-body (flush!))]
+                (is (str/includes? body "quickmeet.token.requests"))
+                (is (str/includes? body "outcome"))
+                (is (str/includes? body "not_found"))
+                (is (str/includes? body "full"))
+                ;; The room id is the link that grants entry.
+                (is (not (str/includes? body id)))))))))))
+
+(deftest a-refused-request-is-counted-by-limiter-bucket
+  (with-telemetry
+    (fn [flush!]
+      (let [seen (atom [])]
+        (with-handler livekit nobody-anywhere (limited seen :create-room)
+          (fn [handler _]
+            (let [{:keys [cookie]} (signup handler "limited@example.com")]
+              (is (= 429 (:status (call handler :post "/api/rooms" nil (as cookie)))))
+              (let [body (metrics-body (flush!))]
+                (is (str/includes? body "quickmeet.rate_limit.rejected"))
+                ;; :create-room is exported as create_room.
+                (is (str/includes? body "create_room"))))))))))
