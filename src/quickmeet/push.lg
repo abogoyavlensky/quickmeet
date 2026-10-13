@@ -86,8 +86,10 @@
     (try
       (let [status (send! target message)]
         (cond
-          (gone status) (do (metrics/push-delivery! :gone)
-                            (db/delete-subscription! conn (:endpoint target)))
+          ;; Counted after the delete: if that throws, the catch below counts
+          ;; the attempt as failed, and it must not be counted twice.
+          (gone status) (do (db/delete-subscription! conn (:endpoint target))
+                            (metrics/push-delivery! :gone))
           (<= 200 status 299) (metrics/push-delivery! :sent)
           :else (do (metrics/push-delivery! :failed)
                     (telemetry/log! :warn (str "quickmeet: push to " host " failed: status " status)
