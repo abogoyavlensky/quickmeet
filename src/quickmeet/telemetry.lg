@@ -3,8 +3,8 @@
             [otel.core :as otel]
             [string :as str]))
 
-;; Traces and logs for Tracelet (or any OTLP receiver), through the otel
-;; package. docs/KNOWLEDGE.md has the decisions; the short version:
+;; Traces, logs and metrics for Tracelet (or any OTLP receiver), through the
+;; otel package. docs/KNOWLEDGE.md has the decisions; the short version:
 ;;
 ;; - One process-wide handle, in an atom this namespace owns. Warnings are
 ;;   printed in places with no handle to hand (push delivery), and a dynamic
@@ -66,6 +66,28 @@
      (otel/log! h level (or (:export-message opts) line) attrs
                 {:span (span-of (:span opts))}))
    nil))
+
+(defn count!
+  "Add `n` (a positive integer) to the counter `name`. `opts` (:unit,
+   :description) are read when the name is first used. Nothing with
+   telemetry off. Returns nil."
+  [name n attrs opts]
+  (when-let [h @handle] (otel/counter-add! h name n attrs opts))
+  nil)
+
+(defn record!
+  "Record `v` in the histogram `name`; `opts` as otel.core/record!
+   (:unit, :description, :buckets). Nothing with telemetry off. Returns nil."
+  [name v attrs opts]
+  (when-let [h @handle] (otel/record! h name v attrs opts))
+  nil)
+
+(defn set-gauge!
+  "Set the gauge `name` to `v`; the last value is exported at every
+   interval. Nothing with telemetry off. Returns nil."
+  [name v attrs opts]
+  (when-let [h @handle] (otel/gauge-set! h name v attrs opts))
+  nil)
 
 (defn wrap-route
   "`route` with its :response run inside a :server span named

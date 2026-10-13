@@ -1,0 +1,63 @@
+(ns quickmeet.metrics
+  (:require [quickmeet.telemetry :as telemetry]
+            [string :as str]))
+
+;; What quickmeet measures, in one place: a function per metric, holding its
+;; name, unit and attribute keys, so a call site is one line and the list of
+;; metrics can be read in one file. Everything goes through telemetry.lg's
+;; helpers, which do nothing with telemetry off.
+;;
+;; The one metric not here is http.server.request.duration, recorded by
+;; telemetry/wrap-route: this namespace requires telemetry, so telemetry
+;; cannot require it back.
+;;
+;; Attribute values are bounded ones only: an outcome, a limiter bucket. Never
+;; a room id, a user id, an email or a raw path. Each distinct set of values
+;; is a series; a room id would be a new one per room, and the id is also the
+;; link that grants entry (the same rule as telemetry's span names).
+
+(defn- snake
+  "A keyword as an attribute value: :not-found -> \"not_found\"."
+  [k]
+  (str/replace (name k) #"-" "_"))
+
+;; ---- gauges: set when the value changes (history.lg) ----------------------
+
+(defn calls-active! [n]
+  (telemetry/set-gauge! "quickmeet.calls.active" n {}
+                        {:unit "{call}" :description "Calls in progress."}))
+
+(defn participants-active! [n]
+  (telemetry/set-gauge! "quickmeet.participants.active" n {}
+                        {:unit "{participant}" :description "People in a call right now."}))
+
+;; ---- histograms ------------------------------------------------------------
+
+(defn call-duration!
+  "A call that has ended, `seconds` long."
+  [seconds]
+  (telemetry/record! "quickmeet.call.duration" seconds {}
+                     {:unit "s"
+                      :description "How long a call lasted, from the first join to the room closing."
+                      :buckets [30 60 120 300 600 1200 1800 3600 7200 14400]}))
+
+;; ---- counters ---------------------------------------------------------------
+
+(defn token-request!
+  "A join-token request answered; `outcome` is :ok, :full or :not-found."
+  [outcome]
+  (telemetry/count! "quickmeet.token.requests" 1 {"outcome" (snake outcome)}
+                    {:unit "{request}" :description "Join-token requests, by outcome."}))
+
+(defn push-delivery!
+  "A push attempted; `outcome` is :sent, :gone or :failed."
+  [outcome]
+  (telemetry/count! "quickmeet.push.deliveries" 1 {"outcome" (snake outcome)}
+                    {:unit "{delivery}" :description "Push notifications, by outcome."}))
+
+(defn rate-limited!
+  "A request refused by the rate limiter; `bucket` is :signin, :signup,
+   :create-room or :ring."
+  [bucket]
+  (telemetry/count! "quickmeet.rate_limit.rejected" 1 {"bucket" (snake bucket)}
+                    {:unit "{request}" :description "Requests refused by a rate limit, by bucket."}))

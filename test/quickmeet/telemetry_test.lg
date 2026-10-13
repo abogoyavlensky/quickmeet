@@ -49,7 +49,7 @@
         (is (= :v (telemetry/in-span "work" {:kind :server} (fn [span] (is (some? span)) :v))))
         (with-out-str (telemetry/log! :error "quickmeet: failed" {"k" "v"} {}))
         (ig/halt! system)
-        (is (= #{"/v1/traces" "/v1/logs"} (set @(:seen rcv))))
+        (is (= #{"/v1/traces" "/v1/logs" "/v1/metrics"} (set @(:seen rcv))))
         ;; The component is gone: the helpers fall through again, so a second
         ;; system in the same process starts clean.
         (is (nil? (telemetry/in-span "after" {} (fn [span] span))))))))
