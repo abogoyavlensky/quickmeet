@@ -101,7 +101,9 @@
    route's pattern. `status` is nil when the response had none."
   [method pattern status started]
   (record! "http.server.request.duration"
-           (/ (- (System/currentTimeMillis) started) 1000.0)
+           ;; The wall clock is all let-go has; a step backwards must not
+           ;; record a negative duration.
+           (max 0.0 (/ (- (System/currentTimeMillis) started) 1000.0))
            (cond-> {"http.request.method" method "http.route" pattern}
              (number? status) (assoc "http.response.status_code" status))
            request-duration-opts))
