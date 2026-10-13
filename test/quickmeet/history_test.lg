@@ -1,8 +1,10 @@
 (ns quickmeet.history-test
   (:require [clojure.test :refer [deftest is]]
+            [http :as http]
             [integrant.core :as ig]
             [quickmeet.db :as db]
             [quickmeet.history :as history]
+            [quickmeet.telemetry :as telemetry]
             [sqlite.core :as sqlite]
             [string :as str]))
 
@@ -183,3 +185,49 @@
         (ig/halt! system))
       (finally
         (os/sh "rm" "-f" path (str path "-wal") (str path "-shm"))))))
+
+(deftest events-update-the-gauges-and-a-finished-call-records-its-length
+  ;; With a handle pointed at a stub receiver, the metrics reach it when the
+  ;; component halts. The stub cannot decode protobuf, so this checks the
+  ;; names; the counts behind them are db_test's.
+  (let [bodies (atom [])
+        srv (http/start (fn [req]
+                          (when (= "/v1/metrics" (:path req)) (swap! bodies conj (str (:body req))))
+                          {:status 200 :body ""})
+                        "127.0.0.1:0")
+        telemetry (ig/init {::telemetry/otel {:service-name "quickmeet-test"
+                                              :endpoint (str "http://127.0.0.1:" (:port srv))}})]
+    (try
+      (with-db
+        (fn [conn]
+          (setup conn)
+          (history/record! conn (joined "PA_0" "user:u-alice" "Alice" 1000))
+          (history/record! conn (left "PA_0" 1100))
+          (history/record! conn (finished 1100))))
+      (finally
+        (ig/halt! telemetry)
+        (http/stop srv)))
+    (let [body (apply str @bodies)]
+      (is (str/includes? body "quickmeet.calls.active"))
+      (is (str/includes? body "quickmeet.participants.active"))
+      (is (str/includes? body "quickmeet.call.duration")))))
+
+(deftest an-ignored-event-and-an-unfinished-room-record-no-length
+  (let [bodies (atom [])
+        srv (http/start (fn [req]
+                          (when (= "/v1/metrics" (:path req)) (swap! bodies conj (str (:body req))))
+                          {:status 200 :body ""})
+                        "127.0.0.1:0")
+        telemetry (ig/init {::telemetry/otel {:service-name "quickmeet-test"
+                                              :endpoint (str "http://127.0.0.1:" (:port srv))}})]
+    (try
+      (with-db
+        (fn [conn]
+          (setup conn)
+          (history/record! conn (joined "PA_0" "user:u-alice" "Alice" 1000))
+          ;; A finish for a room with no open call has no length to record.
+          (history/record! conn {:event "room_finished" :room {:name "bbbbbbbbbbbb"} :createdAt "1100"})))
+      (finally
+        (ig/halt! telemetry)
+        (http/stop srv)))
+    (is (not (str/includes? (apply str @bodies) "quickmeet.call.duration")))))

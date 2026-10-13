@@ -700,6 +700,9 @@
                rate-limit? (assoc :limit (partial ratelimit/check!
                                                   (ratelimit/limiter ratelimit/default-limits
                                                                      #(System/currentTimeMillis)))))]
+    ;; The db has closed stale calls by now, so the gauges start at 0 rather
+    ;; than as a missing series until the first webhook.
+    (history/publish-gauges! db)
     (handler db livekit
              {:participants (partial sfu/participants livekit)
               :active-rooms (partial sfu/active-rooms livekit)
