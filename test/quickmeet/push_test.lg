@@ -163,3 +163,33 @@
               (is (not (str/includes? body "connection refused")))))))
       (finally
         (http/stop stub)))))
+
+(deftest deliveries-are-counted-by-outcome
+  (let [bodies (atom [])
+        stub (http/start (fn [req]
+                           (when (= "/v1/metrics" (:path req)) (swap! bodies conj (str (:body req))))
+                           {:status 200 :body ""})
+                         "127.0.0.1:0")
+        system (ig/init {::telemetry/otel {:endpoint (str "http://127.0.0.1:" (:port stub))}})
+        fcm "https://fcm.googleapis.com/fcm/send/"]
+    (try
+      (with-db
+        (fn [conn]
+          (db/create-user! conn "u1" "a@example.com" "x" "A")
+          (db/create-session! conn "s1" "u1")
+          (let [statuses {(str fcm "ok") 201 (str fcm "gone") 410 (str fcm "busy") 429 (str fcm "down") :throw}
+                {:keys [push]} (service-recording statuses)
+                targets (mapv (fn [e] (db/save-subscription! conn e "s1" "p" "a")
+                                {:endpoint e :p256dh "p" :auth "a"})
+                              (keys statuses))]
+            (with-out-str
+              (push/deliver! push conn targets {:payload "{}" :topic "0123456789ab" :subject "https://meet.example"}))
+            (ig/halt! system)
+            (let [body (apply str @bodies)]
+              (is (str/includes? body "quickmeet.push.deliveries"))
+              (doseq [outcome ["sent" "gone" "failed"]]
+                (is (str/includes? body outcome) outcome))
+              ;; Only the outcome: not the endpoint, a credential.
+              (is (not (str/includes? body "fcm.googleapis.com")))))))
+      (finally
+        (http/stop stub)))))

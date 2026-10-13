@@ -6,6 +6,7 @@
             [quickmeet.db :as db]
             [quickmeet.history :as history]
             [quickmeet.id :as id]
+            [quickmeet.metrics :as metrics]
             [quickmeet.push :as push]
             [quickmeet.ratelimit :as ratelimit]
             [quickmeet.sfu :as sfu]
@@ -216,6 +217,7 @@
   [{:keys [limit]} bucket key]
   (when limit
     (when-let [retry (limit bucket key)]
+      (metrics/rate-limited! bucket)
       (too-many retry))))
 
 (defn- public-user [user]
@@ -568,10 +570,12 @@
                 (let [id (-> req :params :id)]
                   (cond
                     (not (and (valid-room-id? id) (db/get-room conn id)))
-                    (json-response 404 {:error "not found"})
+                    (do (metrics/token-request! :not-found)
+                        (json-response 404 {:error "not found"}))
 
                     (>= (count (sfu-call req "sfu.participants" #(participants id))) 2)
-                    (json-response 409 {:error "full"})
+                    (do (metrics/token-request! :full)
+                        (json-response 409 {:error "full"}))
 
                     :else
                     (let [user (current-user req)
@@ -579,6 +583,7 @@
                       ;; Joining as a signed-in person puts the room on
                       ;; their list.
                       (when user (db/add-member! conn id (:id user)))
+                      (metrics/token-request! :ok)
                       ;; `ring`: whom the call page may offer to ring.
                       (json-response 200
                                      {:ring (ring-names conn auth id user)
