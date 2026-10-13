@@ -110,7 +110,7 @@
      (check-secret! lookup api-secret)
      {:quickmeet.db/conn {:path (env lookup "DB_PATH" "quickmeet.db")}
 
-      ;; Traces and logs, off unless an OTEL_EXPORTER_OTLP_*ENDPOINT is set
+      ;; Traces, logs and metrics, off unless an OTEL_EXPORTER_OTLP_*ENDPOINT is set
       ;; (the SDK reads the OTEL_* variables itself; docs/CONFIGURATION.md).
       ;; The handler refs it, so it starts before anything serves a request.
       :quickmeet.telemetry/otel {:service-name "quickmeet"}

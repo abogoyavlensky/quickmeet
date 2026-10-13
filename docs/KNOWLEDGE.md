@@ -22,6 +22,7 @@ not enough:
 |---|---|---|
 | let-go | 1.13.0 | the runtime; first release with the `:go/*` interop |
 | lgx | 0.4.2 | project tool; builds the custom `lg` with Go packages linked in |
+| letgo-packages `otel` | otel-v0.2.0 | traces, logs and metrics over OTLP/HTTP, through the Go OpenTelemetry SDK |
 | letgo-packages `livekit` | livekit-v0.1.1 | embedded SFU, join tokens, webhook verification, integrant component |
 | letgo-packages `sqlite`, `ragtime` | sqlite-v0.2.0, ragtime-v0.2.0 | storage and migrations |
 | livekit-server | v1.13.7 | the SFU, linked into the binary |
@@ -705,6 +706,40 @@ Why the stock blur ripples, and the patch, 2026-10-01:
   right and anything with a pipe needs an explicit `sh -c`. A `${VAR:?msg}`
   in `compose.yaml` fails loading the file when the variable is unset or
   empty, which is how a missing endpoint stops the deploy.
+
+## Metrics, 2026-10-13
+
+- `otel-v0.2.0` adds `counter-add!`, `record!` (explicit-bucket histogram) and
+  `gauge-set!`, on `sdk/metric` and `otlpmetrichttp` v1.47.0. Tracelet stores
+  gauges, sums and explicit-bucket histograms, and rejects exponential
+  histograms, which is the SDK's non-default.
+- The gauge is **synchronous** (set when the value changes), not observed: an
+  observed gauge makes the SDK call a let-go function on its own goroutine,
+  and the shared binding stack (docs/backlog/letgo-http-handlers-share-dynamic-bindings.md)
+  says to assume the VM does not tolerate that. A synchronous gauge is
+  exported again at every interval without a new set (tested in the package,
+  and seen in Tracelet: a gauge set once reads the same minutes later).
+- With metrics on, shutdown sends a metrics request even if nothing was
+  recorded, so a test that lists the exported paths includes `/v1/metrics`.
+- The catalog is `quickmeet.metrics`; the request duration lives next to
+  `wrap-route` because `metrics` requires `telemetry` and not the other way.
+  Attribute values are bounded only. Checked against a real Tracelet with a
+  two-browser call (`lgx smoke`): `http.route` held only patterns
+  (`/api/rooms/:id`, `:not-found`), neither the room id nor a junk path
+  appeared, the gauges went 0, 1/2, 0 with the call, and
+  `quickmeet.call.duration` read 63 s for a 63 s call.
+- The gauges come from the database after every webhook (two counts), not
+  from the SFU. Webhooks for different rooms run concurrently, so a handler
+  that counted and paused could overwrite a newer value with its stale one.
+  `history/publish-until-settled!` re-reads the counts after writing and
+  writes again while they have moved, at most five more times. let-go 1.13.0
+  has no `locking`, so the repair is a loop, not a lock.
+- Request duration uses `System/currentTimeMillis`: let-go's `System/nanoTime`
+  is wall time too, so there is no monotonic clock. A step backwards is
+  clamped to zero.
+- Not measured yet: signups, rooms created, SFU lookup failures (already a
+  log line and an errored span). `quickmeet.push.deliveries` is tested with a
+  stub push service; no real device was available in the check above.
 
 ## Restarts and shutdown, verified 2026-09-30
 

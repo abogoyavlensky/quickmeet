@@ -27,21 +27,22 @@ set), the app refuses to start with that key's secret and says so.
 
 ## Telemetry
 
-quickmeet can send one trace per HTTP request and its warning and error
-log lines to any OTLP/HTTP receiver ([Tracelet](https://github.com/abogoyavlensky/tracelet),
+quickmeet can send one trace per HTTP request, its warning and error
+log lines, and a few metrics to any OTLP/HTTP receiver ([Tracelet](https://github.com/abogoyavlensky/tracelet),
 an OpenTelemetry Collector, a vendor). It is **off** unless an endpoint is
 set. The standard OpenTelemetry variables configure it, so the same lines
 work for any SDK; all are optional:
 
 | Variable | Purpose |
 |---|---|
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | the receiver's base URL, e.g. `https://tracelet.absky.dev`; `/v1/traces` and `/v1/logs` are added. `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` and `_LOGS_ENDPOINT` set one signal's full URL. Unset (and no per-signal one), nothing is sent |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | the receiver's base URL, e.g. `https://tracelet.absky.dev`; `/v1/traces`, `/v1/logs` and `/v1/metrics` are added. `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, `_LOGS_ENDPOINT` and `_METRICS_ENDPOINT` set one signal's full URL. Unset (and no per-signal one), nothing is sent |
 | `OTEL_EXPORTER_OTLP_HEADERS` | `Authorization=Bearer <ingest token>`: the credential the receiver wants |
 | `OTEL_EXPORTER_OTLP_PROTOCOL` | `http/protobuf`, the only encoding there is |
 | `OTEL_EXPORTER_OTLP_COMPRESSION` | `gzip` or none |
 | `OTEL_SERVICE_NAME` | the service name; defaults to `quickmeet` |
 | `OTEL_RESOURCE_ATTRIBUTES` | e.g. `deployment.environment.name=staging,service.version=abc1234`; Tracelet files records under these two |
 | `OTEL_TRACES_SAMPLER` | sampling; the default records every request |
+| `OTEL_METRIC_EXPORT_INTERVAL` | milliseconds between metric exports; default 60000 |
 
 What is recorded: for each request, a server span named by the route
 *pattern* (`GET /api/rooms/:id`, never the raw path), with
@@ -60,6 +61,23 @@ printed to stdout, whether or not telemetry is on.
 | warn | `push to <host> failed` | a ring did not reach a device |
 
 Lines name the route pattern, never the raw path, which holds a room id.
+
+Metrics, exported every 60 s (and once more when the process stops):
+
+| Metric | Type | Attributes | Meaning |
+|---|---|---|---|
+| `http.server.request.duration` | histogram, `s` | `http.request.method`, `http.route`, `http.response.status_code` | how long a request took; an exception counts as 500 |
+| `quickmeet.calls.active` | gauge | | calls in progress |
+| `quickmeet.participants.active` | gauge | | people in a call right now |
+| `quickmeet.call.duration` | histogram, `s` | | how long a call lasted, from the first join to the room closing |
+| `quickmeet.token.requests` | counter | `outcome`: `ok`, `full`, `not_found` | join-token requests; `full` is a third person turned away |
+| `quickmeet.push.deliveries` | counter | `outcome`: `sent`, `gone`, `failed` | rings to devices; `gone` is a subscription dropped |
+| `quickmeet.rate_limit.rejected` | counter | `bucket`: `signin`, `signup`, `create_room`, `ring` | requests answered 429 |
+
+The two gauges are set from the SFU's webhooks, so they are as current as the
+last webhook that arrived. `quickmeet.call.duration` counts only calls the SFU
+closed itself: a call closed at startup or shutdown has an overstated end.
+Attribute values are bounded: never a room id, a user id or a raw path.
 
 What is not recorded: raw URLs and query strings, cookies, the
 `Authorization` header, request and response bodies, email addresses, room
