@@ -231,3 +231,18 @@
         (ig/halt! telemetry)
         (http/stop srv)))
     (is (not (str/includes? (apply str @bodies) "quickmeet.call.duration")))))
+
+(deftest a-stale-count-is-published-over-once-the-database-has-moved
+  ;; Another handler moved the counts between this one's read and its write:
+  ;; the re-read sees that and publishes again. Fakes stand in for the db.
+  (let [reads (atom [[1 1] [2 2] [2 2]])
+        counts (fn [] (let [r (first @reads)] (swap! reads #(if (next %) (vec (rest %)) %)) r))
+        published (atom [])]
+    (is (= [2 2] (history/publish-until-settled! counts #(swap! published conj %))))
+    (is (= [[1 1] [2 2]] @published))))
+
+(deftest publishing-stops-when-the-counts-keep-changing
+  (let [n (atom 0)
+        published (atom 0)]
+    (history/publish-until-settled! (fn [] (swap! n inc) [@n 0]) (fn [_] (swap! published inc)))
+    (is (= 6 @published) "the first write and five repeats, then it gives up")))

@@ -70,6 +70,22 @@
         (metrics/call-duration! seconds)))
     (db/close-call! conn (:id call) createdAt)))
 
+(defn publish-until-settled!
+  "Publish `(counts)` with `(publish counts)`, then look again, and publish
+   again while the counts have moved, at most five more times. Webhooks for
+   different rooms run concurrently: a handler that counted, then paused,
+   would otherwise overwrite a newer value with its stale one. Re-reading
+   after the write catches that, because the handler that moved the counts
+   has already written them to the database, so the stale writer sees them
+   and repeats. No lock: let-go has none. Returns the counts last published."
+  [counts publish]
+  (loop [tries 0]
+    (let [seen (counts)]
+      (publish seen)
+      (if (and (< tries 5) (not= seen (counts)))
+        (recur (inc tries))
+        seen))))
+
 (defn publish-gauges!
   "Set the calls and participants gauges from the database. Every join, leave
    and room end reaches the app as a webhook, so this is called after each,
@@ -77,8 +93,10 @@
    0). A lost webhook leaves the gauges stale until the next event. Returns
    nil."
   [conn]
-  (metrics/calls-active! (db/open-call-count conn))
-  (metrics/participants-active! (db/present-participant-count conn))
+  (publish-until-settled! (fn [] [(db/open-call-count conn) (db/present-participant-count conn)])
+                          (fn [[calls participants]]
+                            (metrics/calls-active! calls)
+                            (metrics/participants-active! participants)))
   nil)
 
 (defn record!
