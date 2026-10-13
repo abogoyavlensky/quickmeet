@@ -67,6 +67,13 @@
                 {:span (span-of (:span opts))}))
    nil))
 
+(defn enabled?
+  "Whether telemetry is on: false before the component starts, after it
+   halts, and when no endpoint is configured. For work that exists only to
+   feed telemetry, such as reading counts for a gauge."
+  []
+  (some? @handle))
+
 (defn count!
   "Add `n` (a positive integer) to the counter `name`. `opts` (:unit,
    :description) are read when the name is first used. Nothing with
@@ -89,6 +96,13 @@
   (when-let [h @handle] (otel/gauge-set! h name v attrs opts))
   nil)
 
+;; The methods a request may carry as a metric attribute. The catch-all route
+;; answers any method, so the client chooses the verb: anything else is
+;; _OTHER (the OpenTelemetry HTTP conventions' name for it), or each distinct
+;; verb would be a series of its own.
+(def ^:private known-methods
+  #{"CONNECT" "DELETE" "GET" "HEAD" "OPTIONS" "PATCH" "POST" "PUT" "TRACE"})
+
 ;; The one metric recorded here rather than in metrics.lg, which requires this
 ;; namespace. Seconds, with the OpenTelemetry HTTP conventions' boundaries.
 (def ^:private request-duration-opts
@@ -104,7 +118,8 @@
            ;; The wall clock is all let-go has; a step backwards must not
            ;; record a negative duration.
            (max 0.0 (/ (- (System/currentTimeMillis) started) 1000.0))
-           (cond-> {"http.request.method" method "http.route" pattern}
+           (cond-> {"http.request.method" (if (known-methods method) method "_OTHER")
+                    "http.route" pattern}
              (number? status) (assoc "http.response.status_code" status))
            request-duration-opts))
 

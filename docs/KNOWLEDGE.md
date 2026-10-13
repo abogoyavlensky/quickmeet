@@ -734,6 +734,14 @@ Why the stock blur ripples, and the patch, 2026-10-01:
   `history/publish-until-settled!` re-reads the counts after writing and
   writes again while they have moved, at most five more times. let-go 1.13.0
   has no `locking`, so the repair is a loop, not a lock.
+- `http.request.method` is one of the nine standard methods or `_OTHER`: the
+  catch-all route answers any verb, so a client could otherwise make a series
+  per verb. (The span name still carries the raw verb.)
+- The gauge counts are skipped when telemetry is off (`telemetry/enabled?`):
+  they scan `calls` and `call_participants`, which have no index on
+  `ended_at` or `left_at`, so the cost grows with history. With telemetry on
+  it is two small scans per webhook, which is nothing at this scale; a
+  partial index in a new migration would remove it if history gets large.
 - Request duration uses `System/currentTimeMillis`: let-go's `System/nanoTime`
   is wall time too, so there is no monotonic clock. A step backwards is
   clamped to zero.

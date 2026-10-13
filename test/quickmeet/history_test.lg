@@ -246,3 +246,8 @@
         published (atom 0)]
     (history/publish-until-settled! (fn [] (swap! n inc) [@n 0]) (fn [_] (swap! published inc)))
     (is (= 6 @published) "the first write and five repeats, then it gives up")))
+
+(deftest gauges-cost-nothing-with-telemetry-off
+  ;; Nothing reads the counts when nobody would see them: a connection that
+  ;; would throw on any query is never touched.
+  (is (nil? (history/publish-gauges! :not-a-connection))))

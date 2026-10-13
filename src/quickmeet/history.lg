@@ -1,7 +1,8 @@
 (ns quickmeet.history
   (:require [quickmeet.db :as db]
             [quickmeet.id :as id]
-            [quickmeet.metrics :as metrics]))
+            [quickmeet.metrics :as metrics]
+            [quickmeet.telemetry :as telemetry]))
 
 ;; Call history from the SFU's webhooks. The embedded LiveKit posts every
 ;; event to the app (system.lg wires the URL); routes.lg verifies the
@@ -90,13 +91,16 @@
   "Set the calls and participants gauges from the database. Every join, leave
    and room end reaches the app as a webhook, so this is called after each,
    and once at startup (the db closes stale calls first, so a restart reads
-   0). A lost webhook leaves the gauges stale until the next event. Returns
-   nil."
+   0). A lost webhook leaves the gauges stale until the next event. With
+   telemetry off nothing reads the database: the counts scan the call tables,
+   which have no index on the open columns, and nobody would see them.
+   Returns nil."
   [conn]
-  (publish-until-settled! (fn [] [(db/open-call-count conn) (db/present-participant-count conn)])
-                          (fn [[calls participants]]
-                            (metrics/calls-active! calls)
-                            (metrics/participants-active! participants)))
+  (when (telemetry/enabled?)
+    (publish-until-settled! (fn [] [(db/open-call-count conn) (db/present-participant-count conn)])
+                            (fn [[calls participants]]
+                              (metrics/calls-active! calls)
+                              (metrics/participants-active! participants))))
   nil)
 
 (defn record!

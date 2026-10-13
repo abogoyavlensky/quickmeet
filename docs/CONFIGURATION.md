@@ -66,7 +66,7 @@ Metrics, exported every 60 s (and once more when the process stops):
 
 | Metric | Type | Attributes | Meaning |
 |---|---|---|---|
-| `http.server.request.duration` | histogram, `s` | `http.request.method`, `http.route`, `http.response.status_code` | how long a request took; an exception counts as 500 |
+| `http.server.request.duration` | histogram, `s` | `http.request.method` (`_OTHER` for an unusual verb), `http.route`, `http.response.status_code` | how long a request took; an exception counts as 500 |
 | `quickmeet.calls.active` | gauge | | calls in progress |
 | `quickmeet.participants.active` | gauge | | people in a call right now |
 | `quickmeet.call.duration` | histogram, `s` | | how long a call lasted, from the first join to the room closing |

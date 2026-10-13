@@ -154,3 +154,29 @@
           (is (thrown? Exception ((:response route) {:request-method :post :uri "/api/x"}))))
         (ig/halt! system)
         (is (str/includes? (apply str @(:bodies rcv)) "http.server.request.duration"))))))
+
+(deftest enabled-follows-the-handle
+  (is (false? (telemetry/enabled?)))
+  (with-receiver
+    (fn [rcv]
+      (let [system (started rcv)]
+        (is (true? (telemetry/enabled?)))
+        (ig/halt! system)
+        (is (false? (telemetry/enabled?)))))))
+
+(deftest an-unknown-http-method-is-one-series-not-one-per-verb
+  ;; The catch-all route answers any method, so a client chooses the verb. The
+  ;; metric folds the unknown ones into _OTHER (the span name is another
+  ;; matter).
+  (with-receiver
+    (fn [rcv]
+      (let [system (started rcv)
+            route (telemetry/wrap-route {:path :not-found :response (fn [_] {:status 404})})]
+        ((:response route) {:request-method :brewcoffee :uri "/x"})
+        ((:response route) {:request-method :post :uri "/x"})
+        (ig/halt! system)
+        (let [body (apply str (map second (filter #(= "/v1/metrics" (first %))
+                                                  (map vector @(:seen rcv) @(:bodies rcv)))))]
+          (is (str/includes? body "_OTHER"))
+          (is (str/includes? body "POST"))
+          (is (not (str/includes? (str/upper-case body) "BREWCOFFEE"))))))))
