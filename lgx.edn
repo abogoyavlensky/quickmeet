@@ -18,11 +18,11 @@
          :git/tag "livekit-v0.1.1"
          :deps/root "livekit"}
 
-        ;; Traces and logs over OTLP/HTTP: a hand-written shim over the Go
-        ;; OpenTelemetry SDK.
+        ;; Traces, logs and metrics over OTLP/HTTP: a hand-written shim over
+        ;; the Go OpenTelemetry SDK.
         abogoyavlensky/letgo-otel
         {:git/url "https://github.com/abogoyavlensky/letgo-packages"
-         :git/tag "otel-v0.1.0"
+         :git/tag "otel-v0.2.0"
          :deps/root "otel"}
 
         ;; sqlite over Go's database/sql; brings the sql layer and the
