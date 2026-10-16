@@ -320,6 +320,12 @@ in host mode. Two phones on different networks held a call there. See
   ring arrives in the recipient's language. `lgx i18n-check` fails while
   any sentence lacks its Russian. Not yet tried on a real Russian phone,
   the ring in particular.
+- Done 2026-10-16: the sharer sees their own screen in a small tile above
+  the self view, while the stage keeps showing the other person
+  (`docs/plans/2026-10-16-1931-own-screen-preview.md`). This reverses the
+  screen-sharing plan's "the sharer does not see their own screen":
+  sharing the monitor the page is on shows a small tunnel in that tile,
+  which is accepted. Not yet tried in a real browser.
 - Mobile: LiveKit's Swift, Kotlin and React Native SDKs talk to the same
   SFU and the same token endpoint. Native ringing needs APNs and FCM
   signing that let-go does not have; a small Go shim or a hosted push
