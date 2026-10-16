@@ -4,6 +4,8 @@
 
 **Goal:** While you share your screen, the call page shows it in a small tile above your self view, so you can see that the share is working and what the other person sees.
 
+**Status: completed 2026-10-16**
+
 **Tech Stack:** Plain DOM and CSS in `resources/public/room.html`, `resources/public/app.css` and `resources/public/i18n.js`; `livekit-client` 2.22.3 (vendored); Playwright via `lgx e2e` with headless Chromium and fake media. No server change.
 
 ---
@@ -195,7 +197,7 @@ A pure refactor first, so a layout regression shows up on its own.
 - Modify: `resources/public/room.html`
 - Modify: `resources/public/app.css`
 
-- [ ] **Step 1: Wrap the self view**
+- [x] **Step 1: Wrap the self view**
   In `room.html`, put `.tile.self` inside `<div class="corner">`; keep the
   comment above it and say there that the corner holds your own videos.
   In `app.css`, move `position: absolute`, `right` and `bottom` from
@@ -204,13 +206,15 @@ A pure refactor first, so a layout regression shows up on its own.
   249, and the upright phone's at line 274) to `.corner`. Leave every
   other `.tile.self` selector alone.
 
-- [ ] **Step 2: Run the layout specs**
+- [x] **Step 2: Run the layout specs**
   Run: `lgx build && (cd e2e && npx playwright test mobile camera lobby orientation screenshare)`
   Expected: PASS, unchanged. If a self-view box check fails, the move
   missed an offset; fix the CSS, not the test.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
   `git commit -m "Room page: the self view sits in a corner wrapper"`
+
+> Deviation: the first run tested a stale binary. `lgx build` failed with no `go` on `PATH` and left the old `bin/quickmeet`, which gave 9 unrelated failures. With the mise Go 1.27.1 on `PATH` the build worked and the specs passed 40 of 40. Recorded in `docs/KNOWLEDGE.md`, "Dev tooling gotchas".
 
 ### Task 2: The screen tile
 
@@ -220,19 +224,19 @@ A pure refactor first, so a layout regression shows up on its own.
 - Modify: `resources/public/app.css`
 - Modify: `resources/public/i18n.js`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
   The helpers and the five changes under "Testing" above. Tests 4 and 5
   are new tests in the "sharing from a desktop" describe; test 4 is a
   `for` over the three viewports, each joining Alice with
   `{ viewport, init: canvasScreen(800, 600) }` and a second participant,
   so the call is not in the waiting state.
 
-- [ ] **Step 2: Run them and see them fail**
+- [x] **Step 2: Run them and see them fail**
   Run: `lgx build && (cd e2e && npx playwright test screenshare)`
   Expected: the new assertions FAIL (no `.my-screen`); the other tests
   PASS.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
   Markup: the screen tile first inside `.corner`, as in the design.
   CSS: `.my-screen` and its video, and its size in the phone-layout
   query. JS: `myScreen` and `showMyScreen()` beside `drawShare()`, with a
@@ -242,11 +246,11 @@ A pure refactor first, so a layout regression shows up on its own.
   a small tile above the self view, never on the stage.
   `i18n.js`: `"Your screen": "Ваш экран"`.
 
-- [ ] **Step 4: Run the spec, then its neighbours**
+- [x] **Step 4: Run the spec, then its neighbours**
   Run: `lgx build && (cd e2e && npx playwright test screenshare mobile camera lobby orientation)`
   Expected: PASS.
 
-- [ ] **Step 5: Look at it**
+- [x] **Step 5: Look at it**
   Headless screenshots of Alice's call page while sharing, with a second
   participant in the call, at 1280x800, 720x420 and 600x900, and at
   1280x800 with the camera off. Look at each: the screen tile above the
@@ -254,20 +258,24 @@ A pure refactor first, so a layout regression shows up on its own.
   controls, and in the 720x420 one not crowding the bar. Change the CSS
   only if something is wrong, and say what in the commit.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
   `git commit -m "Room page: the sharer sees their screen in a small tile"`
+
+> Step 5: screenshots at 1280x800, 720x420, 600x900 and 1280x800 with the camera off showed the 4:3 screen letterboxed above the self view (in the corner with the camera off) and clear of the controls. No CSS change.
 
 ### Task 3: The whole suite
 
-- [ ] **Step 1: Run everything**
+- [x] **Step 1: Run everything**
   Run: `lgx e2e`, then `lgx test`, then `lgx i18n-check`.
   Expected: all PASS, i18n-check lists nothing missing. Then
   `cd e2e && npx playwright test screenshare --repeat-each 5`
   Expected: PASS every time. Fix what is flaky in the test or the page;
   do not raise timeouts to hide a race.
 
-- [ ] **Step 2: Commit any fixes**
+- [x] **Step 2: Commit any fixes**
   Only if step 1 changed something.
+
+> Result: `lgx e2e` passed 85 of 88. The 3 failures were blur specs, which starve each other in parallel (`docs/KNOWLEDGE.md`); `blur` on `--workers 1` passed 8 of 8. `lgx test`: 114 tests, 0 failures. `lgx i18n-check`: 117 keys, 0 missing. `screenshare --repeat-each 5`: 75 of 75. Nothing to fix.
 
 ### Task 4: Docs
 
@@ -275,21 +283,50 @@ A pure refactor first, so a layout regression shows up on its own.
 - Modify: `docs/ROADMAP.md`
 - Modify: `docs/KNOWLEDGE.md`
 
-- [ ] **Step 1: ROADMAP**
+- [x] **Step 1: ROADMAP**
   Under "After v1", a dated "Done" entry in the style of the screen-sharing
   one: the sharer sees the shared screen in a small tile above the self
   view; this reverses the earlier "the sharer does not see their own
   screen"; sharing the monitor the page is on shows a small tunnel in
   that tile, accepted. Not yet tried in a real browser.
 
-- [ ] **Step 2: KNOWLEDGE**
+- [x] **Step 2: KNOWLEDGE**
   In "Screen sharing, verified 2026-10-02", add only what this work
   verified, dated: for example, that `LocalTrackUnpublished` fires after
   the publication is gone, if that was seen. The tests share a canvas,
   so they say nothing about the tunnel when the page's own monitor is
   shared; do not record that as seen.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
   `git commit -m "Docs: the sharer's own screen tile"`
 
 ---
+
+## Completion summary
+
+Implemented on branch `own-screen-preview` in four commits: the plan
+(`bb387f2`), the corner wrapper (`37b9f9c`), the screen tile (`4a2d59f`)
+and the docs (`e41b248`). Front end only; no server change. Codex
+reviewed both code commits and found nothing to fix. The docs commit was
+not sent for review.
+
+- While a desktop participant shares, their screen plays in a small 16:9
+  tile above the self view, shown whole and not mirrored. With the camera
+  off it takes the corner. It goes away when the share ends, by the
+  button or by the browser, and on leaving.
+- Tests: `screenshare.spec.js` gained 6 tests and extended 2. Full suite
+  and repeat runs are under Task 3.
+- End to end: the screenshots in Task 2 drove the real button with a
+  canvas screen.
+- Still to do by hand: a real browser sharing its own monitor, to see the
+  tunnel in the tile.
+
+Deviations, gathered:
+
+- The first Task 1 run tested a stale binary because `go` was missing
+  from `PATH`. Fixed by putting the mise Go on `PATH`, and recorded in
+  KNOWLEDGE.
+
+What the plan could have specified better: the build environment. It
+pointed at the lgx gotcha but not at the missing `go` on `PATH`, which
+made a failed build look like test failures.
