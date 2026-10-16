@@ -78,9 +78,12 @@
 
   <section id="call" class="call" hidden>
     <div class="tile empty"><video id="remote" autoplay playsinline></video></div>
-    <!-- Your own picture, with the blur button in its corner: blur is set
-         once and lives on your picture, as it does in the lobby. -->
-    <div class="tile self"><video id="local" autoplay playsinline muted></video><button id="blur" hidden></button></div>
+    <!-- The corner holds your own videos, stacked. Your own picture, with
+         the blur button in its corner: blur is set once and lives on your
+         picture, as it does in the lobby. -->
+    <div class="corner">
+      <div class="tile self"><video id="local" autoplay playsinline muted></video><button id="blur" hidden></button></div>
+    </div>
     <!-- One line for the call's state, shown only when something needs
          attention; while alone, Ring for the other members who can be
          rung and the link to send; the sound button for browsers that
