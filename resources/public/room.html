@@ -78,9 +78,14 @@
 
   <section id="call" class="call" hidden>
     <div class="tile empty"><video id="remote" autoplay playsinline></video></div>
-    <!-- Your own picture, with the blur button in its corner: blur is set
-         once and lives on your picture, as it does in the lobby. -->
-    <div class="tile self"><video id="local" autoplay playsinline muted></video><button id="blur" hidden></button></div>
+    <!-- The corner holds your own videos, stacked. While you share, your
+         screen, above: what the other side sees. Your own picture, with
+         the blur button in its corner: blur is set once and lives on your
+         picture, as it does in the lobby. -->
+    <div class="corner">
+      <div class="my-screen" hidden><video id="my-screen" autoplay playsinline muted aria-label="Your screen" data-i18n-aria-label></video></div>
+      <div class="tile self"><video id="local" autoplay playsinline muted></video><button id="blur" hidden></button></div>
+    </div>
     <!-- One line for the call's state, shown only when something needs
          attention; while alone, Ring for the other members who can be
          rung and the link to send; the sound button for browsers that
@@ -848,7 +853,8 @@
     // window's size. The track is the truth, as with blur: we are sharing
     // while a screen track is published. The browser's own "Stop sharing"
     // ends that track, the client unpublishes it, and the button follows
-    // (LocalTrackUnpublished, in join()).
+    // (LocalTrackUnpublished, in join()). The sharer sees the screen in a
+    // small tile above the self view, never on the stage.
     const SHARING = () => t('You are sharing your screen.');
     const SHARE_FAILED = () => t('Screen sharing is not available here.');
     const canShare = !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia) && !handheld;
@@ -857,6 +863,17 @@
     // Set while the picker is open, so a second click cannot start a
     // second capture.
     let shareBusy = false;
+
+    // The screen tile: our screen track while we share, else nothing.
+    // `myScreen` is the track on #my-screen now, so the one that ended can
+    // be detached.
+    let myScreen = null;
+    function showMyScreen(track) {
+      if (myScreen && myScreen !== track) myScreen.detach($('my-screen'));
+      if (track && track !== myScreen) track.attach($('my-screen'));
+      myScreen = track;
+      $('my-screen').parentElement.hidden = !track;
+    }
 
     function drawShare() {
       const on = sharing();
@@ -993,6 +1010,7 @@
         const shareChanged = pub => {
           if (pub.source !== Track.Source.ScreenShare) return;
           drawShare();
+          showMyScreen(sharing() ? pub.track : null);
           refreshStatus(room);
         };
         room.on(RoomEvent.LocalTrackPublished, shareChanged);
@@ -1004,6 +1022,7 @@
           if (!window.call.joined) return;
           window.call.joined = false;
           clearRemote();
+          showMyScreen(null);
           window.call.tracks = { video: null, audio: null };
           stopClock();
           document.body.classList.remove('reconnecting');
@@ -1054,6 +1073,7 @@
         const room = window.call.room;
         window.call.room = null;
         if (room) await room.disconnect().catch(() => {});
+        showMyScreen(null);
         show('lobby');
         startLobby();
         showError(e);

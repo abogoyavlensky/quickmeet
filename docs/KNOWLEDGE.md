@@ -266,6 +266,12 @@ built binary, run by `lgx e2e` (2026-09-27).
   the pinned Go (the 1.27.1 download 404ed on 2026-09-29), the pinned
   lgx binary at `~/.local/share/mise/installs/lgx/0.4.2/lgx` runs fine
   with the system Go, with `CGO_ENABLED=0` exported by hand.
+- With no `go` on `PATH`, `lgx build` fails but leaves the previous
+  `bin/quickmeet` in place, and `npx playwright test` then runs the old
+  binary without a word: failures that have nothing to do with the
+  change (2026-10-16). Check the build printed `built ...` first. The
+  mise Go is at `~/.local/share/mise/installs/go/1.27.1/bin`; put it on
+  `PATH` by hand.
 - The first `lgx run` or `lgx test` after a change to the Go coord set
   builds a new runtime: a minute or more with a cold Go module cache,
   seconds when warm. Later runs are cache hits.
@@ -614,6 +620,12 @@ Why the stock blur ripples, and the patch, 2026-10-01:
   screen is on stage, is paused: its `framesDecoded` stayed flat over
   3 s while the screen's grew. `adaptiveStream` asks the SFU to stop a
   video nobody shows, so the hidden camera costs no bandwidth.
+- The sharer's own screen track plays in a second `<video>` with a plain
+  `track.attach(element)` (2026-10-16): the headless canvas screen
+  showed 4:3 and its `getVideoPlaybackQuality().totalVideoFrames` grew.
+  After a share ends, detaching the old track and attaching the next
+  share's track to the same element works. The tests share a canvas, so
+  the tunnel seen when the page's own monitor is shared is not verified.
 
 ## Caching, 2026-10-04
 
