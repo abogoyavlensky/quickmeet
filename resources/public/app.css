@@ -202,6 +202,10 @@ body:not(.in-call) #more, body:not(.in-call) #settings { display: none; }
 /* Your own videos stack in the bottom right corner (room.html). */
 .corner { position: absolute; right: 20px; bottom: 20px; display: flex; flex-direction: column; align-items: flex-end; gap: 10px; }
 .tile.self { width: 200px; max-width: 30vw; aspect-ratio: 16 / 9; border-radius: 14px; box-shadow: 0 0 0 1px rgba(255,255,255,.14), 0 8px 24px rgba(0,0,0,.45); }
+/* Your screen while you share it: whole and not mirrored, in a 16:9 box.
+   Not a .tile, which is sized as the stage. */
+.my-screen { width: 200px; max-width: 30vw; aspect-ratio: 16 / 9; background: #000; border-radius: 14px; overflow: hidden; box-shadow: 0 0 0 1px rgba(255,255,255,.14), 0 8px 24px rgba(0,0,0,.45); }
+.my-screen video { width: 100%; height: 100%; object-fit: contain; display: block; }
 
 .controls { position: absolute; z-index: 2; bottom: 16px; left: 0; right: 0; display: flex; justify-content: center; gap: 14px; }
 /* Round glass buttons over video: the controls, the lobby's preview
@@ -272,6 +276,9 @@ body:not(.waiting) #invite, body:not(.waiting) #ring { display: none; }
      bottom right corner: beside the controls when the phone lies sideways,
      above them when it is upright and they take the width. */
   .tile.self { width: min(28vw, 22vh); aspect-ratio: 3 / 4; border-radius: 12px; }
+  /* A desktop window this small can share: a little wider than the
+     thumbnail, so a 16:9 screen is not a sliver. */
+  .my-screen { width: min(36vw, 30vh); border-radius: 12px; }
   @media (orientation: portrait) {
     .immersive .corner { bottom: calc(88px + env(safe-area-inset-bottom)); }
   }

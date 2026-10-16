@@ -3,7 +3,7 @@
 // (canvasScreen); its shape is what tells it apart from the 16:9 fake
 // camera.
 import { test, expect } from '@playwright/test';
-import { newRoom, joinAs, statsOf, canvasScreen, noScreen } from './helpers.js';
+import { newRoom, joinAs, statsOf, canvasScreen, noScreen, box, inside, overlaps } from './helpers.js';
 
 const ratioOf = page => page.evaluate(() => {
   const v = document.getElementById('remote');
@@ -111,6 +111,20 @@ test.describe('sharing from a desktop', () => {
   test.afterEach(async () => { await Promise.all(contexts.map(c => c.close())); });
 
   const sharingOf = page => page.evaluate(() => window.call.sharing);
+  // The sharer's own screen, in the small tile above the self view.
+  const myScreen = page => page.locator('.my-screen');
+  const myScreenRatio = page => page.evaluate(() => {
+    const v = document.getElementById('my-screen');
+    return v.videoHeight ? v.videoWidth / v.videoHeight : 0;
+  });
+  const myFrames = page => page.evaluate(() => document.getElementById('my-screen').getVideoPlaybackQuality().totalVideoFrames);
+  const mySource = page => page.evaluate(() => document.getElementById('my-screen').srcObject);
+  const expectMyScreen = async page => {
+    await expect(myScreen(page)).toBeVisible();
+    await expect.poll(async () => Math.abs((await myScreenRatio(page)) / (4 / 3) - 1) < 0.02).toBe(true);
+    const before = await myFrames(page);
+    await expect.poll(() => myFrames(page)).toBeGreaterThan(before);
+  };
   const expectButton = async (page, on) => {
     const button = page.locator('#share');
     await expect(button).toHaveAttribute('aria-label', on ? 'Stop sharing' : 'Share screen');
@@ -124,21 +138,37 @@ test.describe('sharing from a desktop', () => {
     const bob = await joinAs(browser, contexts, roomUrl, 'bob');
     await expect(alice.page.locator('#share')).toBeVisible();
     await expectButton(alice.page, false);
+    await expect(myScreen(alice.page)).toBeHidden();
 
     await alice.page.click('#share');
     await expectButton(alice.page, true);
     await expect(alice.page.locator('#status')).toHaveText('You are sharing your screen.');
     expect(await sharingOf(alice.page)).toBe(true);
     await expect.poll(() => remoteScreen(bob.page)).toBe(true);
-    // The sharer's stage still shows the other person, not their own screen.
+    // The sharer's stage still shows the other person, not their own screen;
+    // the screen is in the small tile, whole and not mirrored.
     await expect.poll(() => near(16 / 9)(alice.page)).toBe(true);
     expect(await remoteScreen(alice.page)).toBe(false);
+    await expectMyScreen(alice.page);
+    const style = await alice.page.evaluate(() => {
+      const s = getComputedStyle(document.getElementById('my-screen'));
+      return { fit: s.objectFit, transform: s.transform };
+    });
+    expect(style).toEqual({ fit: 'contain', transform: 'none' });
+    await expect(alice.page.locator('.tile.self')).toBeVisible();
 
     await alice.page.click('#share');
     await expectButton(alice.page, false);
     await expect(alice.page.locator('#status')).toBeHidden();
     expect(await sharingOf(alice.page)).toBe(false);
     await expect.poll(() => remoteScreen(bob.page)).toBe(false);
+    await expect(myScreen(alice.page)).toBeHidden();
+    expect(await mySource(alice.page)).toBeNull();
+
+    // A new share brings a new track to the tile.
+    await alice.page.click('#share');
+    await expectButton(alice.page, true);
+    await expectMyScreen(alice.page);
   });
 
   // The browser's own "Stop sharing" bar ends the captured track; the
@@ -156,9 +186,60 @@ test.describe('sharing from a desktop', () => {
       pub.track.mediaStreamTrack.dispatchEvent(new Event('ended'));
     });
     await expectButton(alice.page, false);
+    await expect(myScreen(alice.page)).toBeHidden();
     await expect(alice.page.locator('#status')).toBeHidden();
     expect(await sharingOf(alice.page)).toBe(false);
     await expect.poll(() => remoteScreen(bob.page)).toBe(false);
+  });
+
+  // With the camera off there is no self view, and the screen takes the corner.
+  test('with the camera off the screen takes the corner', async ({ browser, page }) => {
+    const roomUrl = await newRoom(page);
+    const alice = await joinAs(browser, contexts, roomUrl, 'alice', { ...desktop, init: canvasScreen(800, 600) });
+    await joinAs(browser, contexts, roomUrl, 'bob');
+    await alice.page.click('#cam');
+    await expect(alice.page.locator('.tile.self')).toBeHidden();
+    await alice.page.click('#share');
+    await expectMyScreen(alice.page);
+    const tile = await box(myScreen(alice.page));
+    expect(Math.abs(tile.y + tile.height - (800 - 20))).toBeLessThanOrEqual(1);
+  });
+
+  // A desktop window of any shape: normal, short and narrow (the last two
+  // take the phone layout's rules).
+  for (const [width, height] of [[1280, 800], [720, 420], [600, 900]]) {
+    test(`the screen tile fits a ${width}x${height} window`, async ({ browser, page }) => {
+      const roomUrl = await newRoom(page);
+      const alice = await joinAs(browser, contexts, roomUrl, 'alice', { viewport: { width, height }, init: canvasScreen(800, 600) });
+      await joinAs(browser, contexts, roomUrl, 'bob');
+      await alice.page.click('#share');
+      await expectMyScreen(alice.page);
+
+      const tile = await box(myScreen(alice.page));
+      const self = await box(alice.page.locator('.tile.self'));
+      expect(inside(tile, width, height), `screen tile inside the window: ${JSON.stringify(tile)}`).toBe(true);
+      expect(inside(self, width, height), `self view inside the window: ${JSON.stringify(self)}`).toBe(true);
+      expect(tile.y + tile.height, 'screen tile above the self view').toBeLessThanOrEqual(self.y + 0.5);
+      for (const id of ['#mic', '#cam', '#share', '#leave']) {
+        const b = await box(alice.page.locator(id));
+        expect(overlaps(b, tile), `${id} clear of the screen tile`).toBe(false);
+      }
+    });
+  }
+
+  test('leaving while sharing clears the screen tile', async ({ browser, page }) => {
+    const roomUrl = await newRoom(page);
+    const alice = await joinAs(browser, contexts, roomUrl, 'alice', { ...desktop, init: canvasScreen(800, 600) });
+    await joinAs(browser, contexts, roomUrl, 'bob');
+    await alice.page.click('#share');
+    await expectMyScreen(alice.page);
+
+    await alice.page.click('#leave');
+    await expect(alice.page.locator('#lobby')).toBeVisible();
+    expect(await mySource(alice.page)).toBeNull();
+    await alice.page.click('#join');
+    await alice.page.waitForFunction(() => window.call.joined === true, null, { timeout: 15_000 });
+    await expect(myScreen(alice.page)).toBeHidden();
   });
 
   test('a closed picker is not an error', async ({ browser, page }) => {

@@ -81,6 +81,7 @@ const RU = {
   "The password must be at most 72 bytes.": "Пароль должен быть не длиннее 72 байт.",
   "Settings · quickmeet": "Настройки · quickmeet",
   "Your name": "Ваше имя",
+  "Your screen": "Ваш экран",
   "Shown to the other person in a call.": "Его видит собеседник в звонке.",
   "Save name": "Сохранить имя",
   "Name saved.": "Имя сохранено.",
