@@ -243,7 +243,7 @@ body:not(.in-call) #more, body:not(.in-call) #settings { display: none; }
 .status { padding: 6px 14px; border-radius: 999px; background: rgba(0,0,0,.6); color: #fff; font-size: 14px; }
 .waiting .overlay { top: 50%; transform: translateY(-50%); }
 .waiting .status { padding: 0; background: none; color: var(--fg); font-size: 20px; font-weight: 500; letter-spacing: -0.01em; }
-body:not(.waiting) #invite, body:not(.waiting) #ring { display: none; }
+body:not(.waiting) #invite { display: none; }
 
 /* Immersive: a phone, or any screen in full screen (set by the page). The
    video is the whole stage, edge to edge; the bar and the controls lie

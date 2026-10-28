@@ -283,7 +283,7 @@ Phase 2:
 - Modify: `src/quickmeet/routes.lg`, `src/quickmeet/db.lg`, `src/quickmeet/metrics.lg`, `src/quickmeet/ratelimit.lg`, `src/quickmeet/telemetry.lg`, `src/quickmeet/sfu.lg`
 - Test: `test/quickmeet/routes_test.lg`, `test/quickmeet/db_test.lg`, `test/quickmeet/metrics_test.lg`, `test/quickmeet/ratelimit_test.lg`
 
-- [ ] **Step 1: Remove the routes and helpers**
+- [x] **Step 1: Remove the routes and helpers**
   In `routes.lg`: drop the `quickmeet.push` require; the `;; ---- ringing`
   section (`subscription-problem`, `ring-targets`, `ring-names`,
   `in-room?`) and `ring-message`; the `/ring`, `/api/push/key`,
@@ -295,7 +295,7 @@ Phase 2:
   else uses them (`grep -n "secure?\|request-host" src/quickmeet/routes.lg`).
   Keep the `/sw.js` route.
 
-- [ ] **Step 2: Remove the data access and the rest**
+- [x] **Step 2: Remove the data access and the rest**
   `db.lg`: the whole `;; ---- push` section (`setting`, `add-setting!`,
   the subscription SQL and functions, `ring-targets`), the
   `(declare delete-session-subscriptions!)`, and the call in
@@ -305,7 +305,7 @@ Phase 2:
   `telemetry.lg:10` and `sfu.lg` (the `failed!` comment): drop the
   mentions of push delivery and "the ring".
 
-- [ ] **Step 3: Update the tests**
+- [x] **Step 3: Update the tests**
   Delete `test/quickmeet/push_test.lg`. In `routes_test.lg`: delete
   `recording-push`, the `push` arity of `with-handler` (the 4-arity calls
   `routes/handler` with four arguments), the `subscription`, `subscribe`,
@@ -324,12 +324,14 @@ Phase 2:
   Run: `grep -rn -E "push/|push-delivery|ring-targets|recording-push|:ring\b|add-setting|delete-session-subscriptions" src test`
   Expected: no output.
 
-- [ ] **Step 4: Run the tests**
+- [x] **Step 4: Run the tests**
   Run: `lgx test`
   Expected: PASS. (The schema still has the push tables until Task 2.)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git commit -am "Drop ringing from the server"` (stage the deletions with `git rm`).
+
+> Note: `secure?` and `request-host` stay (cookies and the signalling URL use them). Codex's only finding (pages still call the deleted push endpoints) is Task 4's job; advisory.
 
 ### Task 2: Migration 006 drops the push tables
 
@@ -337,13 +339,13 @@ Phase 2:
 - Modify: `src/quickmeet/migrations.lg`
 - Test: `test/quickmeet/migrations_test.lg`
 
-- [ ] **Step 1: Write the migration**
+- [x] **Step 1: Write the migration**
   Append `(migration "006-drop-push" ...)` with a comment: ringing was
   removed; its tables go. Up: `{:drop-table :push_subscriptions}` then
   `{:drop-table :settings}`. Down: the two `:create-table` maps from
   `004-push`, copied exactly (settings first, then push_subscriptions).
 
-- [ ] **Step 2: Update the migration tests**
+- [x] **Step 2: Update the migration tests**
   `migrate-up-and-down`: six ids ending in `"006-drop-push"`; after
   migrating, the tables are `call_participants calls ragtime_migrations
   room_members rooms sessions users` (no `push_subscriptions`, no
@@ -359,11 +361,11 @@ Phase 2:
   settings row; migrate: both tables are gone and the session stays;
   roll back: both tables exist and are empty.
 
-- [ ] **Step 3: Run the tests**
+- [x] **Step 3: Run the tests**
   Run: `lgx test`
   Expected: PASS.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
   `git commit -am "Migration 006 drops the push tables"`
 
 ### Task 3: Remove the webpush shim
@@ -372,21 +374,23 @@ Phase 2:
 - Delete: `webpush/`
 - Modify: `lgx.edn`, `.github/workflows/test.yml`, `.github/workflows/release.yml`
 
-- [ ] **Step 1: Remove the coord and the cache key part**
+- [x] **Step 1: Remove the coord and the cache key part**
   `lgx.edn`: delete the Web Push comment and the
   `github.com/abogoyavlensky/quickmeet/webpush {:go/local "webpush"}` coord.
   In both workflows, drop `'webpush/**'` from `hashFiles(...)`
   (`hashFiles('lgx.edn')`), and fix the comment at `test.yml:30` that
   mentions `webpush/`. `git rm -r webpush`.
 
-- [ ] **Step 2: Rebuild and test**
+- [x] **Step 2: Rebuild and test**
   Run: `lgx test`
   Expected: the runtime rebuilds without the shim, then PASS.
   Run: `lgx build`
   Expected: `bin/quickmeet` builds.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
   `git commit -am "Remove the webpush shim"`
+
+> Deviation: `.github/workflows/deploy.yml` also hashed `webpush/**` in its cache key; dropped there too. Docs mentions (KNOWLEDGE 32/526-535/919, DEVELOPMENT 142, ROADMAP 266) are Task 5.
 
 ### Task 4: Remove ringing from the pages
 
@@ -394,7 +398,7 @@ Phase 2:
 - Modify: `resources/public/room.html`, `resources/public/index.html`, `resources/public/settings.html`, `resources/public/ui.js`, `resources/public/app.css`, `resources/public/i18n.js`, `resources/public/sw.js`
 - Delete: `e2e/tests/ring.spec.js`
 
-- [ ] **Step 1: The room page**
+- [x] **Step 1: The room page**
   Remove `#ring` and the comment above it (about line 90), `RING_FAILED`,
   `window.call.ring` (from the state object and its comment), the whole
   `;; ---- ringing` block (`RING_REST_MS`, `drawRing`, `resetRing`, the
@@ -403,7 +407,7 @@ Phase 2:
   `#invite`'s `primary` class, `#invite` is now always primary: set it in
   the markup and drop the toggle.
 
-- [ ] **Step 2: The list page, Settings and ui.js**
+- [x] **Step 2: The list page, Settings and ui.js**
   `index.html`: the `#ring-offer` banner and the `;; ---- ringing`
   script (and the email variable if only ringing used it).
   `settings.html`: the `#ringing` section and its script block (and any
@@ -414,7 +418,7 @@ Phase 2:
   `/`, with no wait; its comment loses the ringing part. `app.css:246`:
   `body:not(.waiting) #invite { display: none; }`.
 
-- [ ] **Step 3: Strings**
+- [x] **Step 3: Strings**
   `i18n.js`: delete every ringing sentence (lines about 55, 88-94, 120,
   140-141, 155-156 today: "Let people ring you…", "Notifications",
   "When someone rings you…", "This browser cannot receive rings.", the
@@ -425,7 +429,7 @@ Phase 2:
   Run: `lgx i18n-check`
   Expected: no missing sentences.
 
-- [ ] **Step 4: The service worker stub**
+- [x] **Step 4: The service worker stub**
   Replace `sw.js` with a stub: a comment saying ringing was removed and
   that this file only exists to unregister the worker v0.1.0 installed
   (delete it a release or two later), then:
@@ -437,15 +441,18 @@ Phase 2:
 
   Update the `/sw.js` route's comment in `routes.lg` to match.
 
-- [ ] **Step 5: Browser tests**
+- [x] **Step 5: Browser tests**
   `git rm e2e/tests/ring.spec.js`. Search the other specs for ringing:
   `grep -rn -E "#ring|ring-offer|ringing|/api/push|sw\.js" e2e`
   Expected: no output (fix any hit).
   Run: `lgx e2e`
   Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
   `git commit -am "Drop ringing from the pages; sw.js unregisters itself"`
+
+> Note: `lgx e2e` has 2 failures in `blur.spec.js` (lines 71 and 131) that also fail on the untouched baseline (master + plan commit); not caused by this work.
+> Deviation: also removed the unused `bell` icon from `ui.js`, and the `Notifications`/`Rung`/`Ring …`/`Turn on`/`Not now`/`Could not reach the server` sentences from `i18n.js` (`lgx i18n-check` reports 0 unused).
 
 ### Task 5: Docs and backlog for phase 1
 
