@@ -577,7 +577,7 @@ Phase 2:
 - Modify: `src/quickmeet/routes.lg`
 - Test: `test/quickmeet/routes_test.lg`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
   `nobody-anywhere` gains `:remove-participant (constantly true)`. New
   test `the-webhook-removes-a-pair-without-the-owner`: a room made by
   alice; a `:remove-participant` stub recording `[room-id identity]`
@@ -593,7 +593,7 @@ Phase 2:
   Run: `lgx test`
   Expected: FAIL.
 
-- [ ] **Step 2: Implement**
+- [x] **Step 2: Implement**
   Destructure `remove-participant` from the lookups in `routes`. In the
   webhook route, after `history/record!`, for a `participant_joined`
   event: read the room by `(get-in event [:room :name])` (skip when
@@ -607,12 +607,14 @@ Phase 2:
   Wire `:remove-participant (partial sfu/remove-participant! livekit)` in
   `init-key` and document it in the `handler` docstring.
 
-- [ ] **Step 3: Run the tests**
+- [x] **Step 3: Run the tests**
   Run: `lgx test`
   Expected: PASS.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
   `git commit -am "Owner rule: the webhook removes a pair without the owner"`
+
+> Note: the warn line is logged only when the removal call returned truthy (a participant already gone is not "removed"). The check lives in a local `enforce-owner-rule` fn inside `routes`' `let`, next to `as-owner`.
 
 ### Task 9: The lobby
 

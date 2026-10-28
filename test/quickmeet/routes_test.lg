@@ -26,7 +26,8 @@
   (lk/verify-webhook header body (:api-key livekit) (:api-secret livekit)))
 
 (def ^:private nobody-anywhere
-  {:participants (constantly []) :active-rooms (constantly {}) :verify verify})
+  {:participants (constantly []) :active-rooms (constantly {}) :verify verify
+   :remove-participant (constantly true)})
 
 ;; A webhook as the SFU signs it: a JWT from the app's key whose sha256
 ;; claim is the base64 SHA-256 of the raw body. hash/sha256 gives hex, and
@@ -679,6 +680,60 @@
           (is (= id (:room_id call)))
           (is (= "bob" (:with call)))
           (is (nil? (:ended_at call))))))))
+
+;; The owner rule at the webhook: a token minted while the room was empty is
+;; good for an hour, so two guests can both hold one and connect together.
+;; The SFU's event for each join is checked against the room as the SFU
+;; sees it, and a join that breaks the rule is removed.
+(deftest the-webhook-removes-a-pair-without-the-owner
+  (let [present (atom [])
+        removed (atom [])]
+    (with-handler livekit {:participants (fn [_] @present)
+                           :active-rooms (constantly {})
+                           :verify verify
+                           :remove-participant (fn [room-id identity]
+                                                 (swap! removed conj [room-id identity])
+                                                 true)}
+      (fn [handler _]
+        (let [alice (:cookie (signup handler "alice@example.com"))
+              id (:id (:json (call handler :post "/api/rooms" nil (as alice))))
+              owner-identity (:identity (:json (call handler :post (str "/api/rooms/" id "/token") "{}" (as alice))))
+              first-guest {:identity "guest:aa11" :name "ann"}
+              second-guest {:identity "guest:bb22" :name "bob"}
+              event (fn [m room] (json/write-json (merge {:room {:name room :sid "RM_1"} :createdAt "1000"
+                                                           :participant {:sid "PA_2" :identity "guest:bb22"
+                                                                         :name "bob" :joinedAt "1000"}}
+                                                         m)))
+              post (fn [m & [room]]
+                     (let [body (event m (or room id))]
+                       (call handler :post "/api/webhooks/livekit" body (signed-webhook body))))
+              joined {:event "participant_joined"}
+              removals (fn [present-now m & [room]]
+                         (reset! present present-now)
+                         (reset! removed [])
+                         (let [res (post m room)]
+                           (is (= 200 (:status res)))
+                           @removed))]
+          ;; Two guests: the one this event is about goes.
+          (is (= [[id "guest:bb22"]] (removals [first-guest second-guest] joined)))
+          ;; Also when the SFU's list does not have the joiner yet.
+          (is (= [[id "guest:bb22"]] (removals [first-guest] joined)))
+          ;; The owner is there, or is the one joining: nobody goes.
+          (is (= [] (removals [{:identity owner-identity :name "alice"} second-guest] joined)))
+          (is (= [] (removals [first-guest {:identity owner-identity}]
+                              {:event "participant_joined"
+                               :participant {:sid "PA_3" :identity owner-identity :name "alice" :joinedAt "1000"}})))
+          ;; One person alone, or the SFU could not be asked.
+          (is (= [] (removals [second-guest] joined)))
+          (is (= [] (removals [] joined)))
+          (is (= [] (removals nil joined)))
+          ;; Only a join is checked, and only in a room the app knows.
+          (is (= [] (removals [first-guest second-guest] {:event "participant_left"})))
+          (is (= [] (removals [first-guest second-guest] joined "0123456789ab")))
+          ;; The warning names no room.
+          (let [out (with-out-str (removals [first-guest second-guest] joined))]
+            (is (str/includes? out "quickmeet: removed a participant: the room's owner is not in it"))
+            (is (not (str/includes? out id)))))))))
 
 ;; ---- pages ----------------------------------------------------------------
 

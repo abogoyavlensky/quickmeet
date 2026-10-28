@@ -339,7 +339,7 @@
                          res))))
 
 (defn- routes [conn {:keys [api-key api-secret] :as livekit}
-               {:keys [participants active-rooms verify]} auth]
+               {:keys [participants active-rooms verify remove-participant]} auth]
   (let [current-user (fn [req] (auth/current-user conn auth (session-id req)))
         ;; An owner's action on a room: 401 without a session, 404 for no
         ;; such room, 403 for someone else's.
@@ -351,7 +351,27 @@
                        (not user) unauthorized
                        (not room) room-not-found
                        (not= (:owner_id room) (:id user)) forbidden
-                       :else (handle room))))]
+                       :else (handle room))))
+        ;; The owner rule at the door of the SFU: a token lasts an hour, so
+        ;; two guests can ask for tokens while the room is empty and then
+        ;; connect together. On each join the room is checked as the SFU
+        ;; sees it, without the joiner, and a join that breaks the rule is
+        ;; removed. Two joining at once are both removed, each by its own
+        ;; event; both broke the rule. A lookup or a removal that fails is
+        ;; logged by sfu.lg and removes nobody.
+        enforce-owner-rule
+        (fn [req event]
+          (when (= "participant_joined" (:event event))
+            (let [room-id (get-in event [:room :name])
+                  joiner (get-in event [:participant :identity])
+                  room (and (valid-room-id? room-id) (db/get-room conn room-id))
+                  present (when room (sfu-call req "sfu.participants" #(participants room-id)))
+                  others (filterv #(not= joiner (:identity %)) present)]
+              (when (and room (owner-needed? room others joiner))
+                (when (sfu-call req "sfu.remove" #(remove-participant room-id joiner))
+                  ;; No room id: it is the link that grants entry.
+                  (telemetry/log! :warn "quickmeet: removed a participant: the room's owner is not in it"
+                                  {} {:span req}))))))]
   [{:path "/"
     :method :get
     :response (fn [_] (page-response "index.html"))}
@@ -595,8 +615,10 @@
     :response (fn [req]
                 (let [body (str (:body req))]
                   (if (verify (get-in req [:headers "authorization"]) body)
-                    (do (history/record! conn (json/read-json body {:keywords? true}))
-                        (json-response 200 {}))
+                    (let [event (json/read-json body {:keywords? true})]
+                      (history/record! conn event)
+                      (enforce-owner-rule req event)
+                      (json-response 200 {}))
                     (do (telemetry/log! :warn "quickmeet: a webhook failed verification" {} {:span req})
                         unauthorized))))}
 
@@ -610,7 +632,9 @@
    stub them: :participants, (fn [room-id]) -> vector of {:identity :name},
    [] for a room nobody is in, nil when the SFU could not be asked;
    :active-rooms, (fn []) -> map of room id to how many are in it, nil when
-   it could not be asked; :verify, (fn [authorization-header body]) ->
+   it could not be asked; :remove-participant, (fn [room-id identity]) ->
+   truthy when the SFU disconnected that participant (the owner rule at the
+   webhook); :verify, (fn [authorization-header body]) ->
    whether a webhook is genuinely the SFU's. `auth` is {:allowed-emails
    #{..} | nil, :limit f}: the addresses that may have an account, or nil
    for open sign-up; and, optionally, the rate limiter as (fn [bucket key])
@@ -638,5 +662,6 @@
     (handler db livekit
              {:participants (partial sfu/participants livekit)
               :active-rooms (partial sfu/active-rooms livekit)
+              :remove-participant (partial sfu/remove-participant! livekit)
               :verify (fn [header body] (lk/verify-webhook header body api-key api-secret))}
              auth)))
