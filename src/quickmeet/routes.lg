@@ -22,7 +22,9 @@
 ;;
 ;; Who may do what: creating a room takes an account (a session cookie),
 ;; and only its owner renames or deletes it; the room page, the room lookup
-;; and the join token are open to anyone holding a link. The account logic
+;; and the join token are open to anyone holding a link, with one rule on
+;; the token: a call always includes the room's owner (owner-needed?). The
+;; account logic
 ;; lives in quickmeet.auth; the routes here only turn its results into
 ;; responses.
 
@@ -264,6 +266,28 @@
     {:identity (str "user:" (:id user)) :name (:display_name user)}
     {:identity (str "guest:" (subs (id/random-hex) 0 4)) :name (clean-name typed-name)}))
 
+(defn- user-identity
+  "The identity a signed-in `user` joins with, or nil for a guest, whose
+   identity is minted when the token is."
+  [user]
+  (when user (:identity (participant-identity user nil))))
+
+;; The owner rule: a call always includes the room's owner. Anyone holding
+;; the link may be in the room alone, but a second person gets in only if
+;; one of the two is the signed-in owner. The token endpoint, the room
+;; lookup and the webhook all ask this one function.
+(defn- owner-needed?
+  "Whether `joiner` (an identity string, or nil for an unknown visitor)
+   would be refused by the owner rule: exactly one person is in the room,
+   and neither they nor the joiner is the room's owner. `participants` is
+   the SFU's vector, nil when it could not be asked (reads as nobody)."
+  [room participants joiner]
+  (and (= 1 (count participants))
+       (if-let [owner-id (:owner_id room)]
+         (let [owner (str "user:" owner-id)]
+           (not (or (= owner joiner) (= owner (:identity (first participants))))))
+         true)))
+
 ;; ---- pages --------------------------------------------------------------
 
 ;; The lists (my rooms, my calls) come a page at a time, newest first. The
@@ -498,48 +522,62 @@
     :response (fn [req]
                 (let [id (-> req :params :id)]
                   (if-let [room (and (valid-room-id? id) (db/get-room conn id))]
-                    ;; Who is in the room now, so a lobby can show it. A
-                    ;; lookup that could not ask the SFU reads as nobody.
-                    (json-response 200 (-> room
-                                           (dissoc :owner_id)
-                                           (assoc :participants (or (sfu-call req "sfu.participants" #(participants id)) []))))
+                    ;; Who is in the room now, so a lobby can show it, and
+                    ;; whether the visitor would be refused for want of the
+                    ;; owner. A lookup that could not ask the SFU reads as
+                    ;; nobody.
+                    (let [present (or (sfu-call req "sfu.participants" #(participants id)) [])]
+                      (json-response 200 (-> room
+                                             (dissoc :owner_id)
+                                             (assoc :participants present
+                                                    :owner_needed (owner-needed? room present (user-identity (current-user req)))))))
                     (json-response 404 {:error "not found"}))))}
 
    ;; A join token for a known room. Body: {"identity": "..."}, the name a
    ;; guest typed (optional; a signed-in person's display name is used).
-   ;; Two people per room: a third gets 409 and a message the page can show.
-   ;; The SFU enforces the same cap itself (system.lg); this check exists
-   ;; because a refusal there is not distinguishable in the browser (sfu.lg).
+   ;; Two people per room: a third gets 409 {"error": "full"}. A second
+   ;; person gets in only if one of the two is the room's signed-in owner,
+   ;; else 409 {"error": "owner-absent"} (owner-needed?). A guest's identity
+   ;; is minted below, so here a guest is simply not the owner. Both are
+   ;; messages the page can show.
+   ;; The SFU enforces the two-person cap itself (system.lg); this check
+   ;; exists because a refusal there is not distinguishable in the browser
+   ;; (sfu.lg).
    {:path "/api/rooms/:id/token"
     :method :post
     :response (fn [req]
-                (let [id (-> req :params :id)]
-                  (cond
-                    (not (and (valid-room-id? id) (db/get-room conn id)))
+                (let [id (-> req :params :id)
+                      room (and (valid-room-id? id) (db/get-room conn id))]
+                  (if-not room
                     (do (metrics/token-request! :not-found)
                         (json-response 404 {:error "not found"}))
+                    (let [present (sfu-call req "sfu.participants" #(participants id))
+                          user (current-user req)]
+                      (cond
+                        (>= (count present) 2)
+                        (do (metrics/token-request! :full)
+                            (json-response 409 {:error "full"}))
 
-                    (>= (count (sfu-call req "sfu.participants" #(participants id))) 2)
-                    (do (metrics/token-request! :full)
-                        (json-response 409 {:error "full"}))
+                        (owner-needed? room present (user-identity user))
+                        (do (metrics/token-request! :owner-absent)
+                            (json-response 409 {:error "owner-absent"}))
 
-                    :else
-                    (let [user (current-user req)
-                          {:keys [identity name]} (participant-identity user (:identity (read-json-body req)))]
-                      ;; Joining as a signed-in person puts the room on
-                      ;; their list.
-                      (when user (db/add-member! conn id (:id user)))
-                      (metrics/token-request! :ok)
-                      (json-response 200
-                                     {:token (lk/token api-key api-secret
-                                                       {:identity identity
-                                                        :name name
-                                                        :room id
-                                                        :room-join true
-                                                        :ttl-seconds 3600})
-                                      :identity identity
-                                      :name name
-                                      :url (signalling-url req livekit)})))))}
+                        :else
+                        (let [{:keys [identity name]} (participant-identity user (:identity (read-json-body req)))]
+                          ;; Joining as a signed-in person puts the room on
+                          ;; their list.
+                          (when user (db/add-member! conn id (:id user)))
+                          (metrics/token-request! :ok)
+                          (json-response 200
+                                         {:token (lk/token api-key api-secret
+                                                           {:identity identity
+                                                            :name name
+                                                            :room id
+                                                            :room-join true
+                                                            :ttl-seconds 3600})
+                                          :identity identity
+                                          :name name
+                                          :url (signalling-url req livekit)})))))))}
 
    ;; A page of my call history, newest first.
    {:path "/api/calls"

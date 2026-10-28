@@ -527,7 +527,7 @@ Phase 2:
 - Modify: `src/quickmeet/routes.lg`, `src/quickmeet/metrics.lg`
 - Test: `test/quickmeet/routes_test.lg`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
   In `routes_test.lg`, change `presence-and-the-two-person-rule`'s "one
   person" case: a guest there and a guest asking is now 409
   `{:error "owner-absent"}`. Add `the-owner-rule` covering, with a stubbed
@@ -548,7 +548,7 @@ Phase 2:
   Run: `lgx test`
   Expected: FAIL on the new cases.
 
-- [ ] **Step 2: Implement**
+- [x] **Step 2: Implement**
   Add `owner-needed?` (signature in the Design) beside
   `participant-identity`. Token route: fetch participants once into a
   local; after the full check, when `(owner-needed? room participants
@@ -561,12 +561,15 @@ Phase 2:
   and the comment at the top of `routes.lg` ("the join token is open to
   anyone holding a link" now carries the owner rule).
 
-- [ ] **Step 3: Run the tests**
+- [x] **Step 3: Run the tests**
   Run: `lgx test`
   Expected: PASS.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
   `git commit -am "Owner rule: a second person needs the room's owner in the call"`
+
+> Deviation: added a `user-identity` helper (nil for a guest) beside `participant-identity`, so the token route and the room lookup compute the viewer's identity the same way. The token route now reads `user` before the full check (one `current-user` call per request, as before).
+> Note: Task 4 broke `pages-and-static` (it asserted the old worker's `notificationclick`); I had run e2e but not `lgx test` then. Fixed in `1df7b8e`.
 
 ### Task 8: The webhook check
 

@@ -180,10 +180,12 @@
     (let [{:keys [room token]} (room-and-token (constantly []))]
       (is (= [] (:participants room)))
       (is (= 200 (:status token))))
-    ;; One person: the lookup names them, a second may join.
+    ;; One person: the lookup names them. A guest there and a guest asking
+    ;; is refused: the room's owner is in neither (the-owner-rule).
     (let [{:keys [room token]} (room-and-token (constantly [{:identity "guest:ab12" :name "alice"}]))]
       (is (= [{:identity "guest:ab12" :name "alice"}] (:participants room)))
-      (is (= 200 (:status token))))
+      (is (= 409 (:status token)))
+      (is (= {:error "owner-absent"} (:json token))))
     ;; Two people: full.
     (let [{:keys [room token]} (room-and-token (constantly [{:identity "alice"}
                                                             {:identity "bob"}]))]
@@ -199,6 +201,61 @@
     (let [asked (atom [])
           {:keys [id]} (room-and-token (fn [room-id] (swap! asked conj room-id) []))]
       (is (= [id id] @asked)))))
+
+;; A call always includes the room's owner: with one person in the room, the
+;; next may join only if one of the two is the signed-in owner.
+(deftest the-owner-rule
+  (let [present (atom [])
+        asked (atom 0)]
+    (with-handler livekit (fn [_] (swap! asked inc) @present)
+      (fn [handler _]
+        (let [alice (:cookie (signup handler "alice@example.com"))
+              bob (:cookie (signup handler "bob@example.com"))
+              id (:id (:json (call handler :post "/api/rooms" nil (as alice))))
+              token (fn [cookie]
+                      (call handler :post (str "/api/rooms/" id "/token") "{}" (when cookie (as cookie))))
+              lobby (fn [cookie]
+                      (:json (call handler :get (str "/api/rooms/" id) nil (when cookie (as cookie)))))
+              alice-identity (:identity (:json (token alice)))
+              guest {:identity "guest:aa11" :name "guest"}
+              owner {:identity alice-identity :name "alice"}
+              refused? (fn [res] (and (= 409 (:status res)) (= {:error "owner-absent"} (:json res))))]
+          (is (str/starts-with? alice-identity "user:"))
+          ;; Nobody there: anyone may join, and nobody is waiting for anyone.
+          (is (= 200 (:status (token nil))))
+          (is (= 200 (:status (token bob))))
+          (is (false? (:owner_needed (lobby nil))))
+          ;; A guest alone: another guest, or a member who is not the owner,
+          ;; is refused; the owner may join.
+          (reset! present [guest])
+          (is (refused? (token nil)))
+          (is (refused? (token bob)))
+          (is (= 200 (:status (token alice))))
+          (is (true? (:owner_needed (lobby nil))))
+          (is (true? (:owner_needed (lobby bob))))
+          (is (false? (:owner_needed (lobby alice))))
+          ;; The owner alone: anyone may join.
+          (reset! present [owner])
+          (is (= 200 (:status (token nil))))
+          (is (= 200 (:status (token bob))))
+          (is (false? (:owner_needed (lobby nil))))
+          (is (false? (:owner_needed (lobby bob))))
+          ;; Two: full, whoever asks.
+          (reset! present [owner guest])
+          (is (= {:error "full"} (:json (token alice))))
+          (is (= {:error "full"} (:json (token nil))))
+          (is (false? (:owner_needed (lobby nil))))
+          ;; The SFU could not be asked: unknown reads as nobody.
+          (reset! present nil)
+          (is (= 200 (:status (token nil))))
+          (is (false? (:owner_needed (lobby nil))))
+          ;; A refused request is a lookup like any other: one per request.
+          (reset! present [guest])
+          (reset! asked 0)
+          (token nil)
+          (is (= 1 @asked))
+          (lobby nil)
+          (is (= 2 @asked)))))))
 
 (deftest unknown-and-invalid-rooms
   (with-handler
@@ -845,6 +902,8 @@
               (is (= 404 (:status (call handler :post "/api/rooms/0123456789ab/token" "{}"))))
               (reset! present [{:identity "alice"} {:identity "bob"}])
               (is (= 409 (:status (call handler :post (str "/api/rooms/" id "/token") "{}"))))
+              (reset! present [{:identity "guest:aa11"}])
+              (is (= 409 (:status (call handler :post (str "/api/rooms/" id "/token") "{}"))))
               (reset! present [])
               (is (= 200 (:status (call handler :post (str "/api/rooms/" id "/token") "{}"))))
               (let [body (metrics-body (flush!))]
@@ -852,6 +911,7 @@
                 (is (str/includes? body "outcome"))
                 (is (str/includes? body "not_found"))
                 (is (str/includes? body "full"))
+                (is (str/includes? body "owner_absent"))
                 ;; The room id is the link that grants entry.
                 (is (not (str/includes? body id)))))))))))
 

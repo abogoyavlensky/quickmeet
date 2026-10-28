@@ -44,7 +44,7 @@
 ;; ---- counters ---------------------------------------------------------------
 
 (defn token-request!
-  "A join-token request answered; `outcome` is :ok, :full or :not-found."
+  "A join-token request answered; `outcome` is :ok, :full, :owner-absent or :not-found."
   [outcome]
   (telemetry/count! "quickmeet.token.requests" 1 {"outcome" (snake outcome)}
                     {:unit "{request}" :description "Join-token requests, by outcome."}))
