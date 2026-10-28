@@ -7,6 +7,78 @@ test.describe('the lobby', () => {
   test.beforeEach(() => { contexts = []; });
   test.afterEach(async () => { await Promise.all(contexts.map(c => c.close())); });
 
+  // The owner rule: a call always includes the room's owner. alice is the
+  // owner of rooms made with newRoom; everyone else is a guest.
+  test('two guests are refused: the room waits for its owner', async ({ browser, page }) => {
+    const roomUrl = await newRoom(page);
+    const roomId = roomUrl.split('/').pop();
+    const bob = await joinAs(browser, contexts, roomUrl, 'bob');
+    const carol = await openLobby(browser, contexts, roomUrl, 'carol');
+
+    await expect(carol.page.locator('#presence')).toHaveText('bob is waiting for someone else.');
+    await expect(carol.page.locator('#join')).toBeDisabled();
+    const refused = await carol.page.evaluate(async id => {
+      const res = await fetch(`/api/rooms/${id}/token`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+      });
+      return { status: res.status, body: await res.json() };
+    }, roomId);
+    expect(refused).toEqual({ status: 409, body: { error: 'owner-absent' } });
+    // bob is undisturbed.
+    expect(await bob.page.evaluate(() => window.call.joined)).toBe(true);
+
+    // When bob leaves, the next poll lets carol in.
+    await bob.page.click('#leave');
+    await expect(carol.page.locator('#join')).toBeEnabled({ timeout: 10_000 });
+  });
+
+  test('the owner joins a guest who is waiting', async ({ browser, page }) => {
+    const roomUrl = await newRoom(page);
+    const bob = await joinAs(browser, contexts, roomUrl, 'bob');
+    const alice = await joinAs(browser, contexts, roomUrl, 'alice');
+
+    await expect.poll(() => remoteOf(alice.page)).toBe('bob');
+    await expect.poll(() => remoteOf(bob.page)).toBe('alice');
+  });
+
+  // A token minted while the room was empty stays good for an hour, so the
+  // token check alone cannot keep two guests apart: the webhook removes the
+  // one who connects second. This is the only proof that the real SFU
+  // behaves as that check assumes.
+  test('a guest holding a token from an empty room is removed', async ({ browser, page }) => {
+    const roomUrl = await newRoom(page);
+    const carol = await openLobby(browser, contexts, roomUrl, 'carol');
+    // Carol's token request is answered by the server at once (the room is
+    // empty) but handed to her page only when released.
+    let release;
+    const gate = new Promise(resolve => { release = resolve; });
+    let fetched;
+    const fetchedByServer = new Promise(resolve => { fetched = resolve; });
+    await carol.page.route('**/api/rooms/*/token', async route => {
+      const response = await route.fetch();
+      fetched();
+      await gate;
+      await route.fulfill({ response });
+    });
+    await carol.page.click('#join');
+    await fetchedByServer;
+
+    const bob = await joinAs(browser, contexts, roomUrl, 'bob');
+    // Let the SFU's event for bob's own join reach the app before carol
+    // connects: it is checked against the room as it is then.
+    await bob.page.waitForTimeout(1500);
+    release();
+
+    // Carol connects, the webhook removes her, and she is back in the
+    // lobby with the reason.
+    await expect(carol.page.locator('#lobby')).toBeVisible({ timeout: 15_000 });
+    await expect(carol.page.getByText('This room is busy right now.').first()).toBeVisible();
+    expect(await carol.page.evaluate(() => window.call.joined)).toBe(false);
+    // Bob's call is untouched.
+    expect(await bob.page.evaluate(() => window.call.joined)).toBe(true);
+    await expect.poll(() => remoteOf(bob.page)).toBeNull();
+  });
+
   test('an unknown link says so', async ({ page }) => {
     await page.goto('/room/000000000000');
     await expect(page.locator('#gone')).toBeVisible();

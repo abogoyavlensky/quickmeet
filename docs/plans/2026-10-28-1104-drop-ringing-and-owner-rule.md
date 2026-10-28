@@ -645,13 +645,14 @@ Phase 2:
   `git commit -am "Lobby: a room waiting for someone else is busy"`
 
 > Note: `isFull()` became `refusal()` (returns 'full', 'busy' or null). Added a guard after the publish loop: if the server already removed us, throw the busy message rather than showing the call. Browser behaviour is proven by the Task 10 specs.
+> Deviation (found by the Task 10 held-token spec): a removal that lands while `room.connect()` or `publishTrack()` is still pending left the join hanging ~15 s until those gave up (the connection state was `disconnected` after ~0.3 s). `join()` now races both against a `removal` promise that the `Disconnected` handler rejects with the busy message on `PARTICIPANT_REMOVED`. The plan's wording ("join()'s catch must show the busy message") is unchanged; only how quickly it gets there.
 
 ### Task 10: Browser tests
 
 **Files:**
 - Modify: `e2e/tests/helpers.js`, `e2e/tests/lobby.spec.js`, and specs the rule breaks
 
-- [ ] **Step 1: The owner in the helpers**
+- [x] **Step 1: The owner in the helpers**
   `newRoom(page, owner = 'alice')`: after `signUp`, set the display name
   with `page.request.post('/api/me', { data: { display_name: owner } })`
   (expect 200), create the room as now, then keep
@@ -661,7 +662,7 @@ Phase 2:
   `browser.newContext`. Document it at the top of the helpers: "alice is
   the room's owner, signed in; everyone else is a guest".
 
-- [ ] **Step 2: New specs** in `lobby.spec.js`
+- [x] **Step 2: New specs** in `lobby.spec.js`
   - two guests: `bob` joins, then `carol` opens the lobby; her presence
     line reads `bob is waiting for someone else.`, Join is disabled, and
     a token request from her page answers 409 with `owner-absent`;
@@ -679,7 +680,7 @@ Phase 2:
     bob's call is untouched (`window.call.joined` true,
     `remoteOf(bob.page)` null once she is gone).
 
-- [ ] **Step 3: Run the suite and fix the fallout**
+- [x] **Step 3: Run the suite and fix the fallout**
   Run: `lgx e2e`
   Expected: PASS after fixes; the held-token spec must pass as written.
   Specs to check first: the
@@ -689,8 +690,11 @@ Phase 2:
   with a guest), `account.spec.js:97`, `i18n.spec.js`, and any spec whose
   two participants are neither `alice` nor the host page.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
   `git commit -am "e2e: alice owns the room; the owner rule's specs"`
+
+> Note: `lgx e2e` = 82 passed, 2 failed (the same two `blur.spec.js` tests that fail on the untouched baseline). The held-token spec passed 6/6 in a repeat run and once in the full suite, unmodified from the plan's description; it first failed for a real product reason (see Task 9's deviation), not a loosened assertion.
+> Note: the spec waits 1.5 s after bob joins so the SFU's event for bob's own join is checked before carol connects; a late event for bob would see [bob, carol] and remove bob too (the accepted both-removed case).
 
 ### Task 11: Docs for phase 2
 
