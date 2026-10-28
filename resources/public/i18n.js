@@ -107,6 +107,8 @@ const RU = {
   "Tap to enable sound": "Нажмите, чтобы включить звук",
   "This call already has two people in it.": "В этом звонке уже два человека.",
   "Waiting for the other person.": "Ждём собеседника.",
+  "{name} is waiting for someone else.": "{name} ждёт кого-то другого.",
+  "This room is busy right now.": "Комната сейчас занята.",
   "Leave": "Выйти из звонка",
   "Leave full screen": "Выйти из полноэкранного режима",
   "Full screen": "Во весь экран",

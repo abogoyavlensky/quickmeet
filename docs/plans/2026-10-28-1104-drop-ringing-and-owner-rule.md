@@ -621,12 +621,12 @@ Phase 2:
 **Files:**
 - Modify: `resources/public/room.html`, `resources/public/i18n.js`
 
-- [ ] **Step 1: Messages**
+- [x] **Step 1: Messages**
   Add `const BUSY = () => t('This room is busy right now.');` beside
   `FULL`. Add both sentences to `i18n.js` with the Russian from the
   Design table.
 
-- [ ] **Step 2: Presence, Join, connect failure, removal**
+- [x] **Step 2: Presence, Join, connect failure, removal**
   `pollPresence`: read `owner_needed`; with one person there and
   `owner_needed`, the line is `t('{name} is waiting for someone else.', ...)`
   and Join is disabled. `join()`: on a 409, read the JSON and throw
@@ -641,8 +641,10 @@ Phase 2:
   Run: `lgx i18n-check`
   Expected: no missing sentences.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
   `git commit -am "Lobby: a room waiting for someone else is busy"`
+
+> Note: `isFull()` became `refusal()` (returns 'full', 'busy' or null). Added a guard after the publish loop: if the server already removed us, throw the busy message rather than showing the call. Browser behaviour is proven by the Task 10 specs.
 
 ### Task 10: Browser tests
 

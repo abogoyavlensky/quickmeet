@@ -118,6 +118,7 @@
     // follow a language that changes after load (i18n.js).
     const FULL = () => t('This call already has two people in it.');
     const WAITING = () => t('Waiting for the other person.');
+    const BUSY = () => t('This room is busy right now.');
     // A phone or a tablet, by the browser's own word. Such a device has a
     // front and a back camera to flip between, no screen to share, and
     // routes a headset itself, so it gets no settings panel. Safari on an
@@ -634,15 +635,19 @@
       try {
         const res = await fetch(`/api/rooms/${roomId}`);
         if (!res.ok) return;
-        const { participants } = await res.json();
+        const { participants, owner_needed } = await res.json();
         // A response that lands after the lobby was left, or after Join
         // was clicked, must not touch the button.
         if (!lobby.poll || lobby.joining) return;
         const n = participants.length;
+        // One person there and the server says this visitor would be
+        // refused: waiting for someone else, as full as a full room.
+        const waiting = n === 1 && owner_needed;
         $('presence').textContent =
           n === 0 ? t('Nobody has joined yet.') :
+          waiting ? t('{name} is waiting for someone else.', { name: nameOf(participants[0]) }) :
           n === 1 ? t('{name} is already here.', { name: nameOf(participants[0]) }) : FULL();
-        $('join').disabled = n >= 2;
+        $('join').disabled = n >= 2 || waiting;
       } catch (e) { /* the next poll tries again */ }
     }
     function startPolling() { stopPolling(); pollPresence(); lobby.poll = setInterval(pollPresence, 3000); }
@@ -885,18 +890,27 @@
 
     // Two people can both get tokens before the room fills; the SFU then
     // refuses one with an error the browser cannot tell from a broken
-    // connection (see sfu.lg). So a failed connect asks the app again.
-    async function isFull() {
+    // connection (see sfu.lg). So a failed connect asks the app again:
+    // 'full', 'busy' (one person there and the owner is in neither of the
+    // two), or null.
+    async function refusal() {
       try {
         const res = await fetch(`/api/rooms/${roomId}`);
-        if (!res.ok) return false;
-        return (await res.json()).participants.length >= 2;
-      } catch (e) { return false; }
+        if (!res.ok) return null;
+        const { participants, owner_needed } = await res.json();
+        return participants.length >= 2 ? 'full' : owner_needed ? 'busy' : null;
+      } catch (e) { return null; }
     }
+
+    // The server removed us from the call: a token minted while the room was
+    // empty, used together with another person's, breaks the owner rule, and
+    // the app disconnects the one who joined last. Reset when a join starts.
+    let removed = false;
 
     async function join() {
       if (lobby.joining) return;
       lobby.joining = true;
+      removed = false;
       stopPolling();
       $('join').disabled = true;
       $('error').hidden = true;
@@ -913,7 +927,10 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ identity: $('identity').value }),
         });
-        if (res.status === 409) throw new Error(FULL());
+        if (res.status === 409) {
+          const { error } = await res.json().catch(() => ({}));
+          throw new Error(error === 'owner-absent' ? BUSY() : FULL());
+        }
         if (!res.ok) throw new Error('could not get a token (' + res.status + ')');
         const { token, url } = await res.json();
 
@@ -961,6 +978,9 @@
         room.on(RoomEvent.LocalTrackUnpublished, shareChanged);
         room.on(RoomEvent.AudioPlaybackStatusChanged, () => { $('sound').hidden = room.canPlaybackAudio; });
         room.on(RoomEvent.Disconnected, reason => {
+          // The removal can land while tracks are still publishing; then
+          // join()'s catch shows it.
+          if (reason === DisconnectReason.PARTICIPANT_REMOVED) removed = true;
           // A failed join tears itself down in join()'s catch; only a call
           // that was up returns to the lobby from here.
           if (!window.call.joined) return;
@@ -971,18 +991,20 @@
           stopClock();
           document.body.classList.remove('reconnecting');
           show('lobby');
-          startLobby(reason === DisconnectReason.CLIENT_INITIATED ? null : t('Connection lost. Join again.'));
+          startLobby(removed ? BUSY() : reason === DisconnectReason.CLIENT_INITIATED ? null : t('Connection lost. Join again.'));
         });
 
         try {
           await room.connect(url, token);
         } catch (e) {
-          throw (await isFull()) ? new Error(FULL()) : e;
+          const why = await refusal();
+          throw why === 'full' ? new Error(FULL()) : why === 'busy' ? new Error(BUSY()) : e;
         }
         for (const t of lobby.tracks) {
           await room.localParticipant.publishTrack(t);
           if (t.kind === Track.Kind.Video) t.attach($('local'));
         }
+        if (removed) throw new Error(BUSY());
         window.call.joined = true;
         showMic(room.localParticipant.isMicrophoneEnabled);
         showCam(room.localParticipant.isCameraEnabled);
@@ -1020,7 +1042,7 @@
         showMyScreen(null);
         show('lobby');
         startLobby();
-        showError(e);
+        showError(removed ? new Error(BUSY()) : e);
       }
     }
     $('join').addEventListener('click', join);
