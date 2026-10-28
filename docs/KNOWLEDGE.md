@@ -543,6 +543,47 @@ applies:
   no struct constructors; it needs a hand-written shim linked with
   `:go/local`.
 
+## The owner rule, 2026-10-28
+
+A call always includes the room's owner (`docs/plans/2026-10-28-1104-drop-ringing-and-owner-rule.md`).
+Anyone holding a link may be in the room alone; a second person gets in only
+if one of the two is the signed-in owner (`user:<owner_id>`). It keeps
+strangers with a leaked link, and members using someone else's room as their
+own, off the instance's bandwidth.
+
+- One pure function, `owner-needed?` in `routes.lg`, holds the rule; the token
+  endpoint (409 `owner-absent`), the room lookup (`owner_needed`) and the
+  webhook all call it. A room with no owner matches nobody, so it holds one
+  person at a time. A guest's identity is minted after the token, so a guest
+  is simply "not the owner".
+- A token is good for an hour, so the token check alone is bypassable: two
+  guests ask while the room is empty (each sees nobody), then connect
+  together. The SFU's own cap does not help. So on every verified
+  `participant_joined` the webhook asks the rule about the room minus the
+  joiner and, if it fires, has the SFU remove the joiner. Using the rule
+  function, not "two there, neither the owner", keeps it right when
+  `ListParticipants` does not list the joiner yet. If two join at once, both
+  events remove their own joiner.
+- Removal is twirp `RemoveParticipant` with the `{room, roomAdmin}` grant
+  (the one `ListParticipants` uses) and body `{room, identity}`; 200 with
+  `{}`, 404 when the person already left.
+- Verified against the real SFU (`lobby.spec.js`, "a guest holding a token
+  from an empty room is removed"): the webhook arrives about 0.1 s after the
+  second guest connects and the client gets `DisconnectReason.PARTICIPANT_REMOVED`
+  (4). The browser's connection state is `disconnected` by then, yet
+  `room.connect()` (the peer connection was not up yet) and `publishTrack()`
+  only give up about 15 s later. The room page therefore races both against
+  a promise the `Disconnected` handler rejects, or the busy message arrives
+  15 s late.
+- Accepted: the removed intruder leaves a short stay in the call history of
+  whoever was waiting (the webhook records the join before the check runs).
+  If the SFU cannot be asked, the rule fails open, as the two-person check
+  always did; `sfu.lg` logs every failed lookup.
+- The e2e helpers make `alice` the owner of every room `newRoom` makes and
+  sign her in when `openLobby` opens it as `alice`; any other name is a guest.
+  Two connections as `user:<owner>` would make LiveKit evict one
+  (`DUPLICATE_IDENTITY`), so no spec has the host `page` join next to `alice`.
+
 ## Screen sharing, verified 2026-10-02
 
 - No server change is needed. `lk/token` leaves `canPublish` nil when the

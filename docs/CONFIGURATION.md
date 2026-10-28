@@ -58,6 +58,7 @@ printed to stdout, whether or not telemetry is on.
 | error | `GET /api/rooms/:id answered 503` | a handler answered 5xx |
 | error | `the SFU could not be asked (ListParticipants): <reason>` | a lookup failed, which reads as "nobody there" to the lobby and the two-person check. Not tied to a trace; the request's `sfu.*` child span is marked an error instead |
 | warn | `a webhook failed verification` | something posted to the webhook URL without the SFU's signature |
+| warn | `removed a participant: the room's owner is not in it` | the owner rule: two people were in a room without its owner (each held a token minted while the room was empty), and the one who joined last was disconnected. No room id in the line |
 
 Lines name the route pattern, never the raw path, which holds a room id.
 
@@ -69,7 +70,7 @@ Metrics, exported every 60 s (and once more when the process stops):
 | `quickmeet.calls.active` | gauge | | calls in progress |
 | `quickmeet.participants.active` | gauge | | people in a call right now |
 | `quickmeet.call.duration` | histogram, `s` | | how long a call lasted, from the first join to the room closing |
-| `quickmeet.token.requests` | counter | `outcome`: `ok`, `full`, `not_found` | join-token requests; `full` is a third person turned away |
+| `quickmeet.token.requests` | counter | `outcome`: `ok`, `full`, `owner_absent`, `not_found` | join-token requests; `full` is a third person turned away, `owner_absent` a second person without the room's owner |
 | `quickmeet.rate_limit.rejected` | counter | `bucket`: `signin`, `signup`, `create_room` | requests answered 429 |
 
 The two gauges are set from the SFU's webhooks, so they are as current as the

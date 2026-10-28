@@ -701,7 +701,7 @@ Phase 2:
 **Files:**
 - Modify: `docs/API.md`, `docs/CONFIGURATION.md`, `docs/KNOWLEDGE.md`, `docs/ROADMAP.md`, `docs/DEVELOPMENT.md`
 
-- [ ] **Step 1: Write**
+- [x] **Step 1: Write**
   API: the token endpoint's `409 {"error": "owner-absent"}` and when;
   `GET /api/rooms/:id`'s `owner_needed`. CONFIGURATION: the
   `owner_absent` outcome of `quickmeet.token.requests`, and the warn line
@@ -717,9 +717,9 @@ Phase 2:
   open the link in a private window as a guest; two guests cannot call)
   and the browser-test paragraph (alice owns the room).
 
-- [ ] **Step 2: Final check**
+- [x] **Step 2: Final check**
   Run: `lgx test && lgx e2e`
   Expected: both PASS.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
   `git commit -am "Docs: every call includes the room's owner"`

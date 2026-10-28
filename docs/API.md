@@ -17,9 +17,11 @@ GET  /api/rooms?page=N           -> 200 {"items": [{"id", "name", "created_at", 
                                          "page": n, "more": bool} | 401
 POST /api/rooms/:id              {"name"} (blank clears) -> 200 the room | 400 | 401 | 403 (not the owner) | 404
 DELETE /api/rooms/:id            -> 200 {} | 401 | 403 | 404
-GET  /api/rooms/:id              -> 200 {"id", "name", "created_at", "participants": [{"identity", "name"}]} | 404
+GET  /api/rooms/:id              -> 200 {"id", "name", "created_at", "participants": [{"identity", "name"}],
+                                         "owner_needed": bool} | 404
 POST /api/rooms/:id/token        {"identity": "alice"}   (the name a guest typed; optional)
-                                 -> 200 {"token", "identity", "name", "url"} | 404 | 409 {"error": "full"}
+                                 -> 200 {"token", "identity", "name", "url"} | 404
+                                 | 409 {"error": "full"} | 409 {"error": "owner-absent"}
 GET  /api/calls?page=N           -> 200 {"items": [{"room_id", "started_at", "ended_at", "seconds", "with"}],
                                          "page": n, "more": bool} | 401
 POST /api/webhooks/livekit       the embedded SFU's events, signed with the API key -> 200 | 401
@@ -62,6 +64,18 @@ display name, or what a guest typed). History is written from the SFU's
 webhooks (`participant_joined`, `participant_left`, `room_finished`),
 which it posts to `/api/webhooks/livekit` on loopback; `ended_at` and
 `seconds` are null while a call is on, and `with` names the others.
+
+A call always includes the room's owner. Anyone holding the link may be in
+the room alone, but a second person gets in only if one of the two is the
+signed-in owner (identity `user:<owner id>`). The token endpoint answers
+`409 {"error": "owner-absent"}` otherwise, and `owner_needed` in the room
+lookup says the same for the visitor asking: exactly one person is there
+and neither they nor the visitor is the owner. A guest is never the owner.
+A token lasts an hour, so the check alone could be sidestepped by asking
+for two tokens while the room is empty; the SFU's `participant_joined`
+webhook closes that by removing the participant that event is about when
+the pair breaks the rule. If the SFU cannot be asked, the rule reads the
+room as empty and lets people in.
 
 The token is a LiveKit join token for that room only, valid for an hour.
 `url` is the signalling address the browser should connect to:

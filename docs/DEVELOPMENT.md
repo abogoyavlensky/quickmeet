@@ -22,8 +22,11 @@ lgx docker              # build, then the image around it, started and asked for
 ```
 
 Open http://localhost:8080, sign up (any email, no verification), click
-"New call", open the room link in a second window, join from both.
-Starting a call takes an account; joining one takes only the link.
+"New call", join as yourself (the room's owner, signed in), and open the
+room link in a private window as a guest. Starting a call takes an account;
+joining one takes only the link, but a call always includes the room's
+owner, so two guests cannot call each other: the second is told the first
+is waiting for someone else.
 The room page shows a lobby first: a preview of your camera, pickers for
 the camera and microphone, and who is already in the room. A button on
 the preview, and another in the call's controls, blurs the background
@@ -47,11 +50,12 @@ The unit tests stop at the handler. The browser tests drive the whole
 thing: `lgx e2e` builds `bin/quickmeet`, starts it on test ports (app
 8099, SFU 7899, UDP 50200-50300, a throwaway database under `e2e/.tmp`),
 opens two headless Chromiums with fake cameras and microphones on the
-same room link, and checks that each side sees and hears the other:
+same room link (`alice`, who owns every room the specs make and is signed
+in, and a guest; two guests would be refused), and checks that each side sees and hears the other:
 the remote video plays, decoded frames and audio packets keep growing,
 nothing is lost, and leaving is noticed. Other specs cover accounts
 (sign up, sign in, sign out, settings, a guest needing none), the lobby
-(preview, device pickers, who is there, a third person refused), the
+(preview, device pickers, who is there, a third person refused, two guests refused, a held token removed by the webhook), the
 call's states (waiting, reconnecting, a lost connection), background
 blur (on in the lobby and into the call, a failed load, a browser that
 cannot do it), screen sharing (the screen taking the other side's

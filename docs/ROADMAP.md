@@ -331,6 +331,15 @@ in host mode. Two phones on different networks held a call there. See
   screen-sharing plan's "the sharer does not see their own screen":
   sharing the monitor the page is on shows a small tunnel in that tile,
   which is accepted. Not yet tried in a real browser.
+- Done 2026-10-28: every call includes the room's owner
+  (`docs/plans/2026-10-28-1104-drop-ringing-and-owner-rule.md`). Anyone
+  holding the link may wait in the room alone; a second person gets in only
+  if one of the two is the signed-in owner, else the token endpoint answers
+  409 `owner-absent`, the lobby says the person is "waiting for someone
+  else", and a webhook check removes a pair that slipped in on tokens minted
+  while the room was empty. Two concerns: a leaked link used by strangers on
+  the instance's bandwidth, and members using someone else's room as their
+  own.
 - Mobile: LiveKit's Swift, Kotlin and React Native SDKs talk to the same
   SFU and the same token endpoint. The PWA above covers phones without
   any of that.
@@ -349,6 +358,8 @@ in host mode. Two phones on different networks held a call there. See
   anyone with a link may join. The M2 and M6 limits (two-person cap,
   room expiry, rate limits) bound what one room or one client can cost,
   but only accounts keep strangers from using an instance at all.
+  Update 2026-10-28: a call now needs the room's owner too, so a link
+  alone no longer gets two strangers a call.
 - Whether room pages should work without JavaScript beyond
   `livekit-client` (currently plain DOM code, no framework).
 - Resolved 2026-09-29: room lifetime. Permanent, see M2. Presence in the
