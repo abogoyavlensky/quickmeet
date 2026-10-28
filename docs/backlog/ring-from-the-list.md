@@ -1,6 +1,7 @@
 # A person on the list cannot be rung without first joining their room
 
-**Status: open**
+**Status: done**
+Dropped: ringing was removed (docs/plans/2026-10-28-1104-drop-ringing-and-owner-rule.md).
 
 ## Problem
 
