@@ -459,7 +459,7 @@ Phase 2:
 **Files:**
 - Modify: `README.md`, `docs/API.md`, `docs/CONFIGURATION.md`, `docs/DEVELOPMENT.md`, `docs/INSTALL.md`, `docs/KNOWLEDGE.md`, `docs/ROADMAP.md`, `docs/backlog/ring-*.md`
 
-- [ ] **Step 1: Docs**
+- [x] **Step 1: Docs**
   README (lines about 51-53, 75), API (the ring and push endpoints, the
   token response's `ring`), CONFIGURATION (the `push to <host> failed`
   line, the `quickmeet.push.deliveries` metric, `ring` in the rate-limit
@@ -479,7 +479,7 @@ Phase 2:
   Run: `grep -rn -i -E "\bring(s|ing)?\b|web push|vapid|push_subscriptions" README.md docs --include=*.md | grep -v docs/plans | grep -v docs/backlog`
   Expected: only the ROADMAP's history lines.
 
-- [ ] **Step 2: Backlog**
+- [x] **Step 2: Backlog**
   In `docs/backlog/ring-from-a-guest.md`, `ring-from-the-list.md` and
   `ring-state-decline-and-missed.md`, change `**Status: open**` to
   `**Status: done**` and add under it:
@@ -489,10 +489,12 @@ Phase 2:
   `grep -ln -w ring docs/backlog`) get the mention fixed only if it
   describes current behaviour.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
   Commit the docs (Step 1) as `Docs: ringing is gone`, and the three
   backlog status changes (Step 2) on their own as
   `Backlog: ringing entries dropped`.
+
+> Note: `system-test-sfu-unreachable-at-start.md` mentions ringing only as history of a past flaky test; left as is. ROADMAP/KNOWLEDGE keep their dated ringing history by design.
 
 ---
 
@@ -504,7 +506,7 @@ Phase 2:
 - Modify: `src/quickmeet/sfu.lg`
 - Test: none here; the routes tests stub it, and the held-token browser spec (Task 10) exercises it against the real SFU
 
-- [ ] **Step 1: Write `remove-participant!`**
+- [x] **Step 1: Write `remove-participant!`**
   After `participants`: `(defn remove-participant! [livekit room-id identity] ...)`,
   calling `room-service` with method `"RemoveParticipant"`, grant
   `{:room room-id :room-admin true}`, body `{:room room-id :identity identity}`.
@@ -512,11 +514,11 @@ Phase 2:
   person already left). Docstring in the file's style. Update the file's
   top comment: the app also removes a participant the owner rule refuses.
 
-- [ ] **Step 2: Check it compiles**
+- [x] **Step 2: Check it compiles**
   Run: `lgx test`
   Expected: PASS.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
   `git commit -am "sfu: remove a participant"`
 
 ### Task 7: The rule at the token endpoint and the room lookup
