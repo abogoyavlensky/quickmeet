@@ -40,7 +40,7 @@ jobs:
             ~/.cache/go-build
             ~/go/pkg/mod
             ~/.lgx/runtimes
-          key: runtimes-static-${{ runner.os }}-${{ hashFiles('lgx.edn', 'webpush/**') }}
+          key: runtimes-static-${{ runner.os }}-${{ hashFiles('lgx.edn') }}
           restore-keys: runtimes-static-${{ runner.os }}-
 
       # The image is a copy of this binary.

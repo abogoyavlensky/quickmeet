@@ -67,7 +67,7 @@ jobs:
             ~/.cache/go-build
             ~/go/pkg/mod
             ~/.lgx/runtimes
-          key: ${{ matrix.cache }}-${{ hashFiles('lgx.edn', 'webpush/**') }}
+          key: ${{ matrix.cache }}-${{ hashFiles('lgx.edn') }}
           restore-keys: ${{ matrix.cache }}-
 
       # The test job ran these on amd64 only; on arm64 this is their one run.
