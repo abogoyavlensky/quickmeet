@@ -723,3 +723,23 @@ Phase 2:
 
 - [x] **Step 3: Commit**
   `git commit -am "Docs: every call includes the room's owner"`
+
+---
+
+## Completion summary (2026-10-28)
+
+**Done.** Ringing is gone (server, shim, pages, tables, docs, backlog) and a call now always includes the room's owner: the token endpoint answers `409 owner-absent`, the room lookup carries `owner_needed`, the lobby says "{name} is waiting for someone else.", and the `participant_joined` webhook removes a pair that slipped in on tokens minted while the room was empty. `lgx test`: 102 tests, 0 failures. `lgx e2e`: 82 passed, 2 failed. Those 2 (`blur.spec.js:71` and `:131`) fail identically on the untouched baseline (86 passed, same 2 failed before any edit), so they are not from this work. The held-token spec, the only proof the webhook design works against the real SFU, passed unmodified (6/6 in a repeat run, and in the full suite). The Codex branch review against master found nothing.
+
+**Issues met**
+- Task 4 broke `pages-and-static` (asserted the old worker's `notificationclick`). I ran e2e but not `lgx test` after that task, so it surfaced a task later; fixed in `1df7b8e`.
+- The held-token spec first failed for a real product reason: a removal landing while `room.connect()` or `publishTrack()` was pending left the join hanging ~15 s (see the Task 9 deviation). Fixed in the page (`c9d27ee`), not in the spec.
+
+**Deviations (all recorded under their tasks)**
+- Task 3: `.github/workflows/deploy.yml` also hashed `webpush/**`; dropped there too.
+- Task 4: removed the unused `bell` icon and a few shared sentences (`Turn on`, `Not now`, `Could not reach the server`) from `ui.js` / `i18n.js`.
+- Task 7: added a `user-identity` helper beside `participant-identity`.
+- Task 8: the warn line is logged only when the removal call succeeded.
+- Task 9: `isFull()` became `refusal()` ('full' / 'busy' / null); `join()` races `connect()` and `publishTrack()` against a `removal` promise.
+- Session: the task-list tools (TaskCreate/TaskUpdate) were not available, so this document's checkboxes were the only tracker.
+
+**What the plan could have specified better:** it should have said to run `lgx test` (not only `lgx e2e`) after every page task, since a unit test asserted on `sw.js`; and it assumed a removal surfaces through `publishTrack` failing, when in fact the connection can drop while `connect()` is still pending and neither call gives up for ~15 s.
