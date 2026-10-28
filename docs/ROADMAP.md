@@ -29,8 +29,9 @@ the SFU handles more, and the UI is what would need to change.
   LiveKit server, which is what LiveKit's mobile SDKs need; see
   "After v1".
 - Federation, multi-node LiveKit, or any deployment larger than one box.
-- Push notifications and call ringing. Calls are joined from a link; see
-  "After v1" for Web Push, which shipped after the release.
+- Push notifications and call ringing. Calls are joined from a link. Web
+  Push ringing shipped after the release and was removed again (see "After
+  v1").
 
 ## Milestones
 
@@ -181,7 +182,8 @@ invitation.
   any leave that never arrived.
 - Notifying the other person stays out of band in v1: the link goes over
   whatever chat you already use. The rooms list showing who is waiting is
-  the in-app signal. Ringing is "After v1", see Web Push there.
+  the in-app signal. (Ringing was added after v1 and removed again; see "After
+  v1".)
 
 ### M5: release
 
@@ -267,6 +269,9 @@ in host mode. Two phones on different networks held a call there. See
   small shim in `webpush/`. Left for later, each in the backlog: a ring
   from the list, ring state (decline, cancel, missed calls in history),
   rings from guests. Not yet tried on a real phone.
+  Removed 2026-10-28 to keep the app simple; the rooms list showing who is
+  waiting is the in-app signal again
+  (`docs/plans/2026-10-28-1104-drop-ringing-and-owner-rule.md`).
 - Done 2026-10-02: screen sharing from desktop browsers. A button in
   the call's controls opens the browser's own picker (a monitor, a
   window or a tab); on the other side the screen takes the stage in
@@ -327,9 +332,8 @@ in host mode. Two phones on different networks held a call there. See
   sharing the monitor the page is on shows a small tunnel in that tile,
   which is accepted. Not yet tried in a real browser.
 - Mobile: LiveKit's Swift, Kotlin and React Native SDKs talk to the same
-  SFU and the same token endpoint. Native ringing needs APNs and FCM
-  signing that let-go does not have; a small Go shim or a hosted push
-  service. The PWA above covers phones without any of that.
+  SFU and the same token endpoint. The PWA above covers phones without
+  any of that.
 - More than two people, chat over LiveKit data channels. While a screen
   is shared, the sharer's face in a small tile beside it
   (`docs/backlog/screen-share-face-tile.md`).

@@ -130,7 +130,7 @@ main.lg                        starts the system, waits on the http server, shut
 src/quickmeet/system.lg        the integrant config from the environment
 src/quickmeet/db.lg            ::conn (open + migrate), queries
 src/quickmeet/migrations.lg    the schema history (ragtime over sqlite)
-src/quickmeet/routes.lg        ::handler: pages, accounts, rooms, join tokens, the two-person rule, ringing, the webhook, rate limits
+src/quickmeet/routes.lg        ::handler: pages, accounts, rooms, join tokens, the two-person rule, the webhook, rate limits
 src/quickmeet/ratelimit.lg     fixed-window rate limits in memory
 src/quickmeet/history.lg       call history from the SFU's webhook events
 src/quickmeet/auth.lg          sign-up, sign-in, sessions, the allowlist, the session cookie
@@ -138,9 +138,7 @@ src/quickmeet/password.lg      bcrypt (golang.org/x/crypto/bcrypt as a :go/inter
 src/quickmeet/id.lg            random ids for rooms, users and sessions
 src/quickmeet/sfu.lg           asks the embedded SFU who is in a room, and which rooms are live (twirp over loopback)
 src/quickmeet/server.lg        ::http: http/start on init, http/stop on halt
-src/quickmeet/push.lg          ringing: the VAPID keys, the push-service allowlist, delivery
-webpush/                       the Go shim over webpush-go (a :go/local coord): encrypt, sign, send
-resources/public/              index, room, history, signup, signin, settings pages; app.css; ui.js (icons, avatars, push); sw.js (rings); the manifest and app icons; vendored livekit-client, font and background blur
+resources/public/              index, room, history, signup, signin, settings pages; app.css; ui.js (icons, avatars); sw.js (a stub that unregisters the old service worker); the manifest and app icons; vendored livekit-client, font and background blur
 scripts/vendor-fonts.mjs       writes resources/public/fonts.css from the pinned Onest release
 scripts/vendor-blur.mjs        writes the blur bundle, MediaPipe's wasm and the model into resources/public
 scripts/make-icons.mjs         writes the home-screen icons and favicon.ico into resources/public

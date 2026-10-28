@@ -56,9 +56,8 @@ printed to stdout, whether or not telemetry is on.
 |---|---|---|
 | error | `GET /api/rooms/:id failed: <message>` | a handler threw (the client got a 500) |
 | error | `GET /api/rooms/:id answered 503` | a handler answered 5xx |
-| error | `the SFU could not be asked (ListParticipants): <reason>` | a lookup failed, which reads as "nobody there" to the lobby, the two-person check and the ring. Not tied to a trace; the request's `sfu.*` child span is marked an error instead |
+| error | `the SFU could not be asked (ListParticipants): <reason>` | a lookup failed, which reads as "nobody there" to the lobby and the two-person check. Not tied to a trace; the request's `sfu.*` child span is marked an error instead |
 | warn | `a webhook failed verification` | something posted to the webhook URL without the SFU's signature |
-| warn | `push to <host> failed` | a ring did not reach a device |
 
 Lines name the route pattern, never the raw path, which holds a room id.
 
@@ -71,8 +70,7 @@ Metrics, exported every 60 s (and once more when the process stops):
 | `quickmeet.participants.active` | gauge | | people in a call right now |
 | `quickmeet.call.duration` | histogram, `s` | | how long a call lasted, from the first join to the room closing |
 | `quickmeet.token.requests` | counter | `outcome`: `ok`, `full`, `not_found` | join-token requests; `full` is a third person turned away |
-| `quickmeet.push.deliveries` | counter | `outcome`: `sent`, `gone`, `failed` | rings to devices; `gone` is a subscription dropped |
-| `quickmeet.rate_limit.rejected` | counter | `bucket`: `signin`, `signup`, `create_room`, `ring` | requests answered 429 |
+| `quickmeet.rate_limit.rejected` | counter | `bucket`: `signin`, `signup`, `create_room` | requests answered 429 |
 
 The two gauges are set from the SFU's webhooks, so they are as current as the
 last webhook that arrived. `quickmeet.call.duration` counts only calls the SFU
@@ -81,10 +79,7 @@ Attribute values are bounded: never a room id, a user id or a raw path.
 
 What is not recorded: raw URLs and query strings, cookies, the
 `Authorization` header, request and response bodies, email addresses, room
-ids (the link that grants entry), push endpoints. A push failure is exported
-as `push to <host> failed`, with the status if there was one, and never with
-the HTTP client's error text, which can hold the whole subscription URL. The
-same line printed to stdout keeps that text.
+ids (the link that grants entry).
 
 Exports are batched (every 5 s or when a batch fills) and flushed when the
 process stops on SIGTERM or SIGINT. A rejected token or an unreachable
