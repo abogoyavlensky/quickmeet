@@ -934,6 +934,13 @@
         if (!res.ok) throw new Error('could not get a token (' + res.status + ')');
         const { token, url } = await res.json();
 
+        // A removal while still connecting or publishing: connect() and
+        // publishTrack() on a connection that is gone take about 15 s to
+        // give up, so the join races them against this and ends at once.
+        let rejectRemoved;
+        const removal = new Promise((_, reject) => { rejectRemoved = reject; });
+        removal.catch(() => { /* only raced while joining, below */ });
+
         const room = new Room({ adaptiveStream: true, dynacast: true });
         window.call.room = room;
         room.on(RoomEvent.TrackSubscribed, (track, pub, participant) => {
@@ -980,7 +987,10 @@
         room.on(RoomEvent.Disconnected, reason => {
           // The removal can land while tracks are still publishing; then
           // join()'s catch shows it.
-          if (reason === DisconnectReason.PARTICIPANT_REMOVED) removed = true;
+          if (reason === DisconnectReason.PARTICIPANT_REMOVED) {
+            removed = true;
+            rejectRemoved(new Error(BUSY()));
+          }
           // A failed join tears itself down in join()'s catch; only a call
           // that was up returns to the lobby from here.
           if (!window.call.joined) return;
@@ -995,13 +1005,17 @@
         });
 
         try {
-          await room.connect(url, token);
+          const connecting = room.connect(url, token);
+          connecting.catch(() => { /* a removal wins the race; the room is torn down */ });
+          await Promise.race([connecting, removal]);
         } catch (e) {
           const why = await refusal();
           throw why === 'full' ? new Error(FULL()) : why === 'busy' ? new Error(BUSY()) : e;
         }
         for (const t of lobby.tracks) {
-          await room.localParticipant.publishTrack(t);
+          const publishing = room.localParticipant.publishTrack(t);
+          publishing.catch(() => { /* a removal wins the race; the room is torn down */ });
+          await Promise.race([publishing, removal]);
           if (t.kind === Track.Kind.Video) t.attach($('local'));
         }
         if (removed) throw new Error(BUSY());
