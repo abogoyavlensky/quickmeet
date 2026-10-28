@@ -14,13 +14,16 @@
 ;; consider the cap and still answers "success". So the browser cannot
 ;; tell "full" from "broken". The token endpoint asks here first and
 ;; answers 409 with a message, and the lobby shows who is already there.
+;;
+;; The app also removes a participant the owner rule refuses (a call needs
+;; the room's owner once two people are in it; see routes.lg).
 
 (defn- room-service-url [port method]
   ;; The SFU may bind 0.0.0.0 in a container; loopback still reaches it.
   (str "http://127.0.0.1:" port "/twirp/livekit.RoomService/" method))
 
 ;; A lookup that fails reads as "nobody there" to every caller (the lobby, the
-;; two-person check, the ring), so the failure itself is logged here, with
+;; two-person check), so the failure itself is logged here, with
 ;; the reason. The SFU runs inside this process, so this is never routine.
 (defn- failed! [method reason]
   (telemetry/log! :error (str "quickmeet: the SFU could not be asked (" method "): " reason)
@@ -67,6 +70,16 @@
     (when (map? res)
       (into {} (map (fn [r] [(:name r) (or (:num_participants r) 0)])
                     (:rooms res))))))
+
+(defn remove-participant!
+  "Ask the SFU to disconnect `identity` from `room-id`. True when it did,
+   nil when it could not be asked or the person was already gone (the SFU's
+   404). The person's browser sees DisconnectReason.PARTICIPANT_REMOVED."
+  [livekit room-id identity]
+  (let [res (room-service livekit "RemoveParticipant"
+                          {:room room-id :room-admin true}
+                          {:room room-id :identity identity})]
+    (when (map? res) true)))
 
 (defn create-room!
   "Ask the SFU to create `room-id` now rather than on first join. Tests use

@@ -48,9 +48,9 @@ media ports.
   before joining. Share a screen, window, or tab from a desktop browser;
   people on phones can watch too.
 - **Pick up where you left off.** Signed-in users have saved rooms and call
-  history. Ring other room members who have enabled notifications.
+  history. Your rooms list shows who is waiting in each one.
 - **Use it on your phone.** Open quickmeet in your browser or add it to your
-  home screen. On iPhone, ringing requires the home-screen app.
+  home screen.
 
 ## Try it locally
 
@@ -71,8 +71,8 @@ Open the room link in another browser window and join from both.
 
 Under active development. Calls are limited to two people per room.
 Email addresses are not verified, and there is no self-service password reset.
-The installation guide still needs verification on a fresh server; phone
-ringing and screen sharing also need testing on real devices.
+The installation guide still needs verification on a fresh server; screen
+sharing also needs testing on real devices.
 [Report an issue](https://github.com/abogoyavlensky/quickmeet/issues) or
 see the [roadmap](docs/ROADMAP.md).
 

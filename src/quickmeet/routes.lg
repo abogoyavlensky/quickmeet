@@ -7,7 +7,6 @@
             [quickmeet.history :as history]
             [quickmeet.id :as id]
             [quickmeet.metrics :as metrics]
-            [quickmeet.push :as push]
             [quickmeet.ratelimit :as ratelimit]
             [quickmeet.sfu :as sfu]
             [quickmeet.telemetry :as telemetry]
@@ -23,7 +22,9 @@
 ;;
 ;; Who may do what: creating a room takes an account (a session cookie),
 ;; and only its owner renames or deletes it; the room page, the room lookup
-;; and the join token are open to anyone holding a link. The account logic
+;; and the join token are open to anyone holding a link, with one rule on
+;; the token: a call always includes the room's owner (owner-needed?). The
+;; account logic
 ;; lives in quickmeet.auth; the routes here only turn its results into
 ;; responses.
 
@@ -265,6 +266,28 @@
     {:identity (str "user:" (:id user)) :name (:display_name user)}
     {:identity (str "guest:" (subs (id/random-hex) 0 4)) :name (clean-name typed-name)}))
 
+(defn- user-identity
+  "The identity a signed-in `user` joins with, or nil for a guest, whose
+   identity is minted when the token is."
+  [user]
+  (when user (:identity (participant-identity user nil))))
+
+;; The owner rule: a call always includes the room's owner. Anyone holding
+;; the link may be in the room alone, but a second person gets in only if
+;; one of the two is the signed-in owner. The token endpoint, the room
+;; lookup and the webhook all ask this one function.
+(defn- owner-needed?
+  "Whether `joiner` (an identity string, or nil for an unknown visitor)
+   would be refused by the owner rule: exactly one person is in the room,
+   and neither they nor the joiner is the room's owner. `participants` is
+   the SFU's vector, nil when it could not be asked (reads as nobody)."
+  [room participants joiner]
+  (and (= 1 (count participants))
+       (if-let [owner-id (:owner_id room)]
+         (let [owner (str "user:" owner-id)]
+           (not (or (= owner joiner) (= owner (:identity (first participants))))))
+         true)))
+
 ;; ---- pages --------------------------------------------------------------
 
 ;; The lists (my rooms, my calls) come a page at a time, newest first. The
@@ -301,41 +324,6 @@
    :owner (= (:owner_id room) (:id user))
    :present (get active (:id room) 0)})
 
-;; ---- ringing ------------------------------------------------------------
-
-;; A subscription as the browser's PushSubscription.toJSON() gives it:
-;; {"endpoint", "keys": {"p256dh", "auth"}}. The endpoint must be a browser
-;; vendor's push service (push/endpoint-problem); the keys are short
-;; base64url strings.
-(defn- subscription-problem [{:keys [endpoint] :as body}]
-  (let [{:keys [p256dh auth]} (get body :keys)
-        key-ok? #(and (string? %) (not (str/blank? %)) (<= (count %) 256))]
-    (cond
-      (not (string? endpoint)) "The endpoint is missing."
-      (push/endpoint-problem endpoint) (push/endpoint-problem endpoint)
-      (not (and (key-ok? p256dh) (key-ok? auth))) "The subscription's keys are missing or malformed."
-      :else nil)))
-
-(defn- ring-targets
-  "The devices a ring by `user` in the room reaches: the other members'
-   live subscriptions, whose address is still allowed."
-  [conn auth room-id user]
-  (filterv #(auth/allowed? auth (:email %)) (db/ring-targets conn room-id (:id user))))
-
-(defn- ring-names
-  "Whom a ring by `user` would reach, by name; [] for a guest."
-  [conn auth room-id user]
-  (if user
-    (vec (distinct (map :display_name (ring-targets conn auth room-id user))))
-    []))
-
-(defn- in-room?
-  "Whether `user` is in the room now, as the SFU sees it. A lookup that
-   could not ask the SFU reads as no."
-  [participants room-id user]
-  (let [identity (:identity (participant-identity user nil))]
-    (boolean (some #(= identity (:identity %)) (participants room-id)))))
-
 ;; A question to the SFU, the one call inside a request that leaves the
 ;; process besides SQLite: a child span of the request's (telemetry.lg), so
 ;; a slow request shows whether the SFU was why. A lookup that could not ask
@@ -350,26 +338,8 @@
                            (telemetry/set-error! span "the SFU could not be asked"))
                          res))))
 
-(defn- ring-message
-  "What a ring sends to `target`'s device: the notification the service
-   worker shows, the room as the topic (so a newer ring replaces one still
-   waiting at the push service), and the VAPID subject, the site's own URL
-   behind TLS. Over plain http (development) there is no such URL; the
-   library makes the address a mailto:. The text is English; `from` and
-   the recipient's `language` let the worker show it in Russian (sw.js),
-   which only it can decide for \"auto\", from the device's own language."
-  [req user room-id target]
-  {:payload (json/write-json {:title (str (:display_name user) " wants to talk")
-                              :body "Tap to join the call."
-                              :url (str "/room/" room-id)
-                              :tag (str "room-" room-id)
-                              :from (:display_name user)
-                              :language (or (:language target) "auto")})
-   :topic room-id
-   :subject (if (secure? req) (str "https://" (request-host req)) "quickmeet@localhost")})
-
 (defn- routes [conn {:keys [api-key api-secret] :as livekit}
-               {:keys [participants active-rooms verify]} auth push]
+               {:keys [participants active-rooms verify remove-participant]} auth]
   (let [current-user (fn [req] (auth/current-user conn auth (session-id req)))
         ;; An owner's action on a room: 401 without a session, 404 for no
         ;; such room, 403 for someone else's.
@@ -381,7 +351,27 @@
                        (not user) unauthorized
                        (not room) room-not-found
                        (not= (:owner_id room) (:id user)) forbidden
-                       :else (handle room))))]
+                       :else (handle room))))
+        ;; The owner rule at the door of the SFU: a token lasts an hour, so
+        ;; two guests can ask for tokens while the room is empty and then
+        ;; connect together. On each join the room is checked as the SFU
+        ;; sees it, without the joiner, and a join that breaks the rule is
+        ;; removed. Two joining at once are both removed, each by its own
+        ;; event; both broke the rule. A lookup or a removal that fails is
+        ;; logged by sfu.lg and removes nobody.
+        enforce-owner-rule
+        (fn [req event]
+          (when (= "participant_joined" (:event event))
+            (let [room-id (get-in event [:room :name])
+                  joiner (get-in event [:participant :identity])
+                  room (and (valid-room-id? room-id) (db/get-room conn room-id))
+                  present (when room (sfu-call req "sfu.participants" #(participants room-id)))
+                  others (filterv #(not= joiner (:identity %)) present)]
+              (when (and room (owner-needed? room others joiner))
+                (when (sfu-call req "sfu.remove" #(remove-participant room-id joiner))
+                  ;; No room id: it is the link that grants entry.
+                  (telemetry/log! :warn "quickmeet: removed a participant: the room's owner is not in it"
+                                  {} {:span req}))))))]
   [{:path "/"
     :method :get
     :response (fn [_] (page-response "index.html"))}
@@ -407,9 +397,9 @@
     :method :get
     :response (fn [_] (static-response "favicon.ico"))}
 
-   ;; The service worker that shows rings. At the root because a worker
-   ;; controls only the paths under its own file's; never cached, so a
-   ;; changed worker reaches browsers at their next visit.
+   ;; Ringing is gone; v0.1.0 installed a service worker, and this stub
+   ;; unregisters it. Never cached, so the stub reaches those browsers at their
+   ;; next visit.
    {:path "/sw.js"
     :method :get
     :response (fn [_] (static-response "sw.js" "no-cache"))}
@@ -552,103 +542,62 @@
     :response (fn [req]
                 (let [id (-> req :params :id)]
                   (if-let [room (and (valid-room-id? id) (db/get-room conn id))]
-                    ;; Who is in the room now, so a lobby can show it. A
-                    ;; lookup that could not ask the SFU reads as nobody.
-                    (json-response 200 (-> room
-                                           (dissoc :owner_id)
-                                           (assoc :participants (or (sfu-call req "sfu.participants" #(participants id)) []))))
+                    ;; Who is in the room now, so a lobby can show it, and
+                    ;; whether the visitor would be refused for want of the
+                    ;; owner. A lookup that could not ask the SFU reads as
+                    ;; nobody.
+                    (let [present (or (sfu-call req "sfu.participants" #(participants id)) [])]
+                      (json-response 200 (-> room
+                                             (dissoc :owner_id)
+                                             (assoc :participants present
+                                                    :owner_needed (owner-needed? room present (user-identity (current-user req)))))))
                     (json-response 404 {:error "not found"}))))}
 
    ;; A join token for a known room. Body: {"identity": "..."}, the name a
    ;; guest typed (optional; a signed-in person's display name is used).
-   ;; Two people per room: a third gets 409 and a message the page can show.
-   ;; The SFU enforces the same cap itself (system.lg); this check exists
-   ;; because a refusal there is not distinguishable in the browser (sfu.lg).
+   ;; Two people per room: a third gets 409 {"error": "full"}. A second
+   ;; person gets in only if one of the two is the room's signed-in owner,
+   ;; else 409 {"error": "owner-absent"} (owner-needed?). A guest's identity
+   ;; is minted below, so here a guest is simply not the owner. Both are
+   ;; messages the page can show.
+   ;; The SFU enforces the two-person cap itself (system.lg); this check
+   ;; exists because a refusal there is not distinguishable in the browser
+   ;; (sfu.lg).
    {:path "/api/rooms/:id/token"
     :method :post
     :response (fn [req]
-                (let [id (-> req :params :id)]
-                  (cond
-                    (not (and (valid-room-id? id) (db/get-room conn id)))
+                (let [id (-> req :params :id)
+                      room (and (valid-room-id? id) (db/get-room conn id))]
+                  (if-not room
                     (do (metrics/token-request! :not-found)
                         (json-response 404 {:error "not found"}))
+                    (let [present (sfu-call req "sfu.participants" #(participants id))
+                          user (current-user req)]
+                      (cond
+                        (>= (count present) 2)
+                        (do (metrics/token-request! :full)
+                            (json-response 409 {:error "full"}))
 
-                    (>= (count (sfu-call req "sfu.participants" #(participants id))) 2)
-                    (do (metrics/token-request! :full)
-                        (json-response 409 {:error "full"}))
+                        (owner-needed? room present (user-identity user))
+                        (do (metrics/token-request! :owner-absent)
+                            (json-response 409 {:error "owner-absent"}))
 
-                    :else
-                    (let [user (current-user req)
-                          {:keys [identity name]} (participant-identity user (:identity (read-json-body req)))]
-                      ;; Joining as a signed-in person puts the room on
-                      ;; their list.
-                      (when user (db/add-member! conn id (:id user)))
-                      (metrics/token-request! :ok)
-                      ;; `ring`: whom the call page may offer to ring.
-                      (json-response 200
-                                     {:ring (ring-names conn auth id user)
-                                      :token (lk/token api-key api-secret
-                                                       {:identity identity
-                                                        :name name
-                                                        :room id
-                                                        :room-join true
-                                                        :ttl-seconds 3600})
-                                      :identity identity
-                                      :name name
-                                      :url (signalling-url req livekit)})))))}
-
-   ;; Ring the room's other members: someone in the room right now, signed
-   ;; in, notifies every live device of the others. Checked in this order,
-   ;; with the limit last so only a ring that is sent starts its window.
-   {:path "/api/rooms/:id/ring"
-    :method :post
-    :response (fn [req]
-                (let [id (-> req :params :id)
-                      user (current-user req)]
-                  (cond
-                    (not user) unauthorized
-                    (not (and (valid-room-id? id) (db/get-room conn id))) room-not-found
-                    (not (in-room? (fn [room-id] (sfu-call req "sfu.participants" #(participants room-id)))
-                                         id user)) forbidden
-                    :else
-                    (let [targets (ring-targets conn auth id user)]
-                      (if (empty? targets)
-                        (json-response 409 {:error "nobody to ring"})
-                        (or (limited auth :ring (str (:id user) ":" id))
-                            (do (doseq [target targets]
-                                  (push/deliver! push conn [target] (ring-message req user id target)))
-                                (json-response 200 {:devices (count targets)}))))))))}
-
-   ;; The key a browser subscribes with (applicationServerKey).
-   {:path "/api/push/key"
-    :method :get
-    :response (fn [_] (json-response 200 {:key (:public-key push)}))}
-
-   ;; This device may be rung. Body: the browser's subscription. It belongs
-   ;; to the session, so signing out stops it.
-   {:path "/api/push/subscriptions"
-    :method :post
-    :response (json-only
-               (fn [req]
-                 (if (current-user req)
-                   (let [body (read-json-body req)]
-                     (if-let [problem (subscription-problem body)]
-                       (json-response 400 {:error problem})
-                       (let [{:keys [p256dh auth]} (get body :keys)]
-                         (db/save-subscription! conn (:endpoint body) (session-id req) p256dh auth)
-                         (json-response 200 {}))))
-                   unauthorized)))}
-
-   ;; This device may not be rung any more. Body: {"endpoint"}. Only a
-   ;; device of one's own goes; an unknown one is no error.
-   {:path "/api/push/unsubscribe"
-    :method :post
-    :response (json-only
-               (fn [req]
-                 (if-let [user (current-user req)]
-                   (do (db/delete-own-subscription! conn (str (:endpoint (read-json-body req))) (:id user))
-                       (json-response 200 {}))
-                   unauthorized)))}
+                        :else
+                        (let [{:keys [identity name]} (participant-identity user (:identity (read-json-body req)))]
+                          ;; Joining as a signed-in person puts the room on
+                          ;; their list.
+                          (when user (db/add-member! conn id (:id user)))
+                          (metrics/token-request! :ok)
+                          (json-response 200
+                                         {:token (lk/token api-key api-secret
+                                                           {:identity identity
+                                                            :name name
+                                                            :room id
+                                                            :room-join true
+                                                            :ttl-seconds 3600})
+                                          :identity identity
+                                          :name name
+                                          :url (signalling-url req livekit)})))))))}
 
    ;; A page of my call history, newest first.
    {:path "/api/calls"
@@ -666,8 +615,10 @@
     :response (fn [req]
                 (let [body (str (:body req))]
                   (if (verify (get-in req [:headers "authorization"]) body)
-                    (do (history/record! conn (json/read-json body {:keywords? true}))
-                        (json-response 200 {}))
+                    (let [event (json/read-json body {:keywords? true})]
+                      (history/record! conn event)
+                      (enforce-owner-rule req event)
+                      (json-response 200 {}))
                     (do (telemetry/log! :warn "quickmeet: a webhook failed verification" {} {:span req})
                         unauthorized))))}
 
@@ -681,16 +632,16 @@
    stub them: :participants, (fn [room-id]) -> vector of {:identity :name},
    [] for a room nobody is in, nil when the SFU could not be asked;
    :active-rooms, (fn []) -> map of room id to how many are in it, nil when
-   it could not be asked; :verify, (fn [authorization-header body]) ->
+   it could not be asked; :remove-participant, (fn [room-id identity]) ->
+   truthy when the SFU disconnected that participant (the owner rule at the
+   webhook); :verify, (fn [authorization-header body]) ->
    whether a webhook is genuinely the SFU's. `auth` is {:allowed-emails
    #{..} | nil, :limit f}: the addresses that may have an account, or nil
    for open sign-up; and, optionally, the rate limiter as (fn [bucket key])
    -> nil to allow, or the seconds to wait (quickmeet.ratelimit/check!).
-   Without :limit nothing is limited. `push` is how rings go out:
-   {:public-key, :send! (fn [target message]) -> status, :spawn (fn [f])}
-   (quickmeet.push/service)."
-  [conn livekit lookups auth push]
-  (let [table (mapv (comp telemetry/wrap-route answer-invalid-json) (routes conn livekit lookups auth push))]
+   Without :limit nothing is limited."
+  [conn livekit lookups auth]
+  (let [table (mapv (comp telemetry/wrap-route answer-invalid-json) (routes conn livekit lookups auth))]
     (fn [req]
       ;; let-go's :uri is the request URI, query string included, and
       ;; ruuter matches it whole: routes see the path alone. The query
@@ -711,6 +662,6 @@
     (handler db livekit
              {:participants (partial sfu/participants livekit)
               :active-rooms (partial sfu/active-rooms livekit)
+              :remove-participant (partial sfu/remove-participant! livekit)
               :verify (fn [header body] (lk/verify-webhook header body api-key api-secret))}
-             auth
-             (push/service db))))
+             auth)))

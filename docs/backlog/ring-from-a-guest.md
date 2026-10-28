@@ -1,6 +1,7 @@
 # A guest holding a room's link cannot ring its members
 
-**Status: open**
+**Status: done**
+Dropped: ringing was removed (docs/plans/2026-10-28-1104-drop-ringing-and-owner-rule.md).
 
 ## Problem
 

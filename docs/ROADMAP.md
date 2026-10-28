@@ -29,8 +29,9 @@ the SFU handles more, and the UI is what would need to change.
   LiveKit server, which is what LiveKit's mobile SDKs need; see
   "After v1".
 - Federation, multi-node LiveKit, or any deployment larger than one box.
-- Push notifications and call ringing. Calls are joined from a link; see
-  "After v1" for Web Push, which shipped after the release.
+- Push notifications and call ringing. Calls are joined from a link. Web
+  Push ringing shipped after the release and was removed again (see "After
+  v1").
 
 ## Milestones
 
@@ -181,7 +182,8 @@ invitation.
   any leave that never arrived.
 - Notifying the other person stays out of band in v1: the link goes over
   whatever chat you already use. The rooms list showing who is waiting is
-  the in-app signal. Ringing is "After v1", see Web Push there.
+  the in-app signal. (Ringing was added after v1 and removed again; see "After
+  v1".)
 
 ### M5: release
 
@@ -267,6 +269,9 @@ in host mode. Two phones on different networks held a call there. See
   small shim in `webpush/`. Left for later, each in the backlog: a ring
   from the list, ring state (decline, cancel, missed calls in history),
   rings from guests. Not yet tried on a real phone.
+  Removed 2026-10-28 to keep the app simple; the rooms list showing who is
+  waiting is the in-app signal again
+  (`docs/plans/2026-10-28-1104-drop-ringing-and-owner-rule.md`).
 - Done 2026-10-02: screen sharing from desktop browsers. A button in
   the call's controls opens the browser's own picker (a monitor, a
   window or a tab); on the other side the screen takes the stage in
@@ -326,10 +331,18 @@ in host mode. Two phones on different networks held a call there. See
   screen-sharing plan's "the sharer does not see their own screen":
   sharing the monitor the page is on shows a small tunnel in that tile,
   which is accepted. Not yet tried in a real browser.
+- Done 2026-10-28: every call includes the room's owner
+  (`docs/plans/2026-10-28-1104-drop-ringing-and-owner-rule.md`). Anyone
+  holding the link may wait in the room alone; a second person gets in only
+  if one of the two is the signed-in owner, else the token endpoint answers
+  409 `owner-absent`, the lobby says the person is "waiting for someone
+  else", and a webhook check removes a pair that slipped in on tokens minted
+  while the room was empty. Two concerns: a leaked link used by strangers on
+  the instance's bandwidth, and members using someone else's room as their
+  own.
 - Mobile: LiveKit's Swift, Kotlin and React Native SDKs talk to the same
-  SFU and the same token endpoint. Native ringing needs APNs and FCM
-  signing that let-go does not have; a small Go shim or a hosted push
-  service. The PWA above covers phones without any of that.
+  SFU and the same token endpoint. The PWA above covers phones without
+  any of that.
 - More than two people, chat over LiveKit data channels. While a screen
   is shared, the sharer's face in a small tile beside it
   (`docs/backlog/screen-share-face-tile.md`).
@@ -345,6 +358,8 @@ in host mode. Two phones on different networks held a call there. See
   anyone with a link may join. The M2 and M6 limits (two-person cap,
   room expiry, rate limits) bound what one room or one client can cost,
   but only accounts keep strangers from using an instance at all.
+  Update 2026-10-28: a call now needs the room's owner too, so a link
+  alone no longer gets two strangers a call.
 - Whether room pages should work without JavaScript beyond
   `livekit-client` (currently plain DOM code, no framework).
 - Resolved 2026-09-29: room lifetime. Permanent, see M2. Presence in the

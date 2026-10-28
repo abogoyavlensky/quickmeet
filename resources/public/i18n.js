@@ -23,7 +23,7 @@ const languageStore = {
 };
 
 // The first preferred language only, the one navigator.language reports,
-// so the pages and the service worker (sw.js) decide the same way.
+// so the pages decide the same way.
 const autoLanguage = () => (/^ru\b/i.test(navigator.language || '') ? 'ru' : 'en');
 // 'auto', 'en' or 'ru': the account's choice as last seen here.
 const pinnedLanguage = () => {
@@ -45,15 +45,11 @@ const RU = {
   "Sign up": "Регистрация",
   "Sign in": "Войти",
   "Starting a call takes an account. Joining one takes only the link.": "Чтобы начать звонок, нужна учётная запись. Чтобы присоединиться, достаточно ссылки.",
-  "Turn on": "Включить",
-  "Not now": "Не сейчас",
   "New call": "Новый звонок",
   "Nobody to call yet. Start a call and send its link; the link stays here for next time.": "Пока звонить некому. Начните звонок и отправьте ссылку: она останется здесь для следующего раза.",
   "← Newer": "← Новее",
   "Older →": "Старше →",
   "Signed in as": "Вы вошли как",
-  "Let people ring you on this device.": "Разрешите звонить вам на это устройство.",
-  "To be rung on this iPhone, add quickmeet to your home screen (Share, then Add to Home Screen) and open it from there.": "Чтобы получать звонки на этом iPhone, добавьте quickmeet на экран «Домой» (Поделиться, затем «На экран „Домой“») и открывайте его оттуда.",
   "The name must be at most 64 characters.": "Имя должно быть не длиннее 64 символов.",
   "Too many attempts. Try again later.": "Слишком много попыток. Попробуйте позже.",
   "Something went wrong ({status}).": "Что-то пошло не так ({status}).",
@@ -85,13 +81,7 @@ const RU = {
   "Shown to the other person in a call.": "Его видит собеседник в звонке.",
   "Save name": "Сохранить имя",
   "Name saved.": "Имя сохранено.",
-  "Notifications": "Уведомления",
-  "When someone rings you from a call, this device shows it.": "Когда вам звонят из звонка, это устройство покажет уведомление.",
   "Back": "Назад",
-  "This browser cannot receive rings.": "Этот браузер не может принимать звонки.",
-  "Notifications are blocked for this site in the browser's settings.": "Уведомления для этого сайта запрещены в настройках браузера.",
-  "Stop ringing this device": "Не звонить на это устройство",
-  "Let people ring me on this device": "Звонить мне на это устройство",
   "Enter a name.": "Введите имя.",
   "Language": "Язык",
   "Language of the interface": "Язык интерфейса",
@@ -117,7 +107,8 @@ const RU = {
   "Tap to enable sound": "Нажмите, чтобы включить звук",
   "This call already has two people in it.": "В этом звонке уже два человека.",
   "Waiting for the other person.": "Ждём собеседника.",
-  "Could not ring.": "Не удалось позвонить.",
+  "{name} is waiting for someone else.": "{name} ждёт кого-то другого.",
+  "This room is busy right now.": "Комната сейчас занята.",
   "Leave": "Выйти из звонка",
   "Leave full screen": "Выйти из полноэкранного режима",
   "Full screen": "Во весь экран",
@@ -136,9 +127,6 @@ const RU = {
   "Loading blur…": "Загружаем размытие…",
   "Stop blurring": "Убрать размытие",
   "Blur background": "Размыть фон",
-  "Rung": "Звоним",
-  "Ring {name}": "Позвонить: {name}",
-  "Ring them": "Позвонить им",
   "You are sharing your screen.": "Вы показываете свой экран.",
   "Screen sharing is not available here.": "Показ экрана здесь недоступен.",
   "Stop sharing": "Остановить показ",
@@ -151,9 +139,6 @@ const RU = {
   "Reconnecting…": "Переподключаемся…",
   "Connection lost. Join again.": "Связь потеряна. Присоединитесь снова.",
   "Copied": "Скопировано",
-  "Could not reach the server ({status}).": "Не удалось связаться с сервером ({status}).",
-  "Could not turn ringing on ({status}).": "Не удалось включить звонки ({status}).",
-  "Notifications are not allowed for this site.": "Уведомления для этого сайта не разрешены.",
 };
 
 // The text for `key` in the current language; `{name}` in it is replaced

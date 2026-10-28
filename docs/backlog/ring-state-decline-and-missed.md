@@ -1,6 +1,7 @@
 # A ring has no state: no decline, no cancel, no missed call in history
 
-**Status: open**
+**Status: done**
+Dropped: ringing was removed (docs/plans/2026-10-28-1104-drop-ringing-and-owner-rule.md).
 
 ## Problem
 

@@ -7,7 +7,7 @@
 ;; otel package. docs/KNOWLEDGE.md has the decisions; the short version:
 ;;
 ;; - One process-wide handle, in an atom this namespace owns. Warnings are
-;;   printed in places with no handle to hand (push delivery), and a dynamic
+;;   printed in places with no handle to hand, and a dynamic
 ;;   var is out: let-go 1.13.0 runs every http handler on one shared
 ;;   dynamic-binding stack, so a "current span" would leak between requests
 ;;   (docs/backlog/letgo-http-handlers-share-dynamic-bindings.md). The request

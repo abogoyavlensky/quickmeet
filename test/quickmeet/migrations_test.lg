@@ -33,18 +33,23 @@
     (fn [conn]
       (is (= [] (applied conn)))
       (migrations/migrate! conn)
-      (is (= ["001-create-rooms" "002-create-users" "003-rooms-members-calls" "004-push" "005-language"]
+      (is (= ["001-create-rooms" "002-create-users" "003-rooms-members-calls" "004-push" "005-language"
+              "006-drop-push"]
              (applied conn)))
+      (is (= ["call_participants" "calls" "ragtime_migrations" "room_members" "rooms" "sessions" "users"]
+             (tables conn)))
+      (is (= ["id" "created_at" "owner_id" "name"] (columns conn "rooms")))
+      (is (= ["id" "email" "password_hash" "display_name" "created_at" "language"] (columns conn "users")))
+      (migrations/migrate! conn)
+      (is (= 6 (count (applied conn))))
+      ;; One step back: the push tables return, empty.
+      (migrations/rollback! conn)
       (is (= ["call_participants" "calls" "push_subscriptions" "ragtime_migrations" "room_members"
               "rooms" "sessions" "settings" "users"]
              (tables conn)))
-      (is (= ["id" "created_at" "owner_id" "name"] (columns conn "rooms")))
-      (is (= ["endpoint" "session_id" "p256dh" "auth" "created_at"] (columns conn "push_subscriptions")))
-      (is (= ["key" "value"] (columns conn "settings")))
-      (is (= ["id" "email" "password_hash" "display_name" "created_at" "language"] (columns conn "users")))
-      (migrations/migrate! conn)
-      (is (= 5 (count (applied conn))))
-      ;; One step back: the account's language goes, the rest stays.
+      (is (= [] (sqlite/query conn ["select * from push_subscriptions"])))
+      (is (= [] (sqlite/query conn ["select * from settings"])))
+      ;; Another: the account's language goes, the rest stays.
       (migrations/rollback! conn)
       (is (= ["id" "email" "password_hash" "display_name" "created_at"] (columns conn "users")))
       ;; Another: the push tables go.
@@ -110,7 +115,7 @@
       (is (= [{:id "aaaaaaaaaaaa" :owner_id "u1"} {:id "bbbbbbbbbbbb" :owner_id nil}]
              (sqlite/query conn ["select id, owner_id from rooms order by id"])))
       (migrations/migrate! conn)
-      (is (= 5 (count (applied conn)))))))
+      (is (= 6 (count (applied conn)))))))
 
 (deftest migration-004-both-ways
   ;; Push: a subscription per device, tied to the session that made it, and
@@ -119,6 +124,8 @@
   (with-conn
     (fn [conn]
       (migrations/migrate! conn)
+      ;; 006 dropped the tables; back it out to have them to fill.
+      (migrations/rollback! conn)
       (sqlite/execute! conn ["insert into users (id, email, password_hash, display_name)
                               values ('u1', 'a@b.c', 'x', 'a')"])
       (sqlite/execute! conn ["insert into sessions (id, user_id) values ('s1', 'u1')"])
@@ -137,12 +144,36 @@
   (with-conn
     (fn [conn]
       (migrations/migrate! conn)
-      (migrations/rollback! conn)
+      (migrations/rollback! conn 2)
       (sqlite/execute! conn ["insert into users (id, email, password_hash, display_name)
                               values ('u1', 'a@b.c', 'x', 'a')"])
       (migrations/migrate! conn)
       (is (= [{:id "u1" :language "auto"}] (sqlite/query conn ["select id, language from users"])))
       (sqlite/execute! conn ["update users set language = 'ru' where id = 'u1'"])
-      (migrations/rollback! conn)
+      (migrations/rollback! conn 2)
       (is (= 4 (count (applied conn))))
       (is (= [{:id "u1" :display_name "a"}] (sqlite/query conn ["select id, display_name from users"]))))))
+
+(deftest migration-006-both-ways
+  ;; Ringing is gone: the push tables go with their rows and the session
+  ;; stays; rolling back brings both tables back, empty.
+  (with-conn
+    (fn [conn]
+      (migrations/migrate! conn)
+      (migrations/rollback! conn)
+      (sqlite/execute! conn ["insert into users (id, email, password_hash, display_name)
+                              values ('u1', 'a@b.c', 'x', 'a')"])
+      (sqlite/execute! conn ["insert into sessions (id, user_id) values ('s1', 'u1')"])
+      (sqlite/execute! conn ["insert into push_subscriptions (endpoint, session_id, p256dh, auth)
+                              values ('https://fcm.googleapis.com/fcm/send/x', 's1', 'p', 'a')"])
+      (sqlite/execute! conn ["insert into settings (key, value) values ('k', 'v')"])
+      (migrations/migrate! conn)
+      (is (= 6 (count (applied conn))))
+      (is (not-any? #{"push_subscriptions" "settings"} (tables conn)))
+      (is (= [{:id "s1"}] (sqlite/query conn ["select id from sessions"])))
+      (migrations/rollback! conn)
+      (is (= 5 (count (applied conn))))
+      (is (some #{"push_subscriptions"} (tables conn)))
+      (is (some #{"settings"} (tables conn)))
+      (is (= [] (sqlite/query conn ["select * from push_subscriptions"])))
+      (is (= [] (sqlite/query conn ["select * from settings"]))))))

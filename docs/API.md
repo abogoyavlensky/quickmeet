@@ -17,19 +17,15 @@ GET  /api/rooms?page=N           -> 200 {"items": [{"id", "name", "created_at", 
                                          "page": n, "more": bool} | 401
 POST /api/rooms/:id              {"name"} (blank clears) -> 200 the room | 400 | 401 | 403 (not the owner) | 404
 DELETE /api/rooms/:id            -> 200 {} | 401 | 403 | 404
-GET  /api/rooms/:id              -> 200 {"id", "name", "created_at", "participants": [{"identity", "name"}]} | 404
+GET  /api/rooms/:id              -> 200 {"id", "name", "created_at", "participants": [{"identity", "name"}],
+                                         "owner_needed": bool} | 404
 POST /api/rooms/:id/token        {"identity": "alice"}   (the name a guest typed; optional)
-                                 -> 200 {"token", "identity", "name", "url", "ring": ["Anna"]} | 404 | 409 {"error": "full"}
-POST /api/rooms/:id/ring         -> 200 {"devices": n} | 401 | 403 (not in the room now) | 404
-                                  | 409 {"error": "nobody to ring"} | 429
-GET  /api/push/key               -> 200 {"key": "<VAPID public key>"}
-POST /api/push/subscriptions     the browser's PushSubscription.toJSON(): {"endpoint", "keys": {"p256dh", "auth"}}
-                                 -> 200 {} | 400 | 401 | 415
-POST /api/push/unsubscribe       {"endpoint"} -> 200 {} | 401 | 415
+                                 -> 200 {"token", "identity", "name", "url"} | 404
+                                 | 409 {"error": "full"} | 409 {"error": "owner-absent"}
 GET  /api/calls?page=N           -> 200 {"items": [{"room_id", "started_at", "ended_at", "seconds", "with"}],
                                          "page": n, "more": bool} | 401
 POST /api/webhooks/livekit       the embedded SFU's events, signed with the API key -> 200 | 401
-GET  /sw.js                      the service worker that shows rings
+GET  /sw.js                      a stub that unregisters the service worker v0.1.0 installed
 GET  /room/:id                   the room page
 GET  /history                    the history page
 GET  /signup, /signin, /settings the account pages
@@ -38,9 +34,7 @@ GET  /signup, /signin, /settings the account pages
 `language` is the interface's language for the account: `"auto"` (the
 default) follows the browser, `"en"` and `"ru"` pin one. Any other value
 is a 400, and both fields are checked before either is saved, so a bad
-one changes nothing. A ring's push payload carries the caller's name as
-`from` and the recipient's `language`, and the service worker shows it
-in Russian when it should.
+one changes nothing.
 
 Sessions are opaque ids in sqlite, sent as an `HttpOnly` `SameSite=Lax`
 cookie (`Secure` behind TLS), valid for a year. Passwords are bcrypt
@@ -71,18 +65,17 @@ webhooks (`participant_joined`, `participant_left`, `room_finished`),
 which it posts to `/api/webhooks/livekit` on loopback; `ended_at` and
 `seconds` are null while a call is on, and `with` names the others.
 
-Ringing is Web Push. A signed-in person waiting alone in a room can ring
-its other members: every device they turned ringing on for (the banner on
-the list page, or Settings) shows "<name> wants to talk", and tapping it
-opens the room's lobby. `ring` in the token response names whom a ring
-would reach, and the call page shows its Ring button from it. One ring per
-caller and room every 30 seconds; a push service may hold a ring for an
-offline device for an hour, and a newer ring for the room replaces it. A
-subscription belongs to the session that made it, so signing out stops
-that device, and only the browser vendors' push services are accepted as
-endpoints. The VAPID key pair is made on the first start and kept in the
-database. On an iPhone, push works only in quickmeet added to the home
-screen (iOS 16.4 or later).
+A call always includes the room's owner. Anyone holding the link may be in
+the room alone, but a second person gets in only if one of the two is the
+signed-in owner (identity `user:<owner id>`). The token endpoint answers
+`409 {"error": "owner-absent"}` otherwise, and `owner_needed` in the room
+lookup says the same for the visitor asking: exactly one person is there
+and neither they nor the visitor is the owner. A guest is never the owner.
+A token lasts an hour, so the check alone could be sidestepped by asking
+for two tokens while the room is empty; the SFU's `participant_joined`
+webhook closes that by removing the participant that event is about when
+the pair breaks the rule. If the SFU cannot be asked, the rule reads the
+room as empty and lets people in.
 
 The token is a LiveKit join token for that room only, valid for an hour.
 `url` is the signalling address the browser should connect to:

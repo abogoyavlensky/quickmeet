@@ -101,7 +101,23 @@
    (migration "005-language"
               [{:alter-table :users
                 :add-column [:language :text [:not nil] [:default "auto"]]}]
-              [{:alter-table :users :drop-column :language}])])
+              [{:alter-table :users :drop-column :language}])
+
+   ;; Ringing was removed; its tables go. Rolling back brings them back
+   ;; empty, as 004 made them.
+   (migration "006-drop-push"
+              [{:drop-table :push_subscriptions}
+               {:drop-table :settings}]
+              [{:create-table :settings
+                :with-columns [[:key :text [:primary-key]]
+                               [:value :text [:not nil]]]}
+               {:create-table :push_subscriptions
+                :with-columns [[:endpoint :text [:primary-key]]
+                               [:session_id :text [:not nil] [:references :sessions :id]]
+                               [:p256dh :text [:not nil]]
+                               [:auth :text [:not nil]]
+                               [:created_at :text [:not nil]
+                                [:default [:raw "CURRENT_TIMESTAMP"]]]]}])])
 
 (defn store
   "The ragtime DataStore over `conn`."

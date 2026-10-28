@@ -22,8 +22,11 @@ lgx docker              # build, then the image around it, started and asked for
 ```
 
 Open http://localhost:8080, sign up (any email, no verification), click
-"New call", open the room link in a second window, join from both.
-Starting a call takes an account; joining one takes only the link.
+"New call", join as yourself (the room's owner, signed in), and open the
+room link in a private window as a guest. Starting a call takes an account;
+joining one takes only the link, but a call always includes the room's
+owner, so two guests cannot call each other: the second is told the first
+is waiting for someone else.
 The room page shows a lobby first: a preview of your camera, pickers for
 the camera and microphone, and who is already in the room. A button on
 the preview, and another in the call's controls, blurs the background
@@ -47,11 +50,12 @@ The unit tests stop at the handler. The browser tests drive the whole
 thing: `lgx e2e` builds `bin/quickmeet`, starts it on test ports (app
 8099, SFU 7899, UDP 50200-50300, a throwaway database under `e2e/.tmp`),
 opens two headless Chromiums with fake cameras and microphones on the
-same room link, and checks that each side sees and hears the other:
+same room link (`alice`, who owns every room the specs make and is signed
+in, and a guest; two guests would be refused), and checks that each side sees and hears the other:
 the remote video plays, decoded frames and audio packets keep growing,
 nothing is lost, and leaving is noticed. Other specs cover accounts
 (sign up, sign in, sign out, settings, a guest needing none), the lobby
-(preview, device pickers, who is there, a third person refused), the
+(preview, device pickers, who is there, a third person refused, two guests refused, a held token removed by the webhook), the
 call's states (waiting, reconnecting, a lost connection), background
 blur (on in the lobby and into the call, a failed load, a browser that
 cannot do it), screen sharing (the screen taking the other side's
@@ -130,7 +134,7 @@ main.lg                        starts the system, waits on the http server, shut
 src/quickmeet/system.lg        the integrant config from the environment
 src/quickmeet/db.lg            ::conn (open + migrate), queries
 src/quickmeet/migrations.lg    the schema history (ragtime over sqlite)
-src/quickmeet/routes.lg        ::handler: pages, accounts, rooms, join tokens, the two-person rule, ringing, the webhook, rate limits
+src/quickmeet/routes.lg        ::handler: pages, accounts, rooms, join tokens, the two-person rule, the webhook, rate limits
 src/quickmeet/ratelimit.lg     fixed-window rate limits in memory
 src/quickmeet/history.lg       call history from the SFU's webhook events
 src/quickmeet/auth.lg          sign-up, sign-in, sessions, the allowlist, the session cookie
@@ -138,9 +142,7 @@ src/quickmeet/password.lg      bcrypt (golang.org/x/crypto/bcrypt as a :go/inter
 src/quickmeet/id.lg            random ids for rooms, users and sessions
 src/quickmeet/sfu.lg           asks the embedded SFU who is in a room, and which rooms are live (twirp over loopback)
 src/quickmeet/server.lg        ::http: http/start on init, http/stop on halt
-src/quickmeet/push.lg          ringing: the VAPID keys, the push-service allowlist, delivery
-webpush/                       the Go shim over webpush-go (a :go/local coord): encrypt, sign, send
-resources/public/              index, room, history, signup, signin, settings pages; app.css; ui.js (icons, avatars, push); sw.js (rings); the manifest and app icons; vendored livekit-client, font and background blur
+resources/public/              index, room, history, signup, signin, settings pages; app.css; ui.js (icons, avatars); sw.js (a stub that unregisters the old service worker); the manifest and app icons; vendored livekit-client, font and background blur
 scripts/vendor-fonts.mjs       writes resources/public/fonts.css from the pinned Onest release
 scripts/vendor-blur.mjs        writes the blur bundle, MediaPipe's wasm and the model into resources/public
 scripts/make-icons.mjs         writes the home-screen icons and favicon.ico into resources/public

@@ -87,12 +87,10 @@
       <div class="tile self"><video id="local" autoplay playsinline muted></video><button id="blur" hidden></button></div>
     </div>
     <!-- One line for the call's state, shown only when something needs
-         attention; while alone, Ring for the other members who can be
-         rung and the link to send; the sound button for browsers that
+         attention; while alone, the link to send; the sound button for browsers that
          block remote audio until a tap (iOS Safari). -->
     <div class="overlay">
       <p id="status" class="status" hidden></p>
-      <button id="ring" class="primary" hidden></button>
       <button id="invite" class="primary"></button>
       <button id="sound" class="primary" hidden data-i18n>Tap to enable sound</button>
     </div>
@@ -120,7 +118,7 @@
     // follow a language that changes after load (i18n.js).
     const FULL = () => t('This call already has two people in it.');
     const WAITING = () => t('Waiting for the other person.');
-    const RING_FAILED = () => t('Could not ring.');
+    const BUSY = () => t('This room is busy right now.');
     // A phone or a tablet, by the browser's own word. Such a device has a
     // front and a back camera to flip between, no screen to share, and
     // routes a headset itself, so it gets no settings panel. Safari on an
@@ -190,8 +188,7 @@
     // `tracks.video` is the one on stage, the screen or the camera. `blur`
     // (defined with the blur logic below) says whether the camera is blurred
     // now; `remoteScreen` whether the stage shows the other side's screen.
-    // `ring` lists whom Ring would reach (names), from the token response.
-    window.call = { room: null, remote: null, joined: false, ring: [], tracks: { video: null, audio: null } };
+    window.call = { room: null, remote: null, joined: false, tracks: { video: null, audio: null } };
     Object.defineProperty(window.call, 'remoteScreen', { get: () => !!remoteVideo.screen });
 
     // Inbound RTP stats for the remote video and audio: null for a kind that
@@ -402,7 +399,6 @@
       drawMedia();
       drawBlur();
       drawShare();
-      drawRing();
       if (window.call.joined) {
         showMic(window.call.room.localParticipant.isMicrophoneEnabled);
         showCam(window.call.room.localParticipant.isCameraEnabled);
@@ -422,8 +418,6 @@
       drawBlur();
       lobby.ready = acquireTracks().then(fillDevices).then(restoreBlur);
       startPolling();
-      window.call.ring = [];
-      resetRing();
     }
 
     // Camera and microphone; failing that, one of them; failing that, join
@@ -641,15 +635,19 @@
       try {
         const res = await fetch(`/api/rooms/${roomId}`);
         if (!res.ok) return;
-        const { participants } = await res.json();
+        const { participants, owner_needed } = await res.json();
         // A response that lands after the lobby was left, or after Join
         // was clicked, must not touch the button.
         if (!lobby.poll || lobby.joining) return;
         const n = participants.length;
+        // One person there and the server says this visitor would be
+        // refused: waiting for someone else, as full as a full room.
+        const waiting = n === 1 && owner_needed;
         $('presence').textContent =
           n === 0 ? t('Nobody has joined yet.') :
+          waiting ? t('{name} is waiting for someone else.', { name: nameOf(participants[0]) }) :
           n === 1 ? t('{name} is already here.', { name: nameOf(participants[0]) }) : FULL();
-        $('join').disabled = n >= 2;
+        $('join').disabled = n >= 2 || waiting;
       } catch (e) { /* the next poll tries again */ }
     }
     function startPolling() { stopPolling(); pollPresence(); lobby.poll = setInterval(pollPresence, 3000); }
@@ -797,53 +795,6 @@
       });
     }
 
-    // ---- ringing --------------------------------------------------------
-
-    // While alone, a signed-in person can ring the room's other members on
-    // the devices they turned ringing on for; the token response says who
-    // that would reach. One ring, then the button rests for as long as the
-    // server would refuse another (30 s); a refusal for that reason reads
-    // as rung too. The notification opens this room's lobby on their side.
-    const RING_REST_MS = 30_000;
-    let ringRest = null;
-    function drawRing() {
-      const names = window.call.ring;
-      const resting = !!ringRest;
-      $('ring').hidden = names.length === 0;
-      $('ring').disabled = resting;
-      const label = document.createElement('span');
-      label.textContent = resting ? t('Rung') : names.length === 1 ? t('Ring {name}', { name: names[0] }) : t('Ring them');
-      $('ring').innerHTML = icon('bell');
-      $('ring').append(label);
-      // One green button at a time: with Ring there, the link steps back.
-      $('invite').classList.toggle('primary', names.length === 0);
-    }
-    function resetRing() {
-      clearTimeout(ringRest);
-      ringRest = null;
-      drawRing();
-    }
-    $('ring').addEventListener('click', async () => {
-      $('ring').disabled = true;
-      let res = null;
-      try { res = await fetch(`/api/rooms/${roomId}/ring`, { method: 'POST' }); } catch (e) { /* offline */ }
-      if (res && (res.ok || res.status === 429)) {
-        ringRest = setTimeout(resetRing, RING_REST_MS);
-        drawRing();
-        return;
-      }
-      drawRing();
-      // Said only while still alone: someone may have arrived, or the
-      // connection dropped, while the request was out.
-      const room = window.call.room;
-      const alone = room && room.remoteParticipants.size === 0 && !document.body.classList.contains('reconnecting');
-      if (!alone) return;
-      setStatus(RING_FAILED(), true);
-      setTimeout(() => {
-        if (window.call.room && $('status').textContent === RING_FAILED()) refreshStatus(window.call.room);
-      }, 4000);
-    });
-
     // ---- screen sharing -------------------------------------------------
 
     // The browser's own picker chooses what is shared, a monitor, a window
@@ -939,18 +890,27 @@
 
     // Two people can both get tokens before the room fills; the SFU then
     // refuses one with an error the browser cannot tell from a broken
-    // connection (see sfu.lg). So a failed connect asks the app again.
-    async function isFull() {
+    // connection (see sfu.lg). So a failed connect asks the app again:
+    // 'full', 'busy' (one person there and the owner is in neither of the
+    // two), or null.
+    async function refusal() {
       try {
-        const res = await fetch(`/api/rooms/${roomId}`);
-        if (!res.ok) return false;
-        return (await res.json()).participants.length >= 2;
-      } catch (e) { return false; }
+        const res = await fetch(`/api/rooms/${roomId}`, { signal: AbortSignal.timeout(4000) });
+        if (!res.ok) return null;
+        const { participants, owner_needed } = await res.json();
+        return participants.length >= 2 ? 'full' : owner_needed ? 'busy' : null;
+      } catch (e) { return null; }
     }
+
+    // The server removed us from the call: a token minted while the room was
+    // empty, used together with another person's, breaks the owner rule, and
+    // the app disconnects the one who joined last. Reset when a join starts.
+    let removed = false;
 
     async function join() {
       if (lobby.joining) return;
       lobby.joining = true;
+      removed = false;
       stopPolling();
       $('join').disabled = true;
       $('error').hidden = true;
@@ -967,11 +927,20 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ identity: $('identity').value }),
         });
-        if (res.status === 409) throw new Error(FULL());
+        if (res.status === 409) {
+          const { error } = await res.json().catch(() => ({}));
+          throw new Error(error === 'owner-absent' ? BUSY() : FULL());
+        }
         if (!res.ok) throw new Error('could not get a token (' + res.status + ')');
-        const { token, url, ring } = await res.json();
-        window.call.ring = ring || [];
-        drawRing();
+        const { token, url } = await res.json();
+
+        // The connection going away while still connecting or publishing (a
+        // removal by the server, or a dropped socket): connect() and
+        // publishTrack() on a connection that is gone take about 15 s to
+        // give up, so the join races them against this and ends at once.
+        let rejectEnded;
+        const ended = new Promise((_, reject) => { rejectEnded = reject; });
+        ended.catch(() => { /* only raced while joining, below */ });
 
         const room = new Room({ adaptiveStream: true, dynacast: true });
         window.call.room = room;
@@ -1017,9 +986,14 @@
         room.on(RoomEvent.LocalTrackUnpublished, shareChanged);
         room.on(RoomEvent.AudioPlaybackStatusChanged, () => { $('sound').hidden = room.canPlaybackAudio; });
         room.on(RoomEvent.Disconnected, reason => {
-          // A failed join tears itself down in join()'s catch; only a call
-          // that was up returns to the lobby from here.
-          if (!window.call.joined) return;
+          if (reason === DisconnectReason.PARTICIPANT_REMOVED) removed = true;
+          // A join in progress ends here, and join()'s catch tears it down
+          // and says why; only a call that was up returns to the lobby from
+          // this handler.
+          if (!window.call.joined) {
+            rejectEnded(new Error(removed ? BUSY() : t('Connection lost. Join again.')));
+            return;
+          }
           window.call.joined = false;
           clearRemote();
           showMyScreen(null);
@@ -1027,18 +1001,19 @@
           stopClock();
           document.body.classList.remove('reconnecting');
           show('lobby');
-          startLobby(reason === DisconnectReason.CLIENT_INITIATED ? null : t('Connection lost. Join again.'));
+          startLobby(removed ? BUSY() : reason === DisconnectReason.CLIENT_INITIATED ? null : t('Connection lost. Join again.'));
         });
 
-        try {
-          await room.connect(url, token);
-        } catch (e) {
-          throw (await isFull()) ? new Error(FULL()) : e;
-        }
+        const connecting = room.connect(url, token);
+        connecting.catch(() => { /* the connection ending wins the race; the room is torn down */ });
+        await Promise.race([connecting, ended]);
         for (const t of lobby.tracks) {
-          await room.localParticipant.publishTrack(t);
+          const publishing = room.localParticipant.publishTrack(t);
+          publishing.catch(() => { /* the connection ending wins the race; the room is torn down */ });
+          await Promise.race([publishing, ended]);
           if (t.kind === Track.Kind.Video) t.attach($('local'));
         }
+        if (removed) throw new Error(BUSY());
         window.call.joined = true;
         showMic(room.localParticipant.isMicrophoneEnabled);
         showCam(room.localParticipant.isCameraEnabled);
@@ -1076,7 +1051,17 @@
         showMyScreen(null);
         show('lobby');
         startLobby();
-        showError(e);
+        // A failure once connecting began is asked about, after the lobby is
+        // usable again: the SFU's refusal of a full room or of a pair
+        // without the owner looks like any broken connection from here (see
+        // refusal(), which gives up after a few seconds).
+        let shown = e;
+        if (room) {
+          const why = removed ? 'busy' : await refusal();
+          shown = why === 'full' ? new Error(FULL()) : why === 'busy' ? new Error(BUSY()) : e;
+        }
+        // Not over a new attempt the person started meanwhile.
+        if (!lobby.joining) showError(shown);
       }
     }
     $('join').addEventListener('click', join);

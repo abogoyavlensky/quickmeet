@@ -1,6 +1,11 @@
 // Shared steps for the browser specs. Each test creates its own room and its
 // own participants, so tests do not depend on each other and retries or
 // --repeat-each stay valid.
+//
+// A call needs the room's owner (the owner rule): alice is the owner of
+// every room newRoom makes, signed in, and everyone else is a guest.
+// openLobby signs alice in to the rooms made here; any other name is a
+// guest, and two guests cannot be in a room together.
 import { expect } from '@playwright/test';
 
 // Sign a fresh account up in this page's context (the cookie lives there),
@@ -16,15 +21,25 @@ export async function signUp(page, name = 'host') {
   return email;
 }
 
-// Sign up, click "New call", return the room URL.
-export async function newRoom(page) {
+// Who owns each room made here, and the signed-in state to open it with:
+// room URL -> { name, state }.
+const owners = new Map();
+
+// Sign up as the room's owner (named `owner`, alice unless said), click
+// "New call", return the room URL. The page's context stays signed in as
+// that owner; openLobby gives a lobby named `owner` the same state.
+export async function newRoom(page, owner = 'alice') {
   await signUp(page);
+  const renamed = await page.request.post('/api/me', { data: { display_name: owner } });
+  expect(renamed.ok()).toBe(true);
   await page.getByRole('button', { name: 'New call' }).click();
   await expect(page).toHaveURL(/\/room\/[0-9a-f]{12}$/);
   // The URL changes when the navigation commits; the room page's elements
   // exist only once it has loaded.
   await page.waitForLoadState();
-  return page.url();
+  const url = page.url();
+  owners.set(url, { name: owner, state: await page.context().storageState() });
+  return url;
 }
 
 // A person at the room page, in the lobby, not joined: its own browser
@@ -36,7 +51,10 @@ export async function newRoom(page) {
 // `init`, if given, is not a Playwright option: it is awaited with the new
 // context before the page opens (for example `tallCamera`).
 export async function openLobby(browser, contexts, roomUrl, name, { init, ...contextOptions } = {}) {
-  const context = await browser.newContext(contextOptions);
+  // The room's owner opens it signed in; anyone else is a guest.
+  const owner = owners.get(roomUrl);
+  const signedIn = owner && owner.name === name ? { storageState: owner.state } : {};
+  const context = await browser.newContext({ ...signedIn, ...contextOptions });
   contexts.push(context);
   await context.grantPermissions(['camera', 'microphone']);
   if (init) await init(context);
