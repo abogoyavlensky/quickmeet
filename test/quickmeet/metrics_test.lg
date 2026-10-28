@@ -34,7 +34,6 @@
   (is (nil? (metrics/participants-active! 2)))
   (is (nil? (metrics/call-duration! 61)))
   (is (nil? (metrics/token-request! :ok)))
-  (is (nil? (metrics/push-delivery! :sent)))
   (is (nil? (metrics/rate-limited! :create-room))))
 
 (deftest each-metric-is-exported-when-the-component-halts
@@ -45,13 +44,12 @@
         (metrics/participants-active! 2)
         (metrics/call-duration! 61)
         (metrics/token-request! :not-found)
-        (metrics/push-delivery! :gone)
         (metrics/rate-limited! :create-room)
         (ig/halt! system)
         (let [body (metrics-body rcv)]
           (doseq [needle ["quickmeet.calls.active" "quickmeet.participants.active"
                           "quickmeet.call.duration" "quickmeet.token.requests"
-                          "quickmeet.push.deliveries" "quickmeet.rate_limit.rejected"
+                          "quickmeet.rate_limit.rejected"
                           ;; attribute values: keywords become snake_case
-                          "not_found" "gone" "create_room"]]
+                          "not_found" "create_room"]]
             (is (str/includes? body needle) needle)))))))
