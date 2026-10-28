@@ -1,5 +1,7 @@
 # Drop Ringing, and Every Call Includes the Room's Owner: Implementation Plan
 
+**Status: completed 2026-10-28** (see the summary at the end).
+
 > **For agentic workers:** Use executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Remove ringing (Web Push) from the app completely, then enforce that a call in a room always includes the room's owner: anyone holding the link may be in the room alone, but a second person gets in only if one of the two is the signed-in owner.
@@ -645,7 +647,7 @@ Phase 2:
   `git commit -am "Lobby: a room waiting for someone else is busy"`
 
 > Note: `isFull()` became `refusal()` (returns 'full', 'busy' or null). Added a guard after the publish loop: if the server already removed us, throw the busy message rather than showing the call. Browser behaviour is proven by the Task 10 specs.
-> Deviation (found by the Task 10 held-token spec): a removal that lands while `room.connect()` or `publishTrack()` is still pending left the join hanging ~15 s until those gave up (the connection state was `disconnected` after ~0.3 s). `join()` now races both against a `removal` promise that the `Disconnected` handler rejects with the busy message on `PARTICIPANT_REMOVED`. The plan's wording ("join()'s catch must show the busy message") is unchanged; only how quickly it gets there.
+> Deviation (found by the Task 10 held-token spec): a removal that lands while `room.connect()` or `publishTrack()` is still pending left the join hanging ~15 s until those gave up (the connection state was `disconnected` after ~0.3 s). `join()` now races both against an `ended` promise that the `Disconnected` handler rejects for any disconnect before the join completes (the busy message when the reason is `PARTICIPANT_REMOVED`, else "Connection lost. Join again."). A failure after connecting began is explained from the server (`refusal()`: full, busy, or the error as is) in `join()`'s one catch, so a signal socket that closes (code 1006) before the leave request is read still ends in the busy message. The plan's wording is unchanged; only how quickly and how robustly it gets there.
 
 ### Task 10: Browser tests
 
@@ -693,8 +695,7 @@ Phase 2:
 - [x] **Step 4: Commit**
   `git commit -am "e2e: alice owns the room; the owner rule's specs"`
 
-> Note: `lgx e2e` = 82 passed, 2 failed (the same two `blur.spec.js` tests that fail on the untouched baseline). The held-token spec passed 6/6 in a repeat run and once in the full suite, unmodified from the plan's description; it first failed for a real product reason (see Task 9's deviation), not a loosened assertion.
-> Note: the spec waits 1.5 s after bob joins so the SFU's event for bob's own join is checked before carol connects; a late event for bob would see [bob, carol] and remove bob too (the accepted both-removed case).
+> Note: `lgx e2e` = 82 passed, 2 failed (the same two `blur.spec.js` tests that fail on the untouched baseline). The held-token spec matches the plan's description and was never loosened or skipped. It failed twice for real product reasons (see Task 9's deviation): first the ~15 s hang, then, with a 1.5 s wait added between bob joining and releasing carol's token, once in ~66 runs when the removal came as a closed signal socket (code 1006) rather than a `PARTICIPANT_REMOVED` leave. After the second fix it passed 36/36 without the wait (the wait was removed again), and in the full suite.
 
 ### Task 11: Docs for phase 2
 
@@ -728,18 +729,22 @@ Phase 2:
 
 ## Completion summary (2026-10-28)
 
-**Done.** Ringing is gone (server, shim, pages, tables, docs, backlog) and a call now always includes the room's owner: the token endpoint answers `409 owner-absent`, the room lookup carries `owner_needed`, the lobby says "{name} is waiting for someone else.", and the `participant_joined` webhook removes a pair that slipped in on tokens minted while the room was empty. `lgx test`: 102 tests, 0 failures. `lgx e2e`: 82 passed, 2 failed. Those 2 (`blur.spec.js:71` and `:131`) fail identically on the untouched baseline (86 passed, same 2 failed before any edit), so they are not from this work. The held-token spec, the only proof the webhook design works against the real SFU, passed unmodified (6/6 in a repeat run, and in the full suite). The Codex branch review against master found nothing.
+**Status: completed.**
+
+**Done.** Ringing is gone (server, shim, pages, tables, docs, backlog) and a call now always includes the room's owner: the token endpoint answers `409 owner-absent`, the room lookup carries `owner_needed`, the lobby says "{name} is waiting for someone else.", and the `participant_joined` webhook removes a pair that slipped in on tokens minted while the room was empty.
+
+**Verification.** `lgx test`: 102 tests, 0 failures. `lgx e2e`: 82 passed, 2 failed; those 2 (`blur.spec.js:71` and `:131`) fail identically on the untouched baseline (86 passed, same 2 failed, before any edit), so they predate this work. The held-token spec (the only proof the webhook design works against the real SFU) passes as the plan describes it, 36/36 in repeat runs after the final fix. `lgx smoke` against a locally started `bin/quickmeet`: PASS (host signed in, one guest, media both ways). `RemoveParticipant` against the running SFU: 404 `participant does not exist` for a missing person. Codex reviewed every task commit and the branch against master; its only findings were forward references to later planned tasks.
 
 **Issues met**
-- Task 4 broke `pages-and-static` (asserted the old worker's `notificationclick`). I ran e2e but not `lgx test` after that task, so it surfaced a task later; fixed in `1df7b8e`.
-- The held-token spec first failed for a real product reason: a removal landing while `room.connect()` or `publishTrack()` was pending left the join hanging ~15 s (see the Task 9 deviation). Fixed in the page (`c9d27ee`), not in the spec.
+- Task 4 broke `pages-and-static` (asserted the old worker's `notificationclick`). I ran e2e but not `lgx test` after that task, so it surfaced two tasks later; fixed in `1df7b8e`.
+- The held-token spec failed for real product reasons twice (details under Task 9 and Task 10), both fixed in `resources/public/room.html`, not in the spec.
+- Task-list tools (TaskCreate/TaskUpdate) were not available in this session, so this document's checkboxes were the only tracker.
 
 **Deviations (all recorded under their tasks)**
 - Task 3: `.github/workflows/deploy.yml` also hashed `webpush/**`; dropped there too.
 - Task 4: removed the unused `bell` icon and a few shared sentences (`Turn on`, `Not now`, `Could not reach the server`) from `ui.js` / `i18n.js`.
 - Task 7: added a `user-identity` helper beside `participant-identity`.
 - Task 8: the warn line is logged only when the removal call succeeded.
-- Task 9: `isFull()` became `refusal()` ('full' / 'busy' / null); `join()` races `connect()` and `publishTrack()` against a `removal` promise.
-- Session: the task-list tools (TaskCreate/TaskUpdate) were not available, so this document's checkboxes were the only tracker.
+- Task 9: `isFull()` became `refusal()`; `join()` ends on any disconnect before it completes, via the `ended` promise, and explains a post-connect failure from the server in its one catch.
 
-**What the plan could have specified better:** it should have said to run `lgx test` (not only `lgx e2e`) after every page task, since a unit test asserted on `sw.js`; and it assumed a removal surfaces through `publishTrack` failing, when in fact the connection can drop while `connect()` is still pending and neither call gives up for ~15 s.
+**What the plan could have specified better:** it should have said to run `lgx test` (not only `lgx e2e`) after every page task, since a unit test asserted on `sw.js`; and it assumed a removal surfaces through `publishTrack` failing, when in fact the connection can drop while `connect()` is still pending and neither call gives up for ~15 s, and the leave can arrive as a closed socket instead of a `PARTICIPANT_REMOVED` reason.

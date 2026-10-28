@@ -934,12 +934,13 @@
         if (!res.ok) throw new Error('could not get a token (' + res.status + ')');
         const { token, url } = await res.json();
 
-        // A removal while still connecting or publishing: connect() and
+        // The connection going away while still connecting or publishing (a
+        // removal by the server, or a dropped socket): connect() and
         // publishTrack() on a connection that is gone take about 15 s to
         // give up, so the join races them against this and ends at once.
-        let rejectRemoved;
-        const removal = new Promise((_, reject) => { rejectRemoved = reject; });
-        removal.catch(() => { /* only raced while joining, below */ });
+        let rejectEnded;
+        const ended = new Promise((_, reject) => { rejectEnded = reject; });
+        ended.catch(() => { /* only raced while joining, below */ });
 
         const room = new Room({ adaptiveStream: true, dynacast: true });
         window.call.room = room;
@@ -985,15 +986,14 @@
         room.on(RoomEvent.LocalTrackUnpublished, shareChanged);
         room.on(RoomEvent.AudioPlaybackStatusChanged, () => { $('sound').hidden = room.canPlaybackAudio; });
         room.on(RoomEvent.Disconnected, reason => {
-          // The removal can land while tracks are still publishing; then
-          // join()'s catch shows it.
-          if (reason === DisconnectReason.PARTICIPANT_REMOVED) {
-            removed = true;
-            rejectRemoved(new Error(BUSY()));
+          if (reason === DisconnectReason.PARTICIPANT_REMOVED) removed = true;
+          // A join in progress ends here, and join()'s catch tears it down
+          // and says why; only a call that was up returns to the lobby from
+          // this handler.
+          if (!window.call.joined) {
+            rejectEnded(new Error(removed ? BUSY() : t('Connection lost. Join again.')));
+            return;
           }
-          // A failed join tears itself down in join()'s catch; only a call
-          // that was up returns to the lobby from here.
-          if (!window.call.joined) return;
           window.call.joined = false;
           clearRemote();
           showMyScreen(null);
@@ -1004,18 +1004,13 @@
           startLobby(removed ? BUSY() : reason === DisconnectReason.CLIENT_INITIATED ? null : t('Connection lost. Join again.'));
         });
 
-        try {
-          const connecting = room.connect(url, token);
-          connecting.catch(() => { /* a removal wins the race; the room is torn down */ });
-          await Promise.race([connecting, removal]);
-        } catch (e) {
-          const why = await refusal();
-          throw why === 'full' ? new Error(FULL()) : why === 'busy' ? new Error(BUSY()) : e;
-        }
+        const connecting = room.connect(url, token);
+        connecting.catch(() => { /* the connection ending wins the race; the room is torn down */ });
+        await Promise.race([connecting, ended]);
         for (const t of lobby.tracks) {
           const publishing = room.localParticipant.publishTrack(t);
-          publishing.catch(() => { /* a removal wins the race; the room is torn down */ });
-          await Promise.race([publishing, removal]);
+          publishing.catch(() => { /* the connection ending wins the race; the room is torn down */ });
+          await Promise.race([publishing, ended]);
           if (t.kind === Track.Kind.Video) t.attach($('local'));
         }
         if (removed) throw new Error(BUSY());
@@ -1053,10 +1048,18 @@
         const room = window.call.room;
         window.call.room = null;
         if (room) await room.disconnect().catch(() => {});
+        // A failure once connecting began is asked about: the SFU's refusal
+        // of a full room or of a pair without the owner looks like any
+        // broken connection from here (see refusal()).
+        let shown = e;
+        if (room) {
+          const why = removed ? 'busy' : await refusal();
+          shown = why === 'full' ? new Error(FULL()) : why === 'busy' ? new Error(BUSY()) : e;
+        }
         showMyScreen(null);
         show('lobby');
         startLobby();
-        showError(removed ? new Error(BUSY()) : e);
+        showError(shown);
       }
     }
     $('join').addEventListener('click', join);

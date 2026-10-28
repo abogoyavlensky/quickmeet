@@ -64,9 +64,6 @@ test.describe('the lobby', () => {
     await fetchedByServer;
 
     const bob = await joinAs(browser, contexts, roomUrl, 'bob');
-    // Let the SFU's event for bob's own join reach the app before carol
-    // connects: it is checked against the room as it is then.
-    await bob.page.waitForTimeout(1500);
     release();
 
     // Carol connects, the webhook removes her, and she is back in the

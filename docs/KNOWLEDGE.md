@@ -565,8 +565,11 @@ own, off the instance's bandwidth.
   `ListParticipants` does not list the joiner yet. If two join at once, both
   events remove their own joiner.
 - Removal is twirp `RemoveParticipant` with the `{room, roomAdmin}` grant
-  (the one `ListParticipants` uses) and body `{room, identity}`; 200 with
-  `{}`, 404 when the person already left.
+  (the one `ListParticipants` uses) and body `{room, identity}`. It answers
+  200 with a JSON object when it removed someone (the webhook's warn line is
+  logged only on that, and was seen); for a person who is not there, in a
+  room the SFU has or not, it answers 404 `participant does not exist`
+  (checked by hand against the running binary), which `sfu.lg` reads as nil.
 - Verified against the real SFU (`lobby.spec.js`, "a guest holding a token
   from an empty room is removed"): the webhook arrives about 0.1 s after the
   second guest connects and the client gets `DisconnectReason.PARTICIPANT_REMOVED`
