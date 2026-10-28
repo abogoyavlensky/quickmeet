@@ -733,12 +733,14 @@ Phase 2:
 
 **Done.** Ringing is gone (server, shim, pages, tables, docs, backlog) and a call now always includes the room's owner: the token endpoint answers `409 owner-absent`, the room lookup carries `owner_needed`, the lobby says "{name} is waiting for someone else.", and the `participant_joined` webhook removes a pair that slipped in on tokens minted while the room was empty.
 
-**Verification.** `lgx test`: 102 tests, 0 failures. `lgx e2e`: 82 passed, 2 failed; those 2 (`blur.spec.js:71` and `:131`) fail identically on the untouched baseline (86 passed, same 2 failed, before any edit), so they predate this work. The held-token spec (the only proof the webhook design works against the real SFU) passes as the plan describes it, 36/36 in repeat runs after the final fix. `lgx smoke` against a locally started `bin/quickmeet`: PASS (host signed in, one guest, media both ways). `RemoveParticipant` against the running SFU: 404 `participant does not exist` for a missing person. Codex reviewed every task commit and the branch against master; its only findings were forward references to later planned tasks.
+**Verification.** `lgx test`: 102 tests, 0 failures. `lgx e2e`: 83 passed, 1 failed on the final code (82 and 2 on the run before it). The failures are only ever `blur.spec.js:71` and `:131`, which also fail on the untouched baseline (86 passed, same 2 failed, before any edit; `:131` passed on the final run), so they predate this work and look environment-dependent. The held-token spec (the only proof the webhook design works against the real SFU) passes as the plan describes it, 36/36 in repeat runs after the final fix. `lgx smoke` against a locally started `bin/quickmeet`: PASS (host signed in, one guest, media both ways). `RemoveParticipant` against the running SFU: 404 `participant does not exist` for a missing person. Codex reviewed every task commit and the branch against master; its only findings were forward references to later planned tasks.
 
 **Issues met**
 - Task 4 broke `pages-and-static` (asserted the old worker's `notificationclick`). I ran e2e but not `lgx test` after that task, so it surfaced two tasks later; fixed in `1df7b8e`.
 - The held-token spec failed for real product reasons twice (details under Task 9 and Task 10), both fixed in `resources/public/room.html`, not in the spec.
 - Task-list tools (TaskCreate/TaskUpdate) were not available in this session, so this document's checkboxes were the only tracker.
+
+**Last review fix:** Codex noted that the new post-connect `refusal()` lookup could hold the lobby; it now runs after the lobby is restored, with a 4 s timeout, and is skipped if a new join has started.
 
 **Deviations (all recorded under their tasks)**
 - Task 3: `.github/workflows/deploy.yml` also hashed `webpush/**`; dropped there too.

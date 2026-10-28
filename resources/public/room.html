@@ -895,7 +895,7 @@
     // two), or null.
     async function refusal() {
       try {
-        const res = await fetch(`/api/rooms/${roomId}`);
+        const res = await fetch(`/api/rooms/${roomId}`, { signal: AbortSignal.timeout(4000) });
         if (!res.ok) return null;
         const { participants, owner_needed } = await res.json();
         return participants.length >= 2 ? 'full' : owner_needed ? 'busy' : null;
@@ -1048,18 +1048,20 @@
         const room = window.call.room;
         window.call.room = null;
         if (room) await room.disconnect().catch(() => {});
-        // A failure once connecting began is asked about: the SFU's refusal
-        // of a full room or of a pair without the owner looks like any
-        // broken connection from here (see refusal()).
+        showMyScreen(null);
+        show('lobby');
+        startLobby();
+        // A failure once connecting began is asked about, after the lobby is
+        // usable again: the SFU's refusal of a full room or of a pair
+        // without the owner looks like any broken connection from here (see
+        // refusal(), which gives up after a few seconds).
         let shown = e;
         if (room) {
           const why = removed ? 'busy' : await refusal();
           shown = why === 'full' ? new Error(FULL()) : why === 'busy' ? new Error(BUSY()) : e;
         }
-        showMyScreen(null);
-        show('lobby');
-        startLobby();
-        showError(shown);
+        // Not over a new attempt the person started meanwhile.
+        if (!lobby.joining) showError(shown);
       }
     }
     $('join').addEventListener('click', join);
